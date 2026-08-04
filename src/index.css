@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/* Custom Scrollbars to prevent gray clashing scrollbars in Dark Sidebar and light UI */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b; /* slate-800 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2563eb; /* blue-600 */
+}
+
+/* Custom scrollbar for dark sidebars */
+.dark-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #1e3a8a transparent; /* blue-900 / transparent */
+}
+
+.dark-sidebar-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.dark-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #1d4ed8; /* blue-700 */
+  border-radius: 9999px;
+}
+
+.dark-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6; /* blue-500 */
+}

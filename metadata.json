@@ -1,0 +1,6 @@
+{
+  "name": "ERP/POS Multi-Sucursal",
+  "description": "Sistema de Punto de Venta y ERP para administración de múltiples sucursales con control de operadores y módulos integrados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
