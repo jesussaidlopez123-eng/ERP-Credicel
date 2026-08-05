@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, DollarSign, User, Phone, ShieldCheck, X, CheckCircle2, Hash, CreditCard, AlertTriangle } from 'lucide-react';
+import { Smartphone, DollarSign, User, Phone, X, CheckCircle2, Hash, CreditCard, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
 import { Product, CartItemMetadata, Branch } from '../types';
 
 interface CreditDeviceModalProps {
@@ -31,31 +31,75 @@ export default function CreditDeviceModal({
 
   if (!isOpen || !product) return null;
 
-  // Collect available IMEIs in current branch
   const activeBranchId = currentBranch?.id || 'b-bodega';
   const availableEquipos = products.filter(
-    (p) => (p.inventoryType === 'equipo' || p.category === 'equipo_credito') && p.id !== 'prod-equipo-credito-gen'
+    (p) => (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && p.id !== 'prod-equipo-credito-gen'
   );
 
   const selectedEquipment = availableEquipos.find((p) => p.id === selectedProdId);
 
-  // Extract IMEIs for current branch from selected equipment or all available equipments
-  const branchImeisForSelected = selectedEquipment
-    ? selectedEquipment.branchImeiMap?.[activeBranchId] || selectedEquipment.imeiList || []
-    : availableEquipos.flatMap((p) => p.branchImeiMap?.[activeBranchId] || p.imeiList || []);
+  // Helper function to check IMEI in system
+  const checkImeiInSystem = (cleanImei: string) => {
+    if (!cleanImei || cleanImei.length < 10) return { found: false, product: null, otherBranch: null };
 
+    let foundProduct: Product | null = null;
+    let otherBranchName: string | null = null;
+
+    for (const p of products) {
+      if (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') {
+        const branchImeis = p.branchImeiMap?.[activeBranchId] || [];
+        const allImeis = p.imeiList || (p.imei ? [p.imei] : []);
+
+        if (branchImeis.some((im) => im.toUpperCase() === cleanImei)) {
+          foundProduct = p;
+          break;
+        }
+
+        // Check in other branches
+        if (p.branchImeiMap) {
+          for (const [bId, imList] of Object.entries(p.branchImeiMap)) {
+            if (imList.some((im) => im.toUpperCase() === cleanImei)) {
+              otherBranchName = bId === 'b-bodega' ? 'Bodega' : bId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo';
+            }
+          }
+        } else if (allImeis.some((im) => im.toUpperCase() === cleanImei)) {
+          foundProduct = p;
+        }
+      }
+    }
+
+    return { found: !!foundProduct, product: foundProduct, otherBranch: otherBranchName };
+  };
+
+  const cleanImeiInput = imei.trim().toUpperCase();
+  const imeiCheckResult = checkImeiInSystem(cleanImeiInput);
+
+  // When model selected from dropdown, automatically update model name and price
   const handleSelectModelChange = (prodId: string) => {
     setSelectedProdId(prodId);
     setValidationError(null);
     const eq = availableEquipos.find((p) => p.id === prodId);
     if (eq) {
       setDeviceModel(eq.name);
-      setFullPriceInput(eq.price ? eq.price.toString() : '');
-      const imeis = eq.branchImeiMap?.[activeBranchId] || eq.imeiList || [];
-      if (imeis.length > 0) {
-        setImei(imeis[0]);
-      } else {
-        setImei('');
+      setFullPriceInput(eq.price ? eq.price.toString() : '0');
+    } else {
+      setDeviceModel('');
+      setFullPriceInput('');
+    }
+  };
+
+  // Handle IMEI input change with auto-corroboration
+  const handleImeiChange = (value: string) => {
+    const cleanVal = value.toUpperCase().trim();
+    setImei(cleanVal);
+    setValidationError(null);
+
+    if (cleanVal.length >= 10) {
+      const res = checkImeiInSystem(cleanVal);
+      if (res.found && res.product) {
+        setSelectedProdId(res.product.id);
+        setDeviceModel(res.product.name);
+        setFullPriceInput(res.product.price ? res.product.price.toString() : '0');
       }
     }
   };
@@ -92,46 +136,22 @@ export default function CreditDeviceModal({
       return;
     }
 
-    // STRICT TRACEABILITY VALIDATION: IMEI must exist in current branch inventory!
-    let foundValidProduct: Product | undefined;
-    let foundInOtherBranchName: string | undefined;
-
-    for (const p of products) {
-      if (p.inventoryType === 'equipo' || p.category === 'equipo_credito') {
-        const branchImeis = p.branchImeiMap?.[activeBranchId] || [];
-        const allImeis = p.imeiList || (p.imei ? [p.imei] : []);
-
-        if (branchImeis.some((im) => im.toUpperCase() === cleanImei)) {
-          foundValidProduct = p;
-          break;
-        }
-
-        // Check if IMEI exists in another branch
-        if (p.branchImeiMap) {
-          for (const [bId, imList] of Object.entries(p.branchImeiMap)) {
-            if (imList.some((im) => im.toUpperCase() === cleanImei)) {
-              foundInOtherBranchName = bId === 'b-bodega' ? 'Bodega' : bId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo';
-            }
-          }
-        } else if (allImeis.some((im) => im.toUpperCase() === cleanImei)) {
-          foundValidProduct = p;
-        }
-      }
-    }
-
-    if (!foundValidProduct) {
-      if (foundInOtherBranchName) {
+    // STRICT SYSTEM CHECK: IMEI MUST EXIST IN SYSTEM TO SELL IT
+    const check = checkImeiInSystem(cleanImei);
+    if (!check.found || !check.product) {
+      if (check.otherBranch) {
         setValidationError(
-          `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' pertenece a la sucursal ${foundInOtherBranchName}. Debe realizar el traspaso formal a la sucursal actual (${currentBranch?.name || activeBranchId}) en el Módulo de Inventario antes de cobrar.`
+          `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' pertenece a la sucursal ${check.otherBranch}. Se requiere realizar un traspaso formal a ${currentBranch?.name || activeBranchId} antes de realizar la venta.`
         );
       } else {
         setValidationError(
-          `❌ VENTA BLOQUEADA POR TRAZABILIDAD: El IMEI '${cleanImei}' NO coincide con ningún equipo activo en el inventario de ${currentBranch?.name || 'esta sucursal'}. Registre el equipo en el Módulo 2 primero.`
+          `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' NO existe en el sistema. Debe registrar el equipo en el inventario del Módulo 2 antes de poder venderlo.`
         );
       }
       return;
     }
 
+    const foundValidProduct = check.product;
     const totalEquipmentPrice = parseFloat(fullPriceInput) || foundValidProduct.price || 0;
     const financedBalance = Math.max(0, totalEquipmentPrice - engancheAmount);
 
@@ -160,6 +180,7 @@ export default function CreditDeviceModal({
     setDeviceModel('');
     setImei('');
     setFullPriceInput('');
+    setSelectedProdId('');
     setDownPayment('500');
     setValidationError(null);
     onClose();
@@ -193,7 +214,7 @@ export default function CreditDeviceModal({
             <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2.5 text-xs text-rose-900 font-semibold animate-in fade-in">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div>
-                <p className="font-extrabold text-rose-950">Verificación de Inventario Fallida</p>
+                <p className="font-extrabold text-rose-950">Validación de Inventario Fallida</p>
                 <p className="mt-0.5 text-[11px] font-medium leading-snug">{validationError}</p>
               </div>
             </div>
@@ -205,10 +226,10 @@ export default function CreditDeviceModal({
               <label className="block text-xs font-bold text-indigo-950 mb-1 flex items-center justify-between">
                 <span className="flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5 text-indigo-700" />
-                  Seleccionar Equipo del Inventario de {currentBranch?.name || 'la Sucursal'}
+                  Seleccionar Modelo del Inventario ({currentBranch?.name || 'Sucursal'})
                 </span>
                 <span className="text-[10px] text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-md font-mono font-bold">
-                  {availableEquipos.length} modelos en stock
+                  {availableEquipos.length} modelos
                 </span>
               </label>
               <select
@@ -217,14 +238,11 @@ export default function CreditDeviceModal({
                 className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-xl text-xs font-extrabold text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
               >
                 <option value="">-- Escoger del inventario activo --</option>
-                {availableEquipos.map((eq) => {
-                  const imeisCount = (eq.branchImeiMap?.[activeBranchId] || eq.imeiList || []).length;
-                  return (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} ({imeisCount} IMEIs disp.) - ${eq.price.toFixed(2)}
-                    </option>
-                  );
-                })}
+                {availableEquipos.map((eq) => (
+                  <option key={eq.id} value={eq.id}>
+                    {eq.name} - ${eq.price ? eq.price.toFixed(2) : '0.00'}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -233,7 +251,7 @@ export default function CreditDeviceModal({
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
               <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
-              Plataforma / Empresa de Financiamiento (Llenar Manual)
+              Plataforma / Empresa de Financiamiento
             </label>
             <input
               type="text"
@@ -283,7 +301,7 @@ export default function CreditDeviceModal({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                 <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-                Modelo del Equipo
+                Modelo del Equipo *
               </label>
               <input
                 type="text"
@@ -293,6 +311,13 @@ export default function CreditDeviceModal({
                 onChange={(e) => {
                   setDeviceModel(e.target.value);
                   setValidationError(null);
+                  // Auto-lookup price if model name matches an inventory item
+                  const matched = availableEquipos.find(
+                    (p) => p.name.toLowerCase().trim() === e.target.value.toLowerCase().trim()
+                  );
+                  if (matched && matched.price) {
+                    setFullPriceInput(matched.price.toString());
+                  }
                 }}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
               />
@@ -301,7 +326,7 @@ export default function CreditDeviceModal({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
                 <Hash className="w-3.5 h-3.5 text-indigo-600" />
-                IMEI del Equipo (15 dígitos) *
+                Escanear / Ingresar IMEI *
               </label>
               <input
                 type="text"
@@ -309,61 +334,69 @@ export default function CreditDeviceModal({
                 maxLength={15}
                 placeholder="351234567890123"
                 value={imei}
-                onChange={(e) => {
-                  setImei(e.target.value.toUpperCase());
-                  setValidationError(null);
-                }}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold tracking-wider text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
+                onChange={(e) => handleImeiChange(e.target.value)}
+                className={`w-full px-3 py-2 border rounded-xl text-xs font-mono font-bold tracking-wider text-slate-900 focus:ring-2 focus:outline-none ${
+                  cleanImeiInput.length >= 10
+                    ? imeiCheckResult.found
+                      ? 'border-emerald-500 bg-emerald-50/50 focus:ring-emerald-500'
+                      : 'border-rose-500 bg-rose-50/50 focus:ring-rose-500'
+                    : 'border-slate-300 focus:ring-indigo-600'
+                }`}
               />
             </div>
           </div>
 
-          {/* Quick Select Available IMEIs chips */}
-          {branchImeisForSelected.length > 0 && (
+          {/* System IMEI Verification Feedback */}
+          {cleanImeiInput.length >= 10 && (
             <div>
-              <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                IMEIs Disponibles en {currentBranch?.name || 'Sucursal'}:
-              </p>
-              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-lg border border-slate-200">
-                {branchImeisForSelected.map((im) => (
-                  <button
-                    key={im}
-                    type="button"
-                    onClick={() => {
-                      setImei(im);
-                      setValidationError(null);
-                    }}
-                    className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded border transition-colors cursor-pointer ${
-                      imei.toUpperCase() === im.toUpperCase()
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white hover:bg-indigo-50 text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    {im}
-                  </button>
-                ))}
-              </div>
+              {imeiCheckResult.found && imeiCheckResult.product ? (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center gap-2 text-xs text-emerald-900 font-bold">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    ✓ IMEI Corroborado en Sistema: <span className="underline">{imeiCheckResult.product.name}</span> (${imeiCheckResult.product.price.toFixed(2)})
+                  </span>
+                </div>
+              ) : imeiCheckResult.otherBranch ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-xs text-amber-900 font-bold">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    ⚠️ Pertenece a sucursal {imeiCheckResult.otherBranch}. Se requiere traspaso a {currentBranch?.name || 'sucursal actual'}.
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2.5 bg-rose-50 border border-rose-300 rounded-xl flex items-center gap-2 text-xs text-rose-900 font-bold">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>
+                    ❌ IMEI NO ENCONTRADO EN SISTEMA: Este IMEI no existe registrado en el inventario.
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
           {/* Prices & Financing Balance Calculation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-extrabold text-slate-800 mb-1 flex items-center gap-1">
-                <DollarSign className="w-4 h-4 text-slate-600" />
-                Precio Venta Total del Equipo ($)
+              <label className="block text-xs font-extrabold text-slate-800 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <DollarSign className="w-4 h-4 text-slate-600" />
+                  Precio Venta Total
+                </span>
+                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                  Automático
+                </span>
               </label>
               <input
                 type="number"
                 required
                 min="0"
                 step="0.01"
-                placeholder="Ej. 4500"
+                placeholder="0.00"
                 value={fullPriceInput}
                 onChange={(e) => setFullPriceInput(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none"
+                className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:outline-none"
               />
-              <p className="text-[10px] text-slate-500 mt-1">Precio completo de lista o venta a contado.</p>
+              <p className="text-[10px] text-slate-500 mt-1">Precio completo de lista asignado al modelo.</p>
             </div>
 
             <div>
@@ -385,46 +418,19 @@ export default function CreditDeviceModal({
             </div>
           </div>
 
-          {/* CREDIT BREAKDOWN SUMMARY CARD */}
-          <div className="bg-indigo-950 text-white p-3.5 rounded-xl border border-indigo-800 shadow-sm space-y-2">
-            <div className="flex items-center justify-between text-xs border-b border-indigo-800 pb-1.5">
-              <span className="text-indigo-300 font-bold uppercase text-[10px] tracking-wider">Resumen del Financiamiento</span>
-              <span className="bg-indigo-800 text-indigo-100 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
-                {platform.trim() || 'Financiera'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center pt-0.5">
-              <div className="bg-indigo-900/60 p-2 rounded-lg border border-indigo-800">
-                <span className="block text-[9px] text-indigo-300 font-bold uppercase">Precio Equipo</span>
-                <span className="text-xs font-black text-white">${parsedFullPrice.toFixed(2)}</span>
-              </div>
-              <div className="bg-amber-900/50 p-2 rounded-lg border border-amber-700/50">
-                <span className="block text-[9px] text-amber-300 font-bold uppercase">Enganche</span>
-                <span className="text-xs font-black text-amber-200">${parsedDownPayment.toFixed(2)}</span>
-              </div>
-              <div className="bg-emerald-900/60 p-2 rounded-lg border border-emerald-700/60">
-                <span className="block text-[9px] text-emerald-300 font-bold uppercase">Saldo Financiado</span>
-                <span className="text-xs font-black text-emerald-200">${calculatedRemainingBalance.toFixed(2)}</span>
-              </div>
-            </div>
-            <p className="text-[10px] text-indigo-300 italic text-center">
-              Diferencia (Saldo Pendiente por Financiera): <strong className="font-mono text-white">${calculatedRemainingBalance.toFixed(2)} MXN</strong>
-            </p>
-          </div>
 
           {/* Action Buttons */}
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm"
+              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" />
               Registrar Enganche
