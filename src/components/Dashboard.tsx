@@ -7,9 +7,11 @@ import PosModule from './PosModule';
 import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
+import SettingsModule from './SettingsModule';
 import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
+import { INITIAL_OPERATORS } from '../data/initialOperators';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench } from 'lucide-react';
 
@@ -17,13 +19,6 @@ const ALL_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
   { id: 'b-navojoa', name: 'Navojoa' },
   { id: 'b-huatabampo', name: 'Huatabampo' },
-];
-
-const ALL_OPERATORS: Operator[] = [
-  { id: 'o1', name: 'Admin Principal', branchIds: ['b-bodega', 'b-navojoa', 'b-huatabampo'], role: 'admin' },
-  { id: 'o2', name: 'Juan Pérez', branchIds: ['b-bodega', 'b-navojoa'], role: 'manager' },
-  { id: 'o3', name: 'María García', branchIds: ['b-huatabampo'], role: 'cashier' },
-  { id: 'o4', name: 'Carlos López', branchIds: ['b-bodega', 'b-navojoa', 'b-huatabampo'], role: 'cashier' },
 ];
 
 const INITIAL_NOTIFICATIONS: AppNotification[] = [
@@ -66,10 +61,18 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
 interface DashboardProps {
   currentBranch: Branch;
   currentOperator: Operator;
+  operators?: Operator[];
+  onUpdateOperators?: (newOps: Operator[]) => void;
   onLogout: () => void;
 }
 
-export default function Dashboard({ currentBranch, currentOperator, onLogout }: DashboardProps) {
+export default function Dashboard({ 
+  currentBranch, 
+  currentOperator, 
+  operators = INITIAL_OPERATORS,
+  onUpdateOperators = () => {},
+  onLogout 
+}: DashboardProps) {
   const [activeModule, setActiveModule] = useState<ModuleId>('pos');
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -300,22 +303,14 @@ export default function Dashboard({ currentBranch, currentOperator, onLogout }: 
             products={products}
           />
         );
-      case 'users':
-        return (
-          <ModulePlaceholder 
-            title="Usuarios" 
-            description="Administración de operadores, roles, permisos y asignación a sucursales." 
-            onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
-            isAdmin={isAdmin}
-          />
-        );
       case 'settings':
         return (
-          <ModulePlaceholder 
-            title="Configuración" 
-            description="Preferencias del sistema, información de la sucursal, tickets y periféricos." 
-            onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
-            isAdmin={isAdmin}
+          <SettingsModule 
+            operators={operators}
+            onUpdateOperators={onUpdateOperators}
+            currentOperator={currentOperator}
+            currentBranch={currentBranch}
+            allBranches={ALL_BRANCHES}
           />
         );
       default:
@@ -447,7 +442,7 @@ export default function Dashboard({ currentBranch, currentOperator, onLogout }: 
         currentOperator={currentOperator}
         currentBranch={currentBranch}
         branches={ALL_BRANCHES}
-        operators={ALL_OPERATORS}
+        operators={operators}
       />
 
       {/* Repair Price Catalog Modal */}

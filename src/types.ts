@@ -6,11 +6,15 @@ export interface Branch {
 export interface Operator {
   id: string;
   name: string;
+  username: string;
+  password?: string;
   branchIds: string[];
   role: 'admin' | 'cashier' | 'manager';
+  isMainAdmin?: boolean;
+  createdAt?: string;
 }
 
-export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'executive' | 'users' | 'settings';
+export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'executive' | 'settings';
 
 export type NoticeUrgency = 'normal' | 'urgente';
 

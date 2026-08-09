@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Store, User, Lock, ArrowRight } from 'lucide-react';
+import { Store, User, Lock, ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
+import { INITIAL_OPERATORS } from '../data/initialOperators';
 
 const MOCK_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
@@ -9,31 +10,28 @@ const MOCK_BRANCHES: Branch[] = [
   { id: 'b-huatabampo', name: 'Huatabampo' },
 ];
 
-const MOCK_OPERATORS: Operator[] = [
-  { id: 'o1', name: 'Admin Principal', branchIds: ['b-bodega', 'b-navojoa', 'b-huatabampo'], role: 'admin' },
-  { id: 'o2', name: 'Juan Pérez', branchIds: ['b-bodega', 'b-navojoa'], role: 'manager' },
-  { id: 'o3', name: 'María García', branchIds: ['b-huatabampo'], role: 'cashier' },
-  { id: 'o4', name: 'Carlos López', branchIds: ['b-bodega', 'b-navojoa', 'b-huatabampo'], role: 'cashier' },
-];
-
 interface LoginProps {
   onLogin: (branch: Branch, operator: Operator) => void;
+  operators?: Operator[];
+  branches?: Branch[];
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches = MOCK_BRANCHES }: LoginProps) {
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
   const availableOperators = useMemo(() => {
     if (!selectedBranchId) return [];
-    return MOCK_OPERATORS.filter((op) => op.branchIds.includes(selectedBranchId));
-  }, [selectedBranchId]);
+    return operators.filter((op) => op.branchIds.includes(selectedBranchId));
+  }, [selectedBranchId, operators]);
 
   const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedBranchId(e.target.value);
     setSelectedOperatorId(''); // Reset operator when branch changes
+    setPassword('');
     setError('');
   };
 
@@ -42,57 +40,66 @@ export default function Login({ onLogin }: LoginProps) {
     setError('');
 
     if (!selectedBranchId || !selectedOperatorId || !password) {
-      setError('Por favor, completa todos los campos.');
+      setError('Por favor, selecciona sucursal, usuario e ingresa la contraseña.');
       return;
     }
 
-    // Mock authentication: accept any password for now except empty
-    const branch = MOCK_BRANCHES.find((b) => b.id === selectedBranchId);
-    const operator = MOCK_OPERATORS.find((o) => o.id === selectedOperatorId);
+    const branch = branches.find((b) => b.id === selectedBranchId);
+    const operator = operators.find((o) => o.id === selectedOperatorId);
 
-    if (branch && operator) {
-      onLogin(branch, operator);
-    } else {
-      setError('Datos de acceso inválidos.');
+    if (!branch || !operator) {
+      setError('Datos de acceso inválidos o usuario no asignado.');
+      return;
     }
+
+    // Strict Password Validation against configured operator password
+    const expectedPassword = operator.password !== undefined ? operator.password : '123';
+
+    if (password !== expectedPassword) {
+      setError(`❌ Contraseña incorrecta para el usuario '${operator.name}'. Verifique sus credenciales.`);
+      return;
+    }
+
+    // Successful login
+    onLogin(branch, operator);
   };
 
   return (
-    <div className="min-h-screen bg-neutral-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-neutral-200 overflow-hidden">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
         
         {/* Header */}
-        <div className="bg-white border-b border-slate-100 px-8 py-10 text-center relative overflow-hidden">
+        <div className="bg-slate-950 border-b border-slate-800 px-8 py-8 text-center relative overflow-hidden">
           <div className="relative z-10 flex flex-col items-center justify-center">
             {/* Logo */}
-            <div className="mb-6 transform -rotate-1">
-              <Logo size="lg" />
+            <div className="mb-4">
+              <Logo size="lg" theme="dark" />
             </div>
-            <h1 className="text-xl font-semibold text-slate-800 tracking-tight">Acceso al Sistema</h1>
-            <p className="text-slate-500 mt-1.5 text-sm font-medium">ERP & Punto de Venta</p>
+            <h1 className="text-lg font-black text-white tracking-tight">Acceso al Sistema ERP</h1>
+            <p className="text-slate-400 mt-1 text-xs font-medium">Autenticación con Credenciales de Operador</p>
           </div>
         </div>
 
         {/* Form */}
         <div className="p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
             
             {/* Branch Selection */}
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Sucursal
+              <label className="block text-xs font-extrabold text-slate-800 mb-1.5 uppercase tracking-wider">
+                Sucursal de Operación
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Store className="h-5 w-5 text-neutral-400" />
+                  <Store className="h-4 w-4 text-slate-400" />
                 </div>
                 <select
                   value={selectedBranchId}
                   onChange={handleBranchChange}
-                  className="block w-full pl-10 pr-3 py-2.5 border border-neutral-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 appearance-none bg-white text-sm transition-shadow"
+                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white text-xs transition-shadow"
                 >
-                  <option value="" disabled>Selecciona una sucursal...</option>
-                  {MOCK_BRANCHES.map((branch) => (
+                  <option value="" disabled>-- Selecciona una sucursal --</option>
+                  {branches.map((branch) => (
                     <option key={branch.id} value={branch.id}>
                       {branch.name}
                     </option>
@@ -103,12 +110,12 @@ export default function Login({ onLogin }: LoginProps) {
 
             {/* Operator Selection */}
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Operador
+              <label className="block text-xs font-extrabold text-slate-800 mb-1.5 uppercase tracking-wider">
+                Usuario / Operador
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-neutral-400" />
+                  <User className="h-4 w-4 text-slate-400" />
                 </div>
                 <select
                   value={selectedOperatorId}
@@ -117,55 +124,71 @@ export default function Login({ onLogin }: LoginProps) {
                     setError('');
                   }}
                   disabled={!selectedBranchId}
-                  className="block w-full pl-10 pr-3 py-2.5 border border-neutral-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 appearance-none bg-white text-sm disabled:bg-slate-50 disabled:text-slate-400 transition-shadow"
+                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white text-xs disabled:bg-slate-50 disabled:text-slate-400 transition-shadow"
                 >
                   <option value="" disabled>
-                    {!selectedBranchId ? 'Primero selecciona sucursal' : 'Selecciona tu usuario...'}
+                    {!selectedBranchId ? 'Primero selecciona la sucursal' : '-- Selecciona tu usuario --'}
                   </option>
                   {availableOperators.map((operator) => (
                     <option key={operator.id} value={operator.id}>
-                      {operator.name}
+                      {operator.name} (@{operator.username}) - {operator.role.toUpperCase()}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            {/* Password */}
+            {/* Password with Eye Toggle */}
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Contraseña
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                  Contraseña de Acceso
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-[11px] text-blue-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showPassword ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-neutral-400" />
+                  <Lock className="h-4 w-4 text-slate-400" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
                     setError('');
                   }}
                   placeholder="••••••••"
-                  className="block w-full pl-10 pr-3 py-2.5 border border-neutral-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm transition-shadow"
+                  className="block w-full pl-9 pr-10 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-xs transition-shadow tracking-wider"
                 />
               </div>
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="text-red-600 text-sm font-medium bg-red-50 py-2 px-3 rounded-md border border-red-100">
+              <div className="text-red-700 text-xs font-bold bg-red-50 py-2.5 px-3 rounded-xl border border-red-200 animate-in fade-in">
                 {error}
               </div>
             )}
 
+            {/* Security Note */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-2 text-[11px] text-slate-600 font-medium">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Las credenciales son configuradas y administradas por el Admin Principal en el Módulo de Configuración.</span>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 bg-blue-700 text-white py-2.5 px-4 rounded-lg hover:bg-blue-800 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-700 text-sm font-medium mt-4 shadow-md shadow-blue-900/10"
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-xl text-xs font-black transition-all shadow-md cursor-pointer mt-2"
             >
-              Ingresar al Sistema
+              Iniciar Sesión
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -174,3 +197,4 @@ export default function Login({ onLogin }: LoginProps) {
     </div>
   );
 }
+
