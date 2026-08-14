@@ -384,6 +384,8 @@ export interface CorteXRecord {
   expectedCashInDrawer: number;
   ticketIds: string[];
   expenseIds: string[];
+  ticketsSnapshot?: SaleTicket[];
+  expensesSnapshot?: Expense[];
   breakdown: {
     accesoriosTotal: number;
     accesoriosCount: number;

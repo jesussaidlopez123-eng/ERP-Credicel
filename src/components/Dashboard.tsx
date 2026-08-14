@@ -434,6 +434,7 @@ export default function Dashboard({
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
             onFinalizeCorteX={handleFinalizeCorteX}
+            onLogout={onLogout}
           />
         );
       case 'inventory':
@@ -466,7 +467,10 @@ export default function Dashboard({
             salesTickets={salesTickets}
             expenses={expenses}
             currentBranch={currentBranch}
+            currentOperator={currentOperator}
+            cortesX={cortesX}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
+            onFinalizeCorteX={handleFinalizeCorteX}
           />
         );
       case 'executive':

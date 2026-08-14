@@ -1,5 +1,24 @@
 import React, { useState } from 'react';
-import { Calculator, DollarSign, CreditCard, TrendingDown, Printer, X, Store, Clock, User, PackageCheck, Zap, Receipt, ShoppingBag, Wrench, ShieldCheck, Tag, Barcode, ChevronDown, ChevronUp } from 'lucide-react';
+import { 
+  Calculator, 
+  CreditCard, 
+  TrendingDown, 
+  Printer, 
+  X, 
+  Store, 
+  Clock, 
+  User, 
+  PackageCheck, 
+  Zap, 
+  Receipt, 
+  ShoppingBag, 
+  Wrench, 
+  Tag, 
+  LogOut,
+  ChevronDown, 
+  ChevronUp,
+  FileCheck2
+} from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 
 interface CorteXModalProps {
@@ -10,7 +29,9 @@ interface CorteXModalProps {
   currentBranch: Branch;
   currentOperator: Operator;
   initialCashFund?: number;
+  existingCorteRecord?: CorteXRecord | null;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
+  onLogout?: () => void;
 }
 
 interface ConceptDetail {
@@ -38,7 +59,9 @@ export default function CorteXModal({
   currentBranch,
   currentOperator,
   initialCashFund = 1000.00,
-  onFinalizeCorteX
+  existingCorteRecord,
+  onFinalizeCorteX,
+  onLogout
 }: CorteXModalProps) {
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
@@ -52,9 +75,43 @@ export default function CorteXModal({
 
   if (!isOpen) return null;
 
-  // Filter for current branch
-  const branchTickets = tickets.filter((t) => t.branchId === currentBranch.id);
-  const branchExpenses = expenses.filter((e) => e.branchId === currentBranch.id);
+  const isHistoric = !!existingCorteRecord;
+
+  // Determine branch info
+  const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : currentBranch.name;
+  const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : currentBranch.id;
+  const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : currentOperator.name;
+  const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : initialCashFund;
+
+  // Filter for effective branch / tickets
+  let branchTickets: SaleTicket[] = [];
+  let branchExpenses: Expense[] = [];
+
+  if (isHistoric) {
+    if (existingCorteRecord.ticketsSnapshot && existingCorteRecord.ticketsSnapshot.length > 0) {
+      branchTickets = existingCorteRecord.ticketsSnapshot;
+    } else {
+      branchTickets = tickets.filter((t) => 
+        existingCorteRecord.ticketIds?.includes(t.id) || 
+        (t.corteXId === existingCorteRecord.id) ||
+        (t.branchId === effectiveBranchId && t.timestamp.startsWith(existingCorteRecord.timestamp.split('T')[0]))
+      );
+    }
+
+    if (existingCorteRecord.expensesSnapshot && existingCorteRecord.expensesSnapshot.length > 0) {
+      branchExpenses = existingCorteRecord.expensesSnapshot;
+    } else {
+      branchExpenses = expenses.filter((e) => 
+        existingCorteRecord.expenseIds?.includes(e.id) || 
+        (e.corteXId === existingCorteRecord.id) ||
+        (e.branchId === effectiveBranchId && e.timestamp.startsWith(existingCorteRecord.timestamp.split('T')[0]))
+      );
+    }
+  } else {
+    // Active current shift: only unclosed tickets/expenses for current branch
+    branchTickets = tickets.filter((t) => t.branchId === currentBranch.id && !t.corteXId);
+    branchExpenses = expenses.filter((e) => e.branchId === currentBranch.id && !e.corteXId);
+  }
 
   // Payment totals
   let cashSalesTotal = 0;
@@ -85,8 +142,6 @@ export default function CorteXModal({
     reparaciones: {},
     recargas: {},
   };
-
-  const conceptMap: Record<string, ConceptGroup> = {};
 
   branchTickets.forEach((ticket) => {
     if (ticket.paymentMethod === 'Efectivo') cashSalesTotal += ticket.total;
@@ -145,7 +200,6 @@ export default function CorteXModal({
         metadata: item.metadata
       };
 
-
       if (!categoryConceptMaps[catKey][conceptName]) {
         categoryConceptMaps[catKey][conceptName] = {
           name: conceptName,
@@ -159,19 +213,6 @@ export default function CorteXModal({
       categoryConceptMaps[catKey][conceptName].count += qty;
       categoryConceptMaps[catKey][conceptName].total += itemTotal;
       categoryConceptMaps[catKey][conceptName].details.push(detailObj);
-
-      if (!conceptMap[conceptName]) {
-        conceptMap[conceptName] = {
-          name: conceptName,
-          count: 0,
-          total: 0,
-          category: cat,
-          details: []
-        };
-      }
-      conceptMap[conceptName].count += qty;
-      conceptMap[conceptName].total += itemTotal;
-      conceptMap[conceptName].details.push(detailObj);
     });
   });
 
@@ -186,7 +227,6 @@ export default function CorteXModal({
     expenseMap[key].total += exp.amount;
   });
 
-  const conceptList = Object.values(conceptMap).sort((a, b) => b.total - a.total);
   const groupedExpenseList = Object.values(expenseMap).sort((a, b) => b.total - a.total);
 
   const categoryItems = {
@@ -198,26 +238,41 @@ export default function CorteXModal({
     gastos: groupedExpenseList,
   };
 
-  const totalSalesAll = cashSalesTotal + cardSalesTotal + transferSalesTotal;
-  const totalExpenses = branchExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const netIncome = totalSalesAll - totalExpenses;
+  // If historic and had stored breakdown totals, use them as authoritative
+  if (isHistoric && existingCorteRecord) {
+    if (existingCorteRecord.cashSales !== undefined) cashSalesTotal = existingCorteRecord.cashSales;
+    if (existingCorteRecord.cardSales !== undefined) cardSalesTotal = existingCorteRecord.cardSales;
+    if (existingCorteRecord.transferSales !== undefined) transferSalesTotal = existingCorteRecord.transferSales;
+    if (existingCorteRecord.breakdown) {
+      if (existingCorteRecord.breakdown.accesoriosTotal) totalAccesoriosProductos = existingCorteRecord.breakdown.accesoriosTotal;
+      if (existingCorteRecord.breakdown.accesoriosCount) countAccesoriosProductos = existingCorteRecord.breakdown.accesoriosCount;
+      if (existingCorteRecord.breakdown.abonosTotal) totalAbonos = existingCorteRecord.breakdown.abonosTotal;
+      if (existingCorteRecord.breakdown.abonosCount) countAbonos = existingCorteRecord.breakdown.abonosCount;
+      if (existingCorteRecord.breakdown.enganchesTotal) totalEnganches = existingCorteRecord.breakdown.enganchesTotal;
+      if (existingCorteRecord.breakdown.enganchesCount) countEnganches = existingCorteRecord.breakdown.enganchesCount;
+      if (existingCorteRecord.breakdown.reparacionesTotal) totalReparaciones = existingCorteRecord.breakdown.reparacionesTotal;
+      if (existingCorteRecord.breakdown.reparacionesCount) countReparaciones = existingCorteRecord.breakdown.reparacionesCount;
+      if (existingCorteRecord.breakdown.recargasTotal) totalRecargas = existingCorteRecord.breakdown.recargasTotal;
+      if (existingCorteRecord.breakdown.recargasCount) countRecargas = existingCorteRecord.breakdown.recargasCount;
+    }
+  }
 
+  const totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
+  const totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : branchExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
+  const expectedCashInDrawer = isHistoric ? existingCorteRecord.expectedCashInDrawer : (effectiveInitialCash + cashSalesTotal - totalExpenses);
   const cardAndTransferTotal = cardSalesTotal + transferSalesTotal;
-  const expectedCashInDrawer = initialCashFund + cashSalesTotal - totalExpenses;
 
-  const corteFolio = `CTX-${Date.now().toString().slice(-6)}`;
-  const currentDateStr = new Date().toLocaleDateString('es-MX');
-  const currentTimeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const corteFolio = isHistoric ? existingCorteRecord.id : `CTX-${Date.now().toString().slice(-6)}`;
+  const currentDateStr = isHistoric ? existingCorteRecord.dateStr : new Date().toLocaleDateString('es-MX');
+  const currentTimeStr = isHistoric ? existingCorteRecord.timeStr : new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
   const handlePrint = () => {
     window.print();
   };
 
-  const handleFinalizeShift = () => {
-    // 1. Trigger thermal print
-    window.print();
-
-    // 2. Build official CorteXRecord snapshot
+  const handleFinalizeShift = (andLogout: boolean = false) => {
+    // 1. Build official CorteXRecord snapshot
     const corteRecord: CorteXRecord = {
       id: corteFolio,
       timestamp: new Date().toISOString(),
@@ -226,7 +281,7 @@ export default function CorteXModal({
       branchId: currentBranch.id,
       branchName: currentBranch.name,
       operatorName: currentOperator.name,
-      initialCashFund,
+      initialCashFund: effectiveInitialCash,
       cashSales: cashSalesTotal,
       cardSales: cardSalesTotal,
       transferSales: transferSalesTotal,
@@ -236,6 +291,8 @@ export default function CorteXModal({
       expectedCashInDrawer,
       ticketIds: branchTickets.map((t) => t.id),
       expenseIds: branchExpenses.map((e) => e.id),
+      ticketsSnapshot: branchTickets,
+      expensesSnapshot: branchExpenses,
       breakdown: {
         accesoriosTotal: totalAccesoriosProductos,
         accesoriosCount: countAccesoriosProductos,
@@ -248,15 +305,23 @@ export default function CorteXModal({
         recargasTotal: totalRecargas,
         recargasCount: countRecargas
       }
-
     };
 
     if (onFinalizeCorteX) {
       onFinalizeCorteX(corteRecord);
     }
-    onClose();
-  };
 
+    // Trigger print
+    window.print();
+
+    onClose();
+
+    if (andLogout && onLogout) {
+      setTimeout(() => {
+        onLogout();
+      }, 500);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
@@ -265,24 +330,21 @@ export default function CorteXModal({
       <style>{`
         @media print {
           body * {
-            visibility: hidden;
+            visibility: hidden !important;
           }
           #thermal-corte-x-receipt, #thermal-corte-x-receipt * {
-            visibility: visible;
+            visibility: visible !important;
           }
           #thermal-corte-x-receipt {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 80mm;
-            padding: 3mm;
-            margin: 0;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 80mm !important;
+            margin: 0 !important;
+            padding: 8px !important;
             background: white !important;
             color: black !important;
-            box-shadow: none !important;
-            border: none !important;
-            font-family: 'Courier New', Courier, monospace !important;
-            font-size: 11px !important;
+            display: block !important;
           }
           .no-print {
             display: none !important;
@@ -290,112 +352,131 @@ export default function CorteXModal({
         }
       `}</style>
 
-      {/* HIDDEN PRINTABLE THERMAL TICKET (Visible only during window.print()) */}
+      {/* Hidden Thermal Receipt for POS Thermal Printer (80mm) */}
       <div id="thermal-corte-x-receipt" className="hidden print:block text-black font-mono text-[11px] leading-tight space-y-2">
-        <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-black">
-          <h2 className="text-lg font-black uppercase">CrediCel POS</h2>
-          <p className="font-bold">Sucursal: {currentBranch.name}</p>
+        <div className="text-center border-b border-black pb-2 mb-2">
+          <h2 className="font-black text-sm uppercase">PUNTO DE VENTA ERP</h2>
+          <p className="text-[10px] uppercase">{effectiveBranchName}</p>
           <p className="text-[12px] font-black my-1 uppercase">*** CORTE X / PARCIAL ***</p>
-          <p>Operador: {currentOperator.name}</p>
-          <p>Fecha: {currentDateStr} • {currentTimeStr}</p>
+          <p className="text-[10px]">DOCUMENTO DE CONTROL INTERNO</p>
           <p className="font-bold">FOLIO: {corteFolio}</p>
         </div>
 
-        {/* Resumen de Entradas */}
-        <div className="py-1.5 border-b border-dashed border-black space-y-1">
-          <p className="font-bold uppercase text-[10px]">--- RESUMEN DEL TURNO ---</p>
+        <div className="space-y-0.5 text-[10px] border-b border-black pb-2">
           <div className="flex justify-between">
-            <span>Accesorios/Prod:</span>
-            <span>${totalAccesoriosProductos.toFixed(2)}</span>
+            <span>Fecha y Hora:</span>
+            <span>{currentDateStr} {currentTimeStr}</span>
           </div>
           <div className="flex justify-between">
-            <span>Abonos Crédito:</span>
-            <span>${totalAbonos.toFixed(2)}</span>
+            <span>Cajero / Operador:</span>
+            <span className="font-bold">{effectiveOperatorName}</span>
           </div>
           <div className="flex justify-between">
-            <span>Enganches Equipo:</span>
-            <span>${totalEnganches.toFixed(2)}</span>
+            <span>Tickets de Venta:</span>
+            <span>{branchTickets.length}</span>
           </div>
           <div className="flex justify-between">
-            <span>Taller/Reparac:</span>
-            <span>${totalReparaciones.toFixed(2)}</span>
+            <span>Gastos Registrados:</span>
+            <span>{branchExpenses.length}</span>
+          </div>
+        </div>
+
+        {/* Desglose por Conceptos */}
+        <div className="border-b border-black pb-2 space-y-1">
+          <p className="font-bold uppercase text-[10px] border-b border-dashed border-black pb-0.5">
+            RESUMEN POR CATEGORÍAS
+          </p>
+
+          <div className="flex justify-between">
+            <span>Accesorios ({countAccesoriosProductos} pzs):</span>
+            <span className="font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Recargas T.Aire:</span>
-            <span>${totalRecargas.toFixed(2)}</span>
+            <span>Abonos a Crédito ({countAbonos}):</span>
+            <span className="font-bold">${totalAbonos.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-black">
-            <span>Gastos Turno:</span>
-            <span>-${totalExpenses.toFixed(2)}</span>
+          <div className="flex justify-between">
+            <span>Enganches ({countEnganches}):</span>
+            <span className="font-bold">${totalEnganches.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between font-bold text-[12px] pt-1 border-t border-black">
-            <span>NETO GANADO:</span>
-            <span>${netIncome.toFixed(2)}</span>
+          <div className="flex justify-between">
+            <span>Reparaciones / Taller ({countReparaciones}):</span>
+            <span className="font-bold">${totalReparaciones.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[10px]">
-            <span>TOTAL BRUTO:</span>
+          <div className="flex justify-between">
+            <span>Recargas Tiempo Aire ({countRecargas}):</span>
+            <span className="font-bold">${totalRecargas.toFixed(2)}</span>
+          </div>
+
+          <div className="border-t border-dashed border-black pt-1 flex justify-between font-bold text-[11px]">
+            <span>TOTAL VENTAS BRUTAS:</span>
             <span>${totalSalesAll.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Desglose por Forma de Pago */}
-        <div className="py-1.5 border-b border-dashed border-black space-y-1">
-          <p className="font-bold uppercase text-[10px]">--- ARQUEO Y MEDIOS DE PAGO ---</p>
+        {/* Desglose Métodos de Pago */}
+        <div className="border-b border-black pb-2 space-y-0.5 text-[10px]">
+          <p className="font-bold uppercase border-b border-dashed border-black pb-0.5">
+            FORMAS DE PAGO RECIBIDAS
+          </p>
           <div className="flex justify-between">
-            <span>Fondo Inicial:</span>
-            <span>${initialCashFund.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Ventas Efectivo:</span>
-            <span>+${cashSalesTotal.toFixed(2)}</span>
+            <span>( + ) Efectivo en Ventas:</span>
+            <span>${cashSalesTotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Gastos Efectivo:</span>
-            <span>-${totalExpenses.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-bold border-t border-black pt-0.5">
-            <span>EFECTIVO EN CAJA:</span>
-            <span>${expectedCashInDrawer.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between pt-1">
-            <span>Tarjeta TPV:</span>
+            <span>( + ) Tarjeta Débito/Crédito:</span>
             <span>${cardSalesTotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Transferencias:</span>
+            <span>( + ) Transferencia SPEI:</span>
             <span>${transferSalesTotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-bold">
-            <span>TOTAL DIGITAL:</span>
-            <span>${cardAndTransferTotal.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Desglose Específico de Productos */}
-        {conceptList.length > 0 && (
-          <div className="py-1.5 border-b border-dashed border-black space-y-1">
-            <p className="font-bold uppercase text-[10px]">--- DESGLOSE PRODUCTOS ---</p>
-            {conceptList.map((c, i) => (
-              <div key={i} className="flex justify-between text-[10px]">
-                <span>{c.count}x {c.name.slice(0, 22)}</span>
-                <span>${c.total.toFixed(2)}</span>
+        {/* Gastos y Retiros */}
+        <div className="border-b border-black pb-2 space-y-0.5 text-[10px]">
+          <p className="font-bold uppercase border-b border-dashed border-black pb-0.5">
+            GASTOS Y RETIROS DE CAJA
+          </p>
+          {branchExpenses.length === 0 ? (
+            <p className="text-center italic text-[9px]">Sin gastos registrados en el turno</p>
+          ) : (
+            branchExpenses.map((g) => (
+              <div key={g.id} className="flex justify-between">
+                <span className="truncate max-w-[150px]">{g.concept}:</span>
+                <span className="font-bold">-${g.amount.toFixed(2)}</span>
               </div>
-            ))}
+            ))
+          )}
+          <div className="flex justify-between font-bold border-t border-dashed border-black pt-1">
+            <span>TOTAL GASTOS DE CAJA:</span>
+            <span>-${totalExpenses.toFixed(2)}</span>
           </div>
-        )}
+        </div>
 
-        {/* Desglose de Gastos */}
-        {groupedExpenseList.length > 0 && (
-          <div className="py-1.5 border-b border-dashed border-black space-y-1">
-            <p className="font-bold uppercase text-[10px]">--- DESGLOSE GASTOS ---</p>
-            {groupedExpenseList.map((exp, i) => (
-              <div key={i} className="flex justify-between text-[10px]">
-                <span>{exp.count}x {exp.concept.slice(0, 22)}</span>
-                <span>-${exp.total.toFixed(2)}</span>
-              </div>
-            ))}
+        {/* Balance Final y Dinero en Caja */}
+        <div className="border-b-2 border-black pb-2 space-y-1 text-[11px]">
+          <div className="flex justify-between text-[10px]">
+            <span>( + ) Fondo Inicial de Caja:</span>
+            <span>${effectiveInitialCash.toFixed(2)}</span>
           </div>
-        )}
+          <div className="flex justify-between text-[10px]">
+            <span>( + ) Efectivo de Ventas:</span>
+            <span>${cashSalesTotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-[10px]">
+            <span>( - ) Gastos en Efectivo:</span>
+            <span>-${totalExpenses.toFixed(2)}</span>
+          </div>
+          <div className="border-t border-black pt-1 flex justify-between font-black text-[12px]">
+            <span>TOTAL EFECTIVO EN CAJA:</span>
+            <span>${expectedCashInDrawer.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-[10px] text-gray-700">
+            <span>Utilidad Neta del Turno:</span>
+            <span>${netIncome.toFixed(2)}</span>
+          </div>
+        </div>
 
         {/* Firmas de Audit */}
         <div className="pt-4 text-center space-y-4 text-[9px]">
@@ -409,7 +490,7 @@ export default function CorteXModal({
               <span>Firma Supervisor</span>
             </div>
           </div>
-          <p>Reporte Interno de Arqueo Parcial de Caja (Corte X)</p>
+          <p>Reporte Oficial de Corte de Caja (Corte X)</p>
         </div>
       </div>
 
@@ -424,12 +505,22 @@ export default function CorteXModal({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="font-black text-base sm:text-lg tracking-tight text-white">Corte X • Arqueo Parcial</h3>
+                  <h3 className="font-black text-base sm:text-lg tracking-tight text-white">
+                    {isHistoric ? 'Corte X • Arqueo Guardado' : 'Corte X • Arqueo Parcial'}
+                  </h3>
                   <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
                     {corteFolio}
                   </span>
+                  {isHistoric && (
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <FileCheck2 className="w-3 h-3" />
+                      Histórico
+                    </span>
+                  )}
                 </div>
-                <p className="text-xs text-slate-400">Resumen operativo y estado de caja en tiempo real</p>
+                <p className="text-xs text-slate-400">
+                  {isHistoric ? 'Detalle completo del corte registrado en la base de datos' : 'Resumen operativo y estado de caja en tiempo real'}
+                </p>
               </div>
             </div>
 
@@ -450,7 +541,7 @@ export default function CorteXModal({
             </div>
           </div>
 
-          {/* Re-arranged Parameter Cards */}
+          {/* Parameter Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-slate-950/80 text-xs">
             <div className="bg-slate-900/90 p-2.5 rounded-xl border border-slate-800/80 flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-blue-900/40 border border-blue-700/50 flex items-center justify-center text-blue-400 shrink-0">
@@ -458,7 +549,7 @@ export default function CorteXModal({
               </div>
               <div className="min-w-0 flex-1">
                 <span className="text-[9.5px] text-slate-400 font-bold block uppercase tracking-wide">Sucursal</span>
-                <span className="font-black text-white text-xs truncate block">{currentBranch.name}</span>
+                <span className="font-black text-white text-xs truncate block">{effectiveBranchName}</span>
               </div>
             </div>
 
@@ -468,7 +559,7 @@ export default function CorteXModal({
               </div>
               <div className="min-w-0 flex-1">
                 <span className="text-[9.5px] text-slate-400 font-bold block uppercase tracking-wide">Operador</span>
-                <span className="font-black text-white text-xs truncate block">{currentOperator.name}</span>
+                <span className="font-black text-white text-xs truncate block">{effectiveOperatorName}</span>
               </div>
             </div>
 
@@ -602,101 +693,88 @@ export default function CorteXModal({
                     >
                       <div className="flex items-center gap-2">
                         {cat.icon}
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-extrabold text-xs">{cat.title}</span>
-                            <span className="text-[10px] font-black px-1.5 py-0.2 rounded-full bg-white/90 border border-slate-200 text-slate-700">
-                              {cat.count} {cat.count === 1 ? 'operación' : 'operaciones'}
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-slate-500 font-medium block">
-                            {isExpanded ? 'Clic para plegar' : 'Clic para desplegar artículos'}
-                          </span>
-                        </div>
+                        <span className="font-extrabold text-xs">{cat.title}</span>
+                        <span className="bg-white/80 text-slate-800 text-[10px] font-black px-1.5 py-0.5 rounded-full border border-slate-200">
+                          {cat.count} {cat.isExpense ? 'regs' : 'arts'}
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-2.5">
-                        <span className={`font-mono font-black text-xs ${cat.textColor}`}>
-                          {cat.isExpense && cat.total > 0 ? `-$${cat.total.toFixed(2)}` : `$${cat.total.toFixed(2)}`}
+                      <div className="flex items-center gap-3">
+                        <span className={`font-mono font-black text-xs sm:text-sm ${cat.textColor}`}>
+                          {cat.isExpense ? `-$${cat.total.toFixed(2)}` : `$${cat.total.toFixed(2)}`}
                         </span>
-                        <div className="p-1 rounded bg-white/80 border border-slate-200 text-slate-700">
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </div>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-slate-500" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-500" />
+                        )}
                       </div>
                     </button>
 
+                    {/* Contenido Desplegable */}
                     {isExpanded && (
-                      <div className="p-2.5 bg-slate-50/60 space-y-1.5 border-t border-slate-100 animate-in fade-in duration-150">
+                      <div className="p-2.5 bg-slate-50 border-t border-slate-100 space-y-1.5">
                         {itemsList.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic text-center py-1.5">
-                            Sin artículos ni operaciones registradas en esta categoría.
+                          <p className="text-[11px] text-slate-400 italic py-1 px-2 text-center">
+                            No se registraron movimientos en esta categoría durante el turno.
                           </p>
-                        ) : cat.isExpense ? (
-                          <div className="divide-y divide-red-100 border border-red-200 rounded-lg overflow-hidden bg-white">
-                            {(itemsList as typeof groupedExpenseList).map((exp, idx) => (
-                              <div key={idx} className="flex justify-between items-center px-3 py-1.5 text-xs hover:bg-red-50/50">
-                                <div className="flex items-center gap-2">
-                                  <span className="bg-red-100 text-red-900 font-black text-[10px] px-1.5 py-0.2 rounded shrink-0">
-                                    {exp.count}×
-                                  </span>
-                                  <span className="font-bold text-slate-800">{exp.concept}</span>
-                                </div>
-                                <span className="font-black text-red-600 shrink-0">
-                                  -${exp.total.toFixed(2)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
                         ) : (
-                          <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden bg-white">
-                            {(itemsList as ConceptGroup[]).map((item, idx) => (
-                              <div key={idx} className="p-2.5 text-xs hover:bg-slate-50/80 transition-colors">
-                                <div className="flex justify-between items-center">
-                                  <div className="flex items-center gap-2">
-                                    <span className="bg-blue-100 text-blue-900 font-black text-[10px] px-1.5 py-0.2 rounded shrink-0">
-                                      {item.count}×
-                                    </span>
-                                    <span className="font-extrabold text-slate-800">{item.name}</span>
+                          <div className="space-y-1">
+                            {cat.isExpense ? (
+                              (itemsList as any[]).map((exp, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200/80 text-xs">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"></span>
+                                    <span className="font-bold text-slate-900 truncate">{exp.concept}</span>
+                                    <span className="text-[10px] text-slate-400">({exp.count} {exp.count === 1 ? 'gasto' : 'gastos'})</span>
                                   </div>
-                                  <span className="font-mono font-black text-slate-900 shrink-0">
-                                    ${item.total.toFixed(2)}
+                                  <span className="font-mono font-bold text-red-600 shrink-0">
+                                    -${exp.total.toFixed(2)}
                                   </span>
                                 </div>
-
-                                {/* Detailed transaction breakdown cards matching Sales & Reports module format */}
-                                {item.details && item.details.length > 0 && (
-                                  <div className="mt-2 space-y-1 pl-1 sm:pl-3">
-                                    {item.details.map((d, dIdx) => (
-                                      <div key={dIdx} className="bg-slate-50 p-2 rounded-lg border border-slate-200/80 text-[10.5px] space-y-0.5 text-slate-700">
-                                        <div className="flex items-center justify-between font-mono text-[9.5px] text-slate-500 border-b border-slate-200/60 pb-0.5">
-                                          <span>Folio Ticket: <strong className="text-slate-800">{d.ticketFolio}</strong> ({d.paymentMethod})</span>
-                                          <span>{d.time}</span>
-                                        </div>
-                                        {d.metadata?.clientName && (
-                                          <div>👤 Cliente: <strong className="text-slate-900">{d.metadata.clientName}</strong></div>
-                                        )}
-                                        {d.metadata?.deviceModel && (
-                                          <div>📱 Equipo: <strong className="text-slate-900">{d.metadata.deviceModel}</strong> {d.metadata.imei && <span className="font-mono text-[9.5px]">(IMEI: {d.metadata.imei})</span>}</div>
-                                        )}
-                                        {d.metadata?.financingPlatform && (
-                                          <div>🏦 Financiera: <strong className="text-slate-900">{d.metadata.financingPlatform}</strong></div>
-                                        )}
-                                        {d.metadata?.fullPrice !== undefined && (
-                                          <div className="pt-0.5 font-mono text-[9.5px] flex flex-wrap gap-x-2 text-indigo-950 font-semibold border-t border-slate-200/60 mt-0.5">
-                                            <span>Precio Total: <strong>${d.metadata.fullPrice.toFixed(2)}</strong></span>
-                                            <span>Enganche: <strong>${(d.metadata.downPayment || d.totalPrice).toFixed(2)}</strong></span>
-                                            <span>Saldo Financiado: <strong className="text-emerald-700">${(d.metadata.remainingBalance ?? Math.max(0, d.metadata.fullPrice - (d.metadata.downPayment || d.totalPrice))).toFixed(2)}</strong></span>
-                                          </div>
-                                        )}
-                                        {d.metadata?.repairType && (
-                                          <div>🔧 Servicio: <strong className="text-amber-800">{d.metadata.repairType}</strong></div>
-                                        )}
-                                      </div>
-                                    ))}
+                              ))
+                            ) : (
+                              (itemsList as ConceptGroup[]).map((grp, idx) => (
+                                <div key={idx} className="bg-white rounded-lg border border-slate-200/80 p-2 text-xs space-y-1">
+                                  <div className="flex items-center justify-between font-bold text-slate-800">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                                      <span className="truncate">{grp.name}</span>
+                                      <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                        x{grp.count}
+                                      </span>
+                                    </div>
+                                    <span className="font-mono font-bold text-slate-900">
+                                      ${grp.total.toFixed(2)}
+                                    </span>
                                   </div>
-                                )}
-                              </div>
-                            ))}
+
+                                  {/* Sub-details (tickets folios, metadata) */}
+                                  {grp.details && grp.details.length > 0 && (
+                                    <div className="pl-3 pt-1 border-t border-slate-100 space-y-0.5 text-[10px] text-slate-500">
+                                      {grp.details.map((d, dIdx) => (
+                                        <div key={dIdx} className="flex items-center justify-between">
+                                          <div className="flex items-center gap-1.5 truncate">
+                                            <span className="font-mono text-blue-600 font-bold">{d.ticketFolio}</span>
+                                            <span>• {d.time}</span>
+                                            <span className="bg-slate-100 text-slate-600 px-1 rounded text-[9px] font-medium">{d.paymentMethod}</span>
+                                            {d.metadata?.financingPlatform && (
+                                              <span className="text-purple-600 font-semibold truncate">[{d.metadata.financingPlatform}]</span>
+                                            )}
+                                            {d.metadata?.clientName && (
+                                              <span className="text-slate-700 truncate">({d.metadata.clientName})</span>
+                                            )}
+                                          </div>
+                                          <span className="font-mono font-medium text-slate-700 shrink-0">
+                                            ${d.totalPrice.toFixed(2)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))
+                            )}
                           </div>
                         )}
                       </div>
@@ -706,93 +784,120 @@ export default function CorteXModal({
                 );
               })}
             </div>
+          </div>
 
-            {/* TOTAL NETO BANNER */}
-            <div className="bg-slate-900 text-white p-3 rounded-xl flex justify-between items-center shadow-sm mt-2">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Total Neto Ganado (Ingresos - Gastos)
-                </span>
-                <span className="text-xl font-black text-emerald-400">
-                  ${netIncome.toFixed(2)} <span className="text-xs font-normal text-slate-400">MXN</span>
-                </span>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Total Bruto
-                </span>
-                <span className="text-sm font-extrabold text-slate-200">
-                  ${totalSalesAll.toFixed(2)}
-                </span>
-              </div>
-            </div>
+          {/* BALANCE FINAL DE CAJA (PANEL FINANCIERO) */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-2">
+              <Store className="w-4 h-4 text-emerald-600" />
+              Balance de Caja y Medios de Pago
+            </h4>
 
-            {/* DESGLOSE POR METODO DE PAGO (EFECTIVO vs TARJETA) ABAJO DEL TOTAL */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               
-              {/* Efectivo */}
-              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl space-y-0.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wide">
-                    💵 En Efectivo (Caja)
-                  </span>
-                  <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
-                    Fondo: ${initialCashFund.toFixed(0)}
+              {/* Dinero en Efectivo y Caja */}
+              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-emerald-950 font-black uppercase text-[10.5px]">Efectivo Físico en Caja</span>
+                  <span className="bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded uppercase">Caja Principal</span>
+                </div>
+
+                <div className="space-y-1 text-xs text-emerald-950">
+                  <div className="flex justify-between">
+                    <span>Fondo Inicial de Caja:</span>
+                    <span className="font-mono font-bold">${effectiveInitialCash.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Ventas en Efectivo:</span>
+                    <span className="font-mono font-bold text-emerald-700">+${cashSalesTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Gastos en Efectivo:</span>
+                    <span className="font-mono font-bold text-red-600">-${totalExpenses.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-emerald-200/80 flex items-center justify-between">
+                  <span className="text-xs font-black text-emerald-950">Efectivo Total en Cajón:</span>
+                  <span className="text-base font-black text-emerald-700 font-mono">
+                    ${expectedCashInDrawer.toFixed(2)} <span className="text-[10px]">MXN</span>
                   </span>
                 </div>
-                <div className="text-base font-black text-emerald-950">
-                  ${expectedCashInDrawer.toFixed(2)} <span className="text-[10px] text-emerald-700 font-bold">MXN</span>
-                </div>
-                <p className="text-[9px] text-emerald-800 font-medium">
-                  Ventas efect. +${cashSalesTotal.toFixed(2)} - Gastos -${totalExpenses.toFixed(2)}
-                </p>
               </div>
 
-              {/* Tarjeta / Digital */}
-              <div className="bg-indigo-50 border border-indigo-200 p-2.5 rounded-xl space-y-0.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-indigo-800 uppercase tracking-wide">
-                    💳 Tarjeta / Digital
-                  </span>
-                  <span className="text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.2 rounded">
-                    Mercado Pago
+              {/* Pagos Electrónicos */}
+              <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200/80 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-indigo-950 font-black uppercase text-[10.5px]">Cobros Electrónicos / Bancarios</span>
+                  <CreditCard className="w-4 h-4 text-indigo-600" />
+                </div>
+
+                <div className="space-y-1 text-xs text-indigo-950">
+                  <div className="flex justify-between">
+                    <span>Terminal / Tarjeta:</span>
+                    <span className="font-mono font-bold text-indigo-700">${cardSalesTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Transferencias SPEI:</span>
+                    <span className="font-mono font-bold text-blue-700">${transferSalesTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total Ventas Brutas:</span>
+                    <span className="font-mono font-bold text-slate-800">${totalSalesAll.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-indigo-200/80 flex items-center justify-between">
+                  <span className="text-xs font-black text-indigo-950">Total Bancos / Tarjeta:</span>
+                  <span className="text-base font-black text-indigo-800 font-mono">
+                    ${cardAndTransferTotal.toFixed(2)} <span className="text-[10px]">MXN</span>
                   </span>
                 </div>
-                <div className="text-base font-black text-indigo-950">
-                  ${cardAndTransferTotal.toFixed(2)} <span className="text-[10px] text-indigo-700 font-bold">MXN</span>
-                </div>
-                <p className="text-[9px] text-indigo-800 font-medium">
-                  Tarjeta: ${cardSalesTotal.toFixed(2)} | Transf: ${transferSalesTotal.toFixed(2)}
-                </p>
               </div>
 
             </div>
-
           </div>
 
         </div>
 
         {/* Modal Footer */}
         <div className="p-3.5 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleFinalizeShift}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
-              title="Guarda el corte oficial en la nube, imprime el ticket térmico y finaliza el turno actual"
-            >
-              <PackageCheck className="w-4 h-4 text-emerald-200" />
-              <Printer className="w-3.5 h-3.5 text-yellow-300" />
-              <span>Imprimir y Cerrar Turno (Corte Oficial)</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {!isHistoric ? (
+              <>
+                <button
+                  onClick={() => handleFinalizeShift(false)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+                  title="Guarda el corte oficial en la base de datos e imprime el ticket térmico"
+                >
+                  <PackageCheck className="w-4 h-4 text-emerald-200" />
+                  <span>Imprimir y Guardar Corte Oficial</span>
+                </button>
 
-            <button
-              onClick={handlePrint}
-              className="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Solo imprime un comprobante parcial sin archivar el turno"
-            >
-              <Printer className="w-3.5 h-3.5 text-slate-300" />
-              <span>Imprimir Vista Previa (Turno Abierto)</span>
-            </button>
+                <button
+                  onClick={() => handleFinalizeShift(true)}
+                  className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+                  title="Guarda el corte oficial, imprime el ticket y cierra la sesión para cambio de turno"
+                >
+                  <LogOut className="w-4 h-4 text-indigo-200" />
+                  <span>Guardar Corte y Cerrar Sesión</span>
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrint}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Reimprimir el ticket térmico de este corte histórico"
+                >
+                  <Printer className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>Reimprimir Ticket</span>
+                </button>
+                <span className="text-[11px] text-slate-500 font-semibold">
+                  Corte guardado el {currentDateStr} por {effectiveOperatorName}
+                </span>
+              </div>
+            )}
           </div>
 
           <button
@@ -803,9 +908,7 @@ export default function CorteXModal({
           </button>
         </div>
 
-
       </div>
     </div>
   );
 }
-
