@@ -258,8 +258,9 @@ export default function ExecutiveModule({
 
     filteredTickets.forEach((t) => {
       t.items.forEach((item) => {
-        if (item.category === 'equipo') {
-          deviceSalesCount += item.qty;
+        const cat = item.product?.category || '';
+        if (cat === 'equipo' || cat === 'equipo_credito') {
+          deviceSalesCount += item.quantity || 1;
           const fullPrice = item.metadata?.fullPrice || item.totalPrice;
           const downPayment = item.metadata?.downPayment || item.totalPrice;
           const remaining = item.metadata?.remainingBalance ?? Math.max(0, fullPrice - downPayment);
@@ -291,14 +292,14 @@ export default function ExecutiveModule({
 
     filteredTickets.forEach((t) => {
       t.items.forEach((item) => {
-        const catKey = (item.category || 'accesorio').toLowerCase();
+        const catKey = (item.product?.category || 'accesorio').toLowerCase();
         if (!map[catKey]) {
-          map[catKey] = { name: item.category, total: 0, count: 0, downPayment: 0, remainingBalance: 0 };
+          map[catKey] = { name: item.product?.category || 'General', total: 0, count: 0, downPayment: 0, remainingBalance: 0 };
         }
         map[catKey].total += item.totalPrice;
-        map[catKey].count += item.qty;
+        map[catKey].count += item.quantity || 1;
 
-        if (catKey === 'equipo' && item.metadata) {
+        if ((catKey === 'equipo' || catKey === 'equipo_credito') && item.metadata) {
           map[catKey].downPayment += item.metadata.downPayment || item.totalPrice;
           map[catKey].remainingBalance += item.metadata.remainingBalance ?? Math.max(0, (item.metadata.fullPrice || item.totalPrice) - (item.metadata.downPayment || item.totalPrice));
         }
@@ -413,20 +414,20 @@ export default function ExecutiveModule({
       const branchName = branchObj ? branchObj.name : 'Sucursal General';
 
       t.items.forEach((item, idx) => {
-        const catKey = (item.category || 'accesorio').toLowerCase();
+        const catKey = (item.product?.category || 'accesorio').toLowerCase();
         let type: AuditRow['type'] = 'venta';
-        if (catKey === 'equipo') type = 'equipo';
+        if (catKey === 'equipo' || catKey === 'equipo_credito') type = 'equipo';
         else if (catKey === 'abono') type = 'abono';
         else if (catKey === 'recarga') type = 'recarga';
-        else if (catKey === 'reparacion') type = 'reparacion';
+        else if (catKey === 'reparacion' || catKey === 'servicio') type = 'reparacion';
 
         const fullPrice = item.metadata?.fullPrice || item.totalPrice;
         const downPayment = item.metadata?.downPayment || item.totalPrice;
         const remainingBalance = item.metadata?.remainingBalance ?? Math.max(0, fullPrice - downPayment);
 
         rows.push({
-          id: `tck-${t.folio}-${idx}`,
-          folio: t.folio,
+          id: `tck-${t.folio || t.id}-${idx}`,
+          folio: t.folio || t.id,
           rawDate: new Date(t.timestamp),
           dateFormatted: new Date(t.timestamp).toLocaleString('es-MX', {
             day: '2-digit',
@@ -438,11 +439,11 @@ export default function ExecutiveModule({
           branchName,
           operatorName: t.operatorName || 'Cajero',
           type,
-          categoryLabel: item.category || 'Venta General',
+          categoryLabel: item.product?.category || 'Venta General',
           concept: item.product.name,
-          clientName: item.metadata?.clientName || t.customerName || 'Cliente Mostrador',
-          clientPhone: item.metadata?.clientPhone || item.metadata?.phone || t.customerPhone || 'S/N',
-          deviceModel: item.metadata?.deviceModel || (item.category === 'equipo' ? item.product.name : ''),
+          clientName: item.metadata?.clientName || 'Cliente Mostrador',
+          clientPhone: item.metadata?.clientPhone || item.metadata?.phoneNumber || 'S/N',
+          deviceModel: item.metadata?.deviceModel || (catKey === 'equipo' ? item.product.name : ''),
           imei: item.metadata?.imei || (item.product.code || ''),
           paymentMethod: item.metadata?.financingPlatform || t.paymentMethod || 'Efectivo',
           totalPrice: item.totalPrice,
@@ -458,7 +459,7 @@ export default function ExecutiveModule({
     filteredExpenses.forEach((e) => {
       const branchObj = liveBranchesList.find((b) => b.id === e.branchId);
       const branchName = branchObj ? branchObj.name : 'Sucursal General';
-      const expDate = new Date(e.date || Date.now());
+      const expDate = new Date(e.date || e.timestamp || Date.now());
 
       rows.push({
         id: `exp-${e.id}`,
@@ -472,7 +473,7 @@ export default function ExecutiveModule({
           minute: '2-digit'
         }),
         branchName,
-        operatorName: e.operator || 'Cajero',
+        operatorName: e.operatorName || 'Cajero',
         type: 'gasto',
         categoryLabel: 'Gasto Operativo',
         concept: e.concept,

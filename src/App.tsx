@@ -2,26 +2,85 @@ import React, { useState, useEffect } from 'react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { Branch, Operator } from './types';
-import { getStoredOperators, saveStoredOperators } from './data/initialOperators';
+import { getStoredOperators, saveStoredOperators, INITIAL_OPERATORS } from './data/initialOperators';
+import { ALL_BRANCHES } from './data/initialBranches';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
 
+const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
+
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentBranch, setCurrentBranch] = useState<Branch | null>(null);
-  const [currentOperator, setCurrentOperator] = useState<Operator | null>(null);
-  
   // Persistent Operators State with Firestore Sync
   const [operators, setOperators] = useState<Operator[]>(() => getStoredOperators());
+
+  // Restore authenticated session from localStorage if available
+  const [currentBranch, setCurrentBranch] = useState<Branch | null>(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.branch) return parsed.branch;
+      }
+    } catch (e) {
+      console.error('Error restoring branch session', e);
+    }
+    return null;
+  });
+
+  const [currentOperator, setCurrentOperator] = useState<Operator | null>(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.operator) return parsed.operator;
+      }
+    } catch (e) {
+      console.error('Error restoring operator session', e);
+    }
+    return null;
+  });
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Boolean(parsed?.authenticated && parsed?.operator && parsed?.branch);
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
 
   useEffect(() => {
     const unsubscribe = subscribeToOperators((firestoreOps) => {
       if (firestoreOps && firestoreOps.length > 0) {
         setOperators(firestoreOps);
         saveStoredOperators(firestoreOps);
+
+        // Keep current operator in sync if modified in administration
+        if (currentOperator) {
+          const matched = firestoreOps.find((o) => o.id === currentOperator.id);
+          if (matched) {
+            setCurrentOperator(matched);
+            try {
+              const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                localStorage.setItem(
+                  SESSION_STORAGE_KEY,
+                  JSON.stringify({ ...parsed, operator: matched })
+                );
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [currentOperator]);
 
   const handleUpdateOperators = async (newOperators: Operator[]) => {
     // Detect removed operators by comparing old and new operator IDs
@@ -50,33 +109,56 @@ export default function App() {
       }
     }
 
-    // If current operator was modified, update currentOperator in state
+    // If current operator was modified, update currentOperator in state & localStorage
     if (currentOperator) {
       const updatedSelf = newOperators.find((op) => op.id === currentOperator.id);
       if (updatedSelf) {
         setCurrentOperator(updatedSelf);
+        try {
+          localStorage.setItem(
+            SESSION_STORAGE_KEY,
+            JSON.stringify({ authenticated: true, branch: currentBranch, operator: updatedSelf })
+          );
+        } catch {
+          // ignore
+        }
       }
     }
   };
-
 
   const handleLogin = (branch: Branch, operator: Operator) => {
     setCurrentBranch(branch);
     setCurrentOperator(operator);
     setIsAuthenticated(true);
+
+    try {
+      localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({ authenticated: true, branch, operator })
+      );
+    } catch (e) {
+      console.error('Error saving session to localStorage', e);
+    }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentBranch(null);
     setCurrentOperator(null);
+
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch (e) {
+      console.error('Error clearing session from localStorage', e);
+    }
   };
 
   if (!isAuthenticated || !currentBranch || !currentOperator) {
     return (
       <Login 
         onLogin={handleLogin}
-        operators={operators}
+        operators={operators.length > 0 ? operators : INITIAL_OPERATORS}
+        branches={ALL_BRANCHES}
       />
     );
   }
@@ -91,5 +173,3 @@ export default function App() {
     />
   );
 }
-
-

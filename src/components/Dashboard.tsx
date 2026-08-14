@@ -518,8 +518,7 @@ export default function Dashboard({
                activeModule === 'inventory' ? 'Inventario' : 
                activeModule === 'purchases' ? 'Compras' : 
                activeModule === 'sales' ? 'Ventas' : 
-               activeModule === 'executive' ? 'Dirección General' : 
-               activeModule === 'users' ? 'Usuarios' : 'Configuración'}
+               activeModule === 'executive' ? 'Dirección General' : 'Configuración'}
             </h2>
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200 text-[11px] font-bold">
               <Cloud className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
