@@ -255,7 +255,7 @@ export default function Dashboard({
 
   // Inventory Handlers
   const handleAddProduct = (newProd: Product) => {
-    setProducts((prev) => [newProd, ...prev]);
+    setProducts((prev) => [...prev, newProd]);
     saveProductToFirestore(newProd).catch((err) => console.error('Error saving new product:', err));
   };
 

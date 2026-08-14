@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, 
   Search, 
@@ -274,47 +274,123 @@ export default function PosModule({
     }, 3500);
   };
 
-  // Products array (filtered by category and search query if active)
-  const filteredProducts = products.filter((p) => {
-    const q = searchQuery.trim().toLowerCase();
-    const isSpecificDevice = (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && 
-      p.id !== 'prod-equipo-credito-gen' && 
-      p.id !== 'prod-abono-gen';
-
-    // Without search query, hide individual phone models so they don't clutter the screen with 50 buttons
-    if (!q && isSpecificDevice) {
-      return false;
+  // POS Button Rank Determiner:
+  // 1: Abono a Crédito (Inamovible 1)
+  // 2: Venta de Celular / Equipo (Inamovible 2)
+  // 3: Recargas Tiempo Aire (Inamovible 3)
+  // 4: Servicio Técnico / Reparaciones (Inamovible 4)
+  // 5+: Productos del inventario (Ordenados estrictamente por código numérico: CA-1, CA-2... CE-1, etc.)
+  const getPosProductRank = (p: Product): number => {
+    if (
+      p.id === 'prod-abono-gen' || 
+      p.code === 'ABO-CRED' || 
+      p.code?.toUpperCase().startsWith('ABO') || 
+      p.name?.toLowerCase().includes('abono a crédito') ||
+      p.name?.toLowerCase().includes('cobrar abono')
+    ) {
+      return 1;
     }
 
-    let matchesCategory = true;
-    if (selectedCategory === 'all') {
-      matchesCategory = true;
-    } else if (selectedCategory === 'accesorio') {
-      matchesCategory = p.category === 'accesorio' || p.inventoryType === 'accesorio';
-    } else if (selectedCategory === 'equipo') {
-      matchesCategory = p.category === 'equipo_credito' || p.category === 'equipo' || p.inventoryType === 'equipo';
-    } else if (selectedCategory === 'servicio') {
-      matchesCategory = p.category === 'servicio' || p.id === 'prod-reparacion-gen';
-    } else if (selectedCategory === 'recarga') {
-      matchesCategory = p.category === 'recarga';
-    } else if (selectedCategory === 'abono') {
-      matchesCategory = p.id === 'prod-abono-gen' || p.name.toLowerCase().includes('abono');
-    } else {
-      matchesCategory = p.category === selectedCategory;
+    if (
+      p.id === 'prod-equipo-credito-gen' || 
+      p.code === 'EQ-VENTA' || 
+      p.code === 'EQ-CRED' || 
+      p.code?.toUpperCase().startsWith('EQ-') ||
+      p.name?.toLowerCase().includes('venta de celular') ||
+      p.name?.toLowerCase().includes('venta de equipo')
+    ) {
+      return 2;
     }
 
-    const matchesSearch =
-      !q ||
-      p.name.toLowerCase().includes(q) ||
-      p.code.toLowerCase().includes(q) ||
-      p.id.toLowerCase().includes(q) ||
-      p.brand?.toLowerCase().includes(q) ||
-      p.model?.toLowerCase().includes(q) ||
-      p.imei?.toLowerCase().includes(q) ||
-      p.imeiList?.some(im => im.toLowerCase().includes(q)) ||
-      (p.branchImeiMap && Object.values(p.branchImeiMap).some(arr => arr.some(im => im.toLowerCase().includes(q))));
-    return matchesCategory && matchesSearch;
-  });
+    if (
+      p.id === 'prod-recarga-gen' || 
+      p.code === 'REC-01' || 
+      p.code?.toUpperCase().startsWith('REC') || 
+      p.category === 'recarga' ||
+      p.name?.toLowerCase().includes('recarga')
+    ) {
+      return 3;
+    }
+
+    if (
+      p.id === 'prod-reparacion-gen' || 
+      p.code === 'REP-01' || 
+      p.code?.toUpperCase().startsWith('REP') || 
+      p.code?.toUpperCase().startsWith('SERV') ||
+      (p.category === 'servicio' && p.price === 0) ||
+      p.name?.toLowerCase().includes('servicio técnico') ||
+      p.name?.toLowerCase().includes('reparación')
+    ) {
+      return 4;
+    }
+
+    return 5;
+  };
+
+  // Products array (filtered by category/search and strictly ordered by rank and natural numerical code)
+  const filteredProducts = useMemo(() => {
+    const rawList = products.filter((p) => {
+      const q = searchQuery.trim().toLowerCase();
+      const isSpecificDevice = (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && 
+        p.id !== 'prod-equipo-credito-gen' && 
+        p.id !== 'prod-abono-gen';
+
+      // Without search query, hide individual phone models so they don't clutter the screen with 50 buttons
+      if (!q && isSpecificDevice) {
+        return false;
+      }
+
+      let matchesCategory = true;
+      if (selectedCategory === 'all') {
+        matchesCategory = true;
+      } else if (selectedCategory === 'accesorio') {
+        matchesCategory = p.category === 'accesorio' || p.inventoryType === 'accesorio';
+      } else if (selectedCategory === 'equipo') {
+        matchesCategory = p.category === 'equipo_credito' || p.category === 'equipo' || p.inventoryType === 'equipo';
+      } else if (selectedCategory === 'servicio') {
+        matchesCategory = p.category === 'servicio' || p.id === 'prod-reparacion-gen';
+      } else if (selectedCategory === 'recarga') {
+        matchesCategory = p.category === 'recarga';
+      } else if (selectedCategory === 'abono') {
+        matchesCategory = p.id === 'prod-abono-gen' || p.name.toLowerCase().includes('abono');
+      } else {
+        matchesCategory = p.category === selectedCategory;
+      }
+
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.code.toLowerCase().includes(q) ||
+        p.id.toLowerCase().includes(q) ||
+        p.brand?.toLowerCase().includes(q) ||
+        p.model?.toLowerCase().includes(q) ||
+        p.imei?.toLowerCase().includes(q) ||
+        p.imeiList?.some(im => im.toLowerCase().includes(q)) ||
+        (p.branchImeiMap && Object.values(p.branchImeiMap).some(arr => arr.some(im => im.toLowerCase().includes(q))));
+      return matchesCategory && matchesSearch;
+    });
+
+    return [...rawList].sort((a, b) => {
+      const rankA = getPosProductRank(a);
+      const rankB = getPosProductRank(b);
+
+      if (rankA !== rankB) {
+        return rankA - rankB;
+      }
+
+      // Natural alphanumeric & numerical sort by product code (e.g. CA-1, CA-2, CA-10, CE-1, etc.)
+      const codeA = (a.code || '').trim();
+      const codeB = (b.code || '').trim();
+
+      const codeComparison = codeA.localeCompare(codeB, 'es', { numeric: true, sensitivity: 'base' });
+      if (codeComparison !== 0) {
+        return codeComparison;
+      }
+
+      // Secondary alphabetical sort by name
+      return (a.name || '').localeCompare(b.name || '', 'es', { numeric: true, sensitivity: 'base' });
+    });
+  }, [products, searchQuery, selectedCategory]);
 
 
   // Add Product handler
