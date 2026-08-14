@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Package, Plus, Search, ArrowRightLeft, Smartphone, Headphones, Building2, X, PlusCircle, AlertTriangle, SlidersHorizontal, CheckCircle2, DollarSign, Info, Lock, ShieldCheck } from 'lucide-react';
 import { Product, Branch } from '../types';
 
@@ -167,37 +167,59 @@ export default function InventoryModule({
     return p.stock || 0;
   };
 
-  // Products filtered ONLY by current active tab (Equipos vs Accesorios) for action modals
-  const tabProducts = products.filter((p) => {
-    const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
-    return pType === activeInventoryTab;
-  });
+  // Natural sorting function (numeric alphanumeric ordering matching Module 1 / POS)
+  const naturalProductSort = (a: Product, b: Product): number => {
+    // Primary sort by product code naturally (e.g. CA-01, CA-02, CA-10, CE-01, FUN-01, etc.)
+    const codeA = (a.code || '').trim();
+    const codeB = (b.code || '').trim();
 
-  // Filter products by Accesorios vs Equipos AND Search Query (including full IMEI matching)
-  const filteredProducts = products.filter((p) => {
-    const q = searchQuery.toLowerCase().trim();
-    const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
-
-    if (!q) {
-      return pType === activeInventoryTab;
+    const codeComparison = codeA.localeCompare(codeB, 'es', { numeric: true, sensitivity: 'base' });
+    if (codeComparison !== 0) {
+      return codeComparison;
     }
 
-    const matchesName = p.name.toLowerCase().includes(q);
-    const matchesCode = p.code.toLowerCase().includes(q);
-    const matchesImeiDirect = p.imei?.toLowerCase().includes(q) || false;
-    const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q)) || false;
-    const matchesBranchImeiMap = p.branchImeiMap
-      ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q)))
-      : false;
+    // Secondary natural sort by name
+    return (a.name || '').localeCompare(b.name || '', 'es', { numeric: true, sensitivity: 'base' });
+  };
 
-    const isImeiMatch = matchesImeiDirect || matchesImeiList || matchesBranchImeiMap;
-    const matchesSearch = matchesName || matchesCode || isImeiMatch;
+  // Products filtered ONLY by current active tab (Equipos vs Accesorios) for action modals
+  const tabProducts = useMemo(() => {
+    const list = products.filter((p) => {
+      const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
+      return pType === activeInventoryTab;
+    });
+    return list.sort(naturalProductSort);
+  }, [products, activeInventoryTab]);
 
-    // If query matches an IMEI, return true so the user can see the equipment regardless of current tab
-    if (isImeiMatch) return true;
+  // Filter products by Accesorios vs Equipos AND Search Query (including full IMEI matching)
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const list = products.filter((p) => {
+      const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
 
-    return matchesSearch && pType === activeInventoryTab;
-  });
+      if (!q) {
+        return pType === activeInventoryTab;
+      }
+
+      const matchesName = p.name.toLowerCase().includes(q);
+      const matchesCode = p.code.toLowerCase().includes(q);
+      const matchesImeiDirect = p.imei?.toLowerCase().includes(q) || false;
+      const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q)) || false;
+      const matchesBranchImeiMap = p.branchImeiMap
+        ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q)))
+        : false;
+
+      const isImeiMatch = matchesImeiDirect || matchesImeiList || matchesBranchImeiMap;
+      const matchesSearch = matchesName || matchesCode || isImeiMatch;
+
+      // If query matches an IMEI, return true so the user can see the equipment regardless of current tab
+      if (isImeiMatch) return true;
+
+      return matchesSearch && pType === activeInventoryTab;
+    });
+
+    return list.sort(naturalProductSort);
+  }, [products, searchQuery, activeInventoryTab]);
 
   // --- HANDLER: INGRESAR (MODELO, CANTIDAD Y SUCURSAL) ---
   const handleOpenIngresar = () => {
