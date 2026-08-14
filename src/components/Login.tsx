@@ -1,14 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Store, User, Lock, ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { Store, User, Lock, ArrowRight, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
-
-const MOCK_BRANCHES: Branch[] = [
-  { id: 'b-bodega', name: 'Bodega' },
-  { id: 'b-navojoa', name: 'Navojoa' },
-  { id: 'b-huatabampo', name: 'Huatabampo' },
-];
+import { ALL_BRANCHES } from '../data/initialBranches';
 
 interface LoginProps {
   onLogin: (branch: Branch, operator: Operator) => void;
@@ -16,39 +11,46 @@ interface LoginProps {
   branches?: Branch[];
 }
 
-export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches = MOCK_BRANCHES }: LoginProps) {
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+export default function Login({ 
+  onLogin, 
+  operators = INITIAL_OPERATORS, 
+  branches = ALL_BRANCHES 
+}: LoginProps) {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
-  const availableOperators = useMemo(() => {
-    if (!selectedBranchId) return [];
-    return operators.filter((op) => op.branchIds.includes(selectedBranchId));
-  }, [selectedBranchId, operators]);
+  // Selected operator object
+  const selectedOperator = operators.find((o) => o.id === selectedOperatorId);
 
-  const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedBranchId(e.target.value);
-    setSelectedOperatorId(''); // Reset operator when branch changes
-    setPassword('');
-    setError('');
-  };
+  // Automatically resolve the branch assigned to this operator in Administration
+  const assignedBranch: Branch = React.useMemo(() => {
+    if (!selectedOperator) return branches[0];
+    const assignedBranchId = selectedOperator.branchIds && selectedOperator.branchIds.length > 0 
+      ? selectedOperator.branchIds[0] 
+      : branches[0]?.id;
+    return branches.find((b) => b.id === assignedBranchId) || branches[0];
+  }, [selectedOperator, branches]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!selectedBranchId || !selectedOperatorId || !password) {
-      setError('Por favor, selecciona sucursal, usuario e ingresa la contraseña.');
+    if (!selectedOperatorId) {
+      setError('Por favor, selecciona tu usuario de operador.');
       return;
     }
 
-    const branch = branches.find((b) => b.id === selectedBranchId);
+    if (!password) {
+      setError('Por favor, ingresa tu contraseña de acceso.');
+      return;
+    }
+
     const operator = operators.find((o) => o.id === selectedOperatorId);
 
-    if (!branch || !operator) {
-      setError('Datos de acceso inválidos o usuario no asignado.');
+    if (!operator) {
+      setError('Usuario u operador no encontrado en el sistema.');
       return;
     }
 
@@ -56,12 +58,12 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
     const expectedPassword = operator.password !== undefined ? operator.password : '123';
 
     if (password !== expectedPassword) {
-      setError(`❌ Contraseña incorrecta para el usuario '${operator.name}'. Verifique sus credenciales.`);
+      setError(`❌ Contraseña incorrecta para '${operator.name}'. Verifique sus credenciales.`);
       return;
     }
 
-    // Successful login
-    onLogin(branch, operator);
+    // Automatic direct login to the branch assigned to this operator in Administration
+    onLogin(assignedBranch, operator);
   };
 
   return (
@@ -76,7 +78,9 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
               <Logo size="lg" theme="dark" />
             </div>
             <h1 className="text-lg font-black text-white tracking-tight">Acceso al Sistema ERP</h1>
-            <p className="text-slate-400 mt-1 text-xs font-medium">Autenticación con Credenciales de Operador</p>
+            <p className="text-slate-400 mt-1 text-xs font-medium">
+              Ingreso automático a la sucursal asignada
+            </p>
           </div>
         </div>
 
@@ -84,30 +88,6 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
         <div className="p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             
-            {/* Branch Selection */}
-            <div>
-              <label className="block text-xs font-extrabold text-slate-800 mb-1.5 uppercase tracking-wider">
-                Sucursal de Operación
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Store className="h-4 w-4 text-slate-400" />
-                </div>
-                <select
-                  value={selectedBranchId}
-                  onChange={handleBranchChange}
-                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white text-xs transition-shadow"
-                >
-                  <option value="" disabled>-- Selecciona una sucursal --</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
             {/* Operator Selection */}
             <div>
               <label className="block text-xs font-extrabold text-slate-800 mb-1.5 uppercase tracking-wider">
@@ -121,22 +101,45 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
                   value={selectedOperatorId}
                   onChange={(e) => {
                     setSelectedOperatorId(e.target.value);
+                    setPassword('');
                     setError('');
                   }}
-                  disabled={!selectedBranchId}
-                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white text-xs disabled:bg-slate-50 disabled:text-slate-400 transition-shadow"
+                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 font-extrabold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 bg-white text-xs transition-shadow"
                 >
-                  <option value="" disabled>
-                    {!selectedBranchId ? 'Primero selecciona la sucursal' : '-- Selecciona tu usuario --'}
-                  </option>
-                  {availableOperators.map((operator) => (
-                    <option key={operator.id} value={operator.id}>
-                      {operator.name} (@{operator.username}) - {operator.role.toUpperCase()}
-                    </option>
-                  ))}
+                  <option value="" disabled>-- Selecciona tu usuario --</option>
+                  {operators.map((operator) => {
+                    const opBranch = branches.find((b) => operator.branchIds?.includes(b.id)) || branches[0];
+                    return (
+                      <option key={operator.id} value={operator.id}>
+                        {operator.name} (@{operator.username}) • {opBranch?.name || 'Sucursal'}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>
+
+            {/* Automatically Display Assigned Branch */}
+            {selectedOperator && (
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl animate-in fade-in zoom-in-95 duration-150 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-blue-700 uppercase tracking-wider flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                    Sucursal Asignada en Administración:
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-600 text-white uppercase">
+                    {selectedOperator.role}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-900 font-black text-sm pt-0.5">
+                  <Store className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>{assignedBranch?.name || 'Sucursal Asignada'}</span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium">
+                  El sistema iniciará sesión directamente en esta sucursal según la configuración establecida.
+                </p>
+              </div>
+            )}
 
             {/* Password with Eye Toggle */}
             <div>
@@ -180,7 +183,7 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
             {/* Security Note */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-2 text-[11px] text-slate-600 font-medium">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Las credenciales son configuradas y administradas por el Admin Principal en el Módulo de Configuración.</span>
+              <span>Las credenciales y sucursales son administradas desde el Módulo de Configuración.</span>
             </div>
 
             {/* Submit Button */}
@@ -197,4 +200,3 @@ export default function Login({ onLogin, operators = INITIAL_OPERATORS, branches
     </div>
   );
 }
-

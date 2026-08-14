@@ -357,7 +357,7 @@ export default function SettingsModule({
                 <th className="px-4 py-3.5">Usuario / Nombre</th>
                 <th className="px-4 py-3.5">Nombre de Usuario (Login)</th>
                 <th className="px-4 py-3.5">Rol de Sistema</th>
-                <th className="px-4 py-3.5">Sucursales Permitidas</th>
+                <th className="px-4 py-3.5">Sucursal Asignada</th>
                 <th className="px-4 py-3.5">Contraseña de Acceso</th>
                 {isMainAdmin && <th className="px-4 py-3.5 text-center">Acciones Administrador</th>}
               </tr>
@@ -414,23 +414,24 @@ export default function SettingsModule({
                       </span>
                     </td>
 
-                    {/* Branches */}
+                    {/* Assigned Branch */}
                     <td className="px-4 py-3.5">
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1 items-center">
                         {op.branchIds && op.branchIds.length > 0 ? (
                           op.branchIds.map((bId) => {
                             const branchObj = allBranches.find((b) => b.id === bId);
                             return (
                               <span
                                 key={bId}
-                                className="px-2 py-0.5 bg-slate-100 text-slate-800 text-[10px] font-bold rounded border border-slate-200"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-900 text-[11px] font-black rounded-lg border border-blue-200"
                               >
+                                <Building2 className="w-3 h-3 text-blue-600 shrink-0" />
                                 {branchObj ? branchObj.name : bId}
                               </span>
                             );
                           })
                         ) : (
-                          <span className="text-slate-400 text-[11px] italic">Sin sucursal</span>
+                          <span className="text-slate-400 text-[11px] italic">Sin sucursal asignada</span>
                         )}
                       </div>
                     </td>
@@ -621,35 +622,47 @@ export default function SettingsModule({
                 </select>
               </div>
 
-              {/* Branch Assignment Checkboxes */}
+              {/* Branch Assignment */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Sucursales Asignadas (Acceso Permitido) *
-                </label>
-                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Sucursal Asignada (Acceso Automático) *
+                  </label>
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Building2 className="w-3 h-3 text-blue-600" />
+                    Asignación Automática
+                  </span>
+                </div>
+                
+                <p className="text-[11px] text-slate-500 mb-2">
+                  El usuario ingresará directamente a esta sucursal sin necesidad de seleccionarla en la pantalla de acceso.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
                   {allBranches.map((branch) => {
                     const isChecked = formBranchIds.includes(branch.id);
                     return (
-                      <label
+                      <button
+                        type="button"
                         key={branch.id}
-                        className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-bold cursor-pointer transition-colors ${
-                          isChecked ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-white border-slate-200 text-slate-700'
+                        onClick={() => {
+                          // Allow setting single primary branch or toggling
+                          setFormBranchIds([branch.id]);
+                        }}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer text-left ${
+                          isChecked 
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-600/20' 
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormBranchIds([...formBranchIds, branch.id]);
-                            } else {
-                              setFormBranchIds(formBranchIds.filter((b) => b !== branch.id));
-                            }
-                          }}
-                          className="rounded text-blue-600 focus:ring-blue-500"
-                        />
-                        <span>{branch.name}</span>
-                      </label>
+                        <div className="flex items-center gap-2">
+                          <Building2 className={`w-4 h-4 ${isChecked ? 'text-white' : 'text-slate-400'}`} />
+                          <span>{branch.name}</span>
+                        </div>
+                        {isChecked && (
+                          <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                        )}
+                      </button>
                     );
                   })}
                 </div>
