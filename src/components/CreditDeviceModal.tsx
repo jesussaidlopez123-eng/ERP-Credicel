@@ -27,7 +27,7 @@ interface CreditDeviceModalProps {
   onConfirm: (product: Product, amount: number, metadata: CartItemMetadata) => void;
 }
 
-const COMMON_PLATFORMS = ['PayJoy', 'Macropay', 'CrediCel', 'Paguitos', 'DMI', 'Platita', 'Krediti'];
+const COMMON_PLATFORMS = ['CrediYa', 'PayJoy'] as const;
 
 export default function CreditDeviceModal({
   isOpen,
@@ -39,7 +39,7 @@ export default function CreditDeviceModal({
 }: CreditDeviceModalProps) {
   // Mode: 'credito' vs 'contado'
   const [saleMode, setSaleMode] = useState<'credito' | 'contado'>('credito');
-  const [platform, setPlatform] = useState('PayJoy');
+  const [platform, setPlatform] = useState<string>('CrediYa');
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [selectedProdId, setSelectedProdId] = useState<string>('');
@@ -127,7 +127,7 @@ export default function CreditDeviceModal({
       }
     } else {
       if (platform === 'Contado') {
-        setPlatform('PayJoy');
+        setPlatform('CrediYa');
       }
       setDownPayment('500');
     }
@@ -353,40 +353,57 @@ export default function CreditDeviceModal({
             </div>
           )}
 
-          {/* If Crédito: Platform Picker / Chips */}
+          {/* If Crédito: Platform Picker (Exclusively CrediYa and PayJoy) */}
           {saleMode === 'credito' && (
             <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-700 flex items-center gap-1">
-                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                Empresa / Financiera de Crédito *
-              </label>
-              
-              {/* Quick Chip Selector */}
-              <div className="flex flex-wrap gap-1.5 mb-1.5">
-                {COMMON_PLATFORMS.map((plat) => (
-                  <button
-                    key={plat}
-                    type="button"
-                    onClick={() => setPlatform(plat)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
-                      platform === plat
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    {plat}
-                  </button>
-                ))}
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                  Financiera de Crédito *
+                </label>
+                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                  Solo CrediYa y PayJoy
+                </span>
               </div>
+              
+              {/* Exclusive 2-Platform Selector */}
+              <div className="grid grid-cols-2 gap-2.5">
+                {COMMON_PLATFORMS.map((plat) => {
+                  const isSelected = platform === plat;
+                  return (
+                    <button
+                      key={plat}
+                      type="button"
+                      onClick={() => setPlatform(plat)}
+                      className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer text-left ${
+                        isSelected
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-md ring-2 ring-indigo-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                          <CreditCard className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className={`text-xs font-black tracking-wide ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                            {plat}
+                          </p>
+                          <p className={`text-[10px] font-medium ${isSelected ? 'text-indigo-100' : 'text-slate-500'}`}>
+                            {plat === 'CrediYa' ? 'Crédito Celular' : 'Financiamiento'}
+                          </p>
+                        </div>
+                      </div>
 
-              <input
-                type="text"
-                required
-                placeholder="O escribe otra financiera (Ej. PayJoy, Macropay, etc.)"
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
-              />
+                      {isSelected ? (
+                        <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border border-slate-300 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

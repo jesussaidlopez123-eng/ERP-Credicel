@@ -14,17 +14,13 @@ export default function CreditPaymentModal({
   onConfirm
 }: CreditPaymentModalProps) {
   const [amount, setAmount] = useState<string>('');
-  const [platform, setPlatform] = useState<string>('');
+  const [platform, setPlatform] = useState<string>('CrediYa');
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPlatform = platform.trim();
-    if (!cleanPlatform) {
-      alert('Por favor escribe el nombre de la plataforma de crédito (ej. CrediCel, PayJoy, Macropay).');
-      return;
-    }
+    const cleanPlatform = platform.trim() || 'CrediYa';
 
     const numAmount = parseFloat(amount);
     if (!numAmount || numAmount <= 0) {
@@ -52,7 +48,7 @@ export default function CreditPaymentModal({
 
     // Reset fields
     setAmount('');
-    setPlatform('');
+    setPlatform('CrediYa');
   };
 
   return (
@@ -67,7 +63,7 @@ export default function CreditPaymentModal({
             </div>
             <div>
               <h3 className="font-extrabold text-base">Cobrar Abono a Crédito</h3>
-              <p className="text-xs text-indigo-100">Ingresa la plataforma y monto del abono</p>
+              <p className="text-xs text-indigo-100">CrediYa / PayJoy</p>
             </div>
           </div>
 
@@ -82,20 +78,48 @@ export default function CreditPaymentModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
           
-          {/* Platform Field (Strict Written Input) */}
+          {/* Platform Field (Exclusively CrediYa & PayJoy) */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-              Plataforma de Crédito <span className="text-red-500">*</span>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                Financiera de Crédito *
+              </span>
+              <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                Solo CrediYa y PayJoy
+              </span>
             </label>
-            <input
-              type="text"
-              required
-              placeholder="Escribe manualmente la plataforma (ej. CrediCel, PayJoy, Macropay...)"
-              value={platform}
-              onChange={(e) => setPlatform(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-            />
+            
+            <div className="grid grid-cols-2 gap-2">
+              {['CrediYa', 'PayJoy'].map((plat) => {
+                const isSelected = platform === plat;
+                return (
+                  <button
+                    key={plat}
+                    type="button"
+                    onClick={() => setPlatform(plat)}
+                    className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer text-left ${
+                      isSelected
+                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-md ring-2 ring-indigo-200'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                        <CreditCard className="w-4 h-4" />
+                      </div>
+                      <span className={`text-xs font-black tracking-wide ${isSelected ? 'text-white' : 'text-slate-900'}`}>
+                        {plat}
+                      </span>
+                    </div>
+
+                    {isSelected && (
+                      <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Amount Field (Strict Written Input) */}
