@@ -1196,13 +1196,15 @@ export default function InventoryModule({
   const handleSaveEditedProduct = (updatedProduct: Product) => {
     const original = products.find(p => p.id === updatedProduct.id);
     
-    // Si cambiaron precios, nombre o proveedor, registrar movimiento de auditoría
+    // Si cambiaron código, precios, nombre o proveedor, registrar movimiento de auditoría
+    const codeChanged = original && original.code !== updatedProduct.code;
     const priceChanged = original && (original.price !== updatedProduct.price || original.costPrice !== updatedProduct.costPrice);
     const supplierChanged = original && original.supplier !== updatedProduct.supplier;
     const nameChanged = original && original.name !== updatedProduct.name;
 
-    if (priceChanged || supplierChanged || nameChanged) {
+    if (codeChanged || priceChanged || supplierChanged || nameChanged) {
       const detailsList: string[] = [];
+      if (codeChanged) detailsList.push(`Código: "${original?.code}" ➔ "${updatedProduct.code}"`);
       if (nameChanged) detailsList.push(`Nombre: "${original?.name}" ➔ "${updatedProduct.name}"`);
       if (supplierChanged) detailsList.push(`Proveedor: "${original?.supplier || 'N/A'}" ➔ "${updatedProduct.supplier || 'N/A'}"`);
       if (priceChanged) {

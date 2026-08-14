@@ -8,12 +8,12 @@ import {
   Smartphone, 
   Headphones, 
   CheckCircle2, 
-  ShieldCheck, 
   Tag, 
   AlertCircle,
   Palette,
   Layers,
-  ChevronDown
+  ChevronDown,
+  Barcode
 } from 'lucide-react';
 import { Product, Branch, Operator } from '../types';
 
@@ -39,6 +39,7 @@ export default function EditProductModal({
   branches = []
 }: EditProductModalProps) {
   const [currentProduct, setCurrentProduct] = useState<Product | null>(initialProduct);
+  const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
   const [model, setModel] = useState('');
@@ -55,6 +56,7 @@ export default function EditProductModal({
     const activeProd = initialProduct || (products.length > 0 ? products[0] : null);
     setCurrentProduct(activeProd);
     if (activeProd) {
+      setCode(activeProd.code || '');
       setName(activeProd.name || '');
       setBrand(activeProd.brand || '');
       setModel(activeProd.model || '');
@@ -72,6 +74,7 @@ export default function EditProductModal({
     const found = products.find(p => p.id === prodId);
     if (found) {
       setCurrentProduct(found);
+      setCode(found.code || '');
       setName(found.name || '');
       setBrand(found.brand || '');
       setModel(found.model || '');
@@ -99,6 +102,23 @@ export default function EditProductModal({
     e.preventDefault();
     setErrorMsg('');
 
+    if (!code.trim()) {
+      setErrorMsg('El Código Interno del producto es obligatorio.');
+      return;
+    }
+
+    const trimmedCode = code.trim().toUpperCase();
+
+    // Validar que el código no esté duplicado con otro producto
+    const isDuplicate = products.some(
+      p => p.id !== currentProduct.id && p.code?.trim().toUpperCase() === trimmedCode
+    );
+
+    if (isDuplicate) {
+      setErrorMsg(`El código interno "${trimmedCode}" ya está en uso por otro producto. Por favor ingresa uno diferente.`);
+      return;
+    }
+
     if (!name.trim()) {
       setErrorMsg('El nombre o modelo del producto es obligatorio.');
       return;
@@ -117,9 +137,10 @@ export default function EditProductModal({
       return;
     }
 
-    // STRICT CONSTRAINT: The original `code`, `imei`, `imeiList`, and `branchImeiMap` are preserved identically and never mutated
+    // STRICT CONSTRAINT: The IMEI, IMEI list, and branchImeiMap remain strictly protected and never mutated
     const updatedProduct: Product = {
       ...currentProduct,
+      code: trimmedCode,
       name: name.trim(),
       brand: brand.trim() || undefined,
       model: model.trim() || undefined,
@@ -128,9 +149,8 @@ export default function EditProductModal({
       costPrice: numCost,
       price: numPrice,
       category: category.trim() || currentProduct.category,
-      // Immutable fields explicitly preserved:
+      // Immutable fields explicitly preserved (IMEIs are strictly protected):
       id: currentProduct.id,
-      code: currentProduct.code,
       imei: currentProduct.imei,
       imeiList: currentProduct.imeiList,
       branchImeiMap: currentProduct.branchImeiMap,
@@ -166,7 +186,7 @@ export default function EditProductModal({
                 </span>
               </h3>
               <p className="text-[11px] text-slate-200">
-                Actualiza datos generales, proveedor y precios sin alterar códigos ni IMEIs
+                Edita código interno, datos y precios. Los IMEIs permanecen protegidos.
               </p>
             </div>
           </div>
@@ -224,92 +244,83 @@ export default function EditProductModal({
               </div>
             )}
 
-            {/* SECCIÓN 1: CAMPOS PROTEGIDOS (CÓDIGO E IMEIS INMUTABLES) */}
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black tracking-wider uppercase text-slate-500 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-slate-400" />
-                  Datos Protegidos e Inmutables
-                </span>
-                <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
-                  No editables por trazabilidad
+            {/* SECCIÓN 1: DATOS CLAVE (CÓDIGO INTERNO EDITABLE Y TIPO) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-blue-50/40 border border-blue-100 rounded-xl">
+              
+              {/* CÓDIGO INTERNO EDITABLE */}
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 flex items-center gap-1.5">
+                  <Barcode className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Código Interno (Editable) *</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. SAM-A54, ACC-001..."
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-blue-300 rounded-xl text-xs font-mono font-black text-blue-950 uppercase focus:ring-2 focus:ring-blue-600 focus:outline-none shadow-2xs"
+                  />
+                </div>
+                <span className="text-[9px] text-blue-700 mt-0.5 block font-medium">
+                  Identificador y SKU del producto
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* CÓDIGO INMUTABLE */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Código de Producto:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      disabled
-                      value={currentProduct.code}
-                      className="w-full pl-3 pr-8 py-2 bg-slate-200 border border-slate-300 rounded-xl text-xs font-mono font-black text-slate-700 cursor-not-allowed select-none"
-                    />
-                    <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                  </div>
-                  <span className="text-[9px] text-slate-400 mt-0.5 block">Identificador permanente de inventario</span>
-                </div>
-
-                {/* TIPO / CATEGORÍA ACTUAL */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Tipo de Inventario:
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      disabled
-                      value={isEquipo ? 'Equipo Celular (Smartphone)' : 'Accesorio'}
-                      className="w-full pl-3 pr-8 py-2 bg-slate-200 border border-slate-300 rounded-xl text-xs font-extrabold text-slate-700 cursor-not-allowed select-none"
-                    />
-                    {isEquipo ? (
-                      <Smartphone className="w-3.5 h-3.5 text-blue-600 absolute right-3 top-1/2 -translate-y-1/2" />
-                    ) : (
-                      <Headphones className="w-3.5 h-3.5 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2" />
-                    )}
-                  </div>
-                  <span className="text-[9px] text-slate-400 mt-0.5 block">Clasificación de catálogo</span>
-                </div>
+              {/* TIPO DE INVENTARIO */}
+              <div>
+                <label className="block text-[11px] font-extrabold text-slate-900 mb-1 flex items-center gap-1.5">
+                  {isEquipo ? <Smartphone className="w-3.5 h-3.5 text-blue-600" /> : <Headphones className="w-3.5 h-3.5 text-slate-600" />}
+                  <span>Clasificación</span>
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={isEquipo ? 'Equipo Celular (Smartphone)' : 'Accesorio'}
+                  className="w-full px-3 py-2 bg-slate-200/80 border border-slate-300 rounded-xl text-xs font-extrabold text-slate-700 cursor-not-allowed select-none"
+                />
+                <span className="text-[9px] text-slate-500 mt-0.5 block">Categoría de catálogo</span>
               </div>
 
-              {/* LISTA DE IMEIS INMUTABLES (SOLO PARA EQUIPOS) */}
-              {isEquipo && (
-                <div className="pt-2 border-t border-slate-200/80">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
-                      <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-                      <span>IMEIs Registrados ({imeiList.length}):</span>
-                    </label>
-                    <span className="text-[9px] text-slate-500 italic">
-                      Protegidos contra edición
-                    </span>
-                  </div>
-
-                  {imeiList.length === 0 ? (
-                    <p className="text-[11px] text-slate-400 italic">Sin IMEIs registrados</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-1.5 bg-slate-100/80 rounded-lg border border-slate-200">
-                      {imeiList.map((im, idx) => (
-                        <span 
-                          key={idx} 
-                          className="font-mono text-[10px] font-bold bg-white text-slate-800 px-2 py-0.5 rounded border border-slate-300 shadow-2xs flex items-center gap-1"
-                        >
-                          <Lock className="w-2.5 h-2.5 text-slate-400" />
-                          #{idx + 1}: {im}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* SECCIÓN 2: CAMPOS EDITABLES */}
-            <div className="space-y-3.5 pt-1">
+            {/* SECCIÓN 2: IMEIS PROTEGIDOS (SOLO PARA EQUIPOS) */}
+            {isEquipo && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black tracking-wider uppercase text-slate-600 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    IMEIs Registrados ({imeiList.length})
+                  </span>
+                  <span className="text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                    Solo Lectura (Protegido)
+                  </span>
+                </div>
+
+                {imeiList.length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic">Sin IMEIs registrados</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 bg-white rounded-lg border border-slate-200">
+                    {imeiList.map((im, idx) => (
+                      <span 
+                        key={idx} 
+                        className="font-mono text-[10px] font-bold bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-300 shadow-2xs flex items-center gap-1"
+                      >
+                        <Lock className="w-2.5 h-2.5 text-slate-400" />
+                        #{idx + 1}: {im}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[9px] text-slate-500 italic">
+                  * Los IMEIs están protegidos para asegurar la trazabilidad de número de serie en ventas y traslados.
+                </p>
+              </div>
+            )}
+
+            {/* SECCIÓN 3: CAMPOS GENERALES EDITABLES */}
+            <div className="space-y-3 pt-1">
               
               {/* NOMBRE / MODELO */}
               <div>
@@ -335,7 +346,7 @@ export default function EditProductModal({
                   </label>
                   <input
                     type="text"
-                    placeholder="Ej. Samsung, Apple, Xiaomi..."
+                    placeholder="Ej. Samsung, Apple..."
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -349,7 +360,7 @@ export default function EditProductModal({
                   </label>
                   <input
                     type="text"
-                    placeholder="Ej. Galaxy A54, iPhone 13..."
+                    placeholder="Ej. Galaxy A54..."
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -363,7 +374,7 @@ export default function EditProductModal({
                   </label>
                   <input
                     type="text"
-                    placeholder="Ej. Negro, Azul, Blanco..."
+                    placeholder="Ej. Negro, Azul..."
                     value={color}
                     onChange={(e) => setColor(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
