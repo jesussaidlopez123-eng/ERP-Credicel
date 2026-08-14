@@ -115,18 +115,29 @@ export default function TicketReceiptModal({
                   </div>
                 )}
 
-                {/* Specific metadata for Credit Devices */}
-                {item.metadata?.clientName && (
-                  <div className="text-[10px] text-indigo-900 font-sans bg-indigo-50 p-1.5 rounded border border-indigo-200 space-y-0.5">
-                    <div>👤 Cliente: <strong>{item.metadata.clientName}</strong></div>
+                {/* Specific metadata for Equipment / Cell Phone Sales (Contado or Crédito) */}
+                {item.metadata?.deviceModel && (
+                  <div className={`text-[10px] font-sans p-1.5 rounded border space-y-0.5 ${
+                    item.metadata.saleType === 'contado' || item.metadata.financingPlatform === 'Contado'
+                      ? 'text-emerald-900 bg-emerald-50 border-emerald-200'
+                      : 'text-indigo-900 bg-indigo-50 border-indigo-200'
+                  }`}>
+                    <div className="font-bold flex items-center justify-between">
+                      <span>
+                        {item.metadata.saleType === 'contado' || item.metadata.financingPlatform === 'Contado'
+                          ? '📱 VENTA DE CELULAR (CONTADO)'
+                          : `🏦 ENGANCHE CRÉDITO (${item.metadata.financingPlatform || 'Financiera'})`}
+                      </span>
+                    </div>
+                    {item.metadata.clientName && <div>👤 Cliente: <strong>{item.metadata.clientName}</strong></div>}
                     {item.metadata.clientPhone && <div>📞 Tel: <strong>{item.metadata.clientPhone}</strong></div>}
                     <div>📱 Equipo: <strong>{item.metadata.deviceModel}</strong></div>
-                    <div>🔢 IMEI: <strong className="font-mono">{item.metadata.imei}</strong></div>
-                    <div>🏦 Financiera: <strong>{item.metadata.financingPlatform}</strong></div>
-                    {item.metadata.fullPrice !== undefined && (
+                    {item.metadata.imei && <div>🔢 IMEI: <strong className="font-mono">{item.metadata.imei}</strong></div>}
+                    
+                    {item.metadata.saleType === 'credito' && item.metadata.financingPlatform !== 'Contado' && item.metadata.fullPrice !== undefined && (
                       <div className="pt-1 mt-1 border-t border-indigo-200 text-[9.5px] space-y-0.5 font-mono">
                         <div className="flex justify-between"><span>Precio Total Equipo:</span> <strong>${item.metadata.fullPrice.toFixed(2)}</strong></div>
-                        <div className="flex justify-between"><span>Enganche Recibido:</span> <strong>${(item.metadata.downPayment || item.totalPrice).toFixed(2)}</strong></div>
+                        <div className="flex justify-between"><span>Enganche Cobrado:</span> <strong>${(item.metadata.downPayment || item.totalPrice).toFixed(2)}</strong></div>
                         <div className="flex justify-between font-bold text-indigo-950">
                           <span>Saldo Financiado:</span>
                           <strong>${(item.metadata.remainingBalance ?? Math.max(0, item.metadata.fullPrice - (item.metadata.downPayment || item.totalPrice))).toFixed(2)}</strong>

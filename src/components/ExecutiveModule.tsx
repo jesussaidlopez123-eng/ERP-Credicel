@@ -183,8 +183,9 @@ export default function ExecutiveModule({
         return false;
       }
       if (selectedPeriod === 'all') return true;
-      const expDate = new Date(e.date || Date.now());
+      const expDate = new Date(e.timestamp || e.date || Date.now());
       const now = new Date();
+
 
       if (selectedPeriod === 'today') {
         return expDate.toDateString() === now.toDateString();

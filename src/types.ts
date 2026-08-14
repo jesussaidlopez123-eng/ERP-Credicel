@@ -121,12 +121,15 @@ export interface CartItemMetadata {
   carrier?: string;
   rechargeAmount?: number;
 
-  // For Credit/Financed Phone Sales
+  // For Equipment / Cell Phone Sales (Contado or Crédito)
+  saleType?: 'contado' | 'credito';
   clientName?: string;
   clientPhone?: string;
   deviceModel?: string;
   imei?: string;
   downPayment?: number; // Enganche
+  fullPrice?: number;
+  remainingBalance?: number;
   financingPlatform?: string; // e.g. PayJoy, Macropay, CrediCel, DMI, etc.
 
   // For Repair Services
@@ -136,6 +139,7 @@ export interface CartItemMetadata {
   advancePayment?: number;
   totalRepairCost?: number;
 }
+
 
 export interface RepairRecord {
   id: string; // Folio e.g. REP-1001
@@ -174,17 +178,23 @@ export interface CartItem {
   metadata?: CartItemMetadata;
 }
 
+export type SaleItem = CartItem;
+
 export interface Expense {
   id: string;
   amount: number;
   concept: string;
   timestamp: string;
+  date?: string;
   operatorName: string;
   branchId: string;
+  corteXId?: string;
+  corteXClosedAt?: string;
 }
 
 export interface SaleTicket {
   id: string;
+  folio?: string;
   timestamp: string;
   branchId: string;
   operatorName: string;
@@ -193,6 +203,41 @@ export interface SaleTicket {
   paymentMethod: 'Efectivo' | 'Tarjeta' | 'Transferencia';
   cashReceived?: number;
   change?: number;
+  corteXId?: string;
+  corteXClosedAt?: string;
+}
+
+
+export interface CorteXRecord {
+  id: string; // CTX-XXXXXX
+  timestamp: string;
+  dateStr: string;
+  timeStr: string;
+  branchId: string;
+  branchName: string;
+  operatorName: string;
+  initialCashFund: number;
+  cashSales: number;
+  cardSales: number;
+  transferSales: number;
+  totalSales: number;
+  totalExpenses: number;
+  netIncome: number;
+  expectedCashInDrawer: number;
+  ticketIds: string[];
+  expenseIds: string[];
+  breakdown: {
+    accesoriosTotal: number;
+    accesoriosCount: number;
+    abonosTotal: number;
+    abonosCount: number;
+    enganchesTotal: number;
+    enganchesCount: number;
+    reparacionesTotal: number;
+    reparacionesCount: number;
+    recargasTotal: number;
+    recargasCount: number;
+  };
 }
 
 export interface AppState {
@@ -200,5 +245,6 @@ export interface AppState {
   currentBranch: Branch | null;
   currentOperator: Operator | null;
 }
+
 
 

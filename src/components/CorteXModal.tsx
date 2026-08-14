@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Calculator, DollarSign, CreditCard, TrendingDown, Printer, X, Store, Clock, User, PackageCheck, Zap, Receipt, ShoppingBag, Wrench, ShieldCheck, Tag, Barcode, ChevronDown, ChevronUp } from 'lucide-react';
-import { SaleTicket, Expense, Branch, Operator } from '../types';
+import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface CorteXModalProps {
   currentBranch: Branch;
   currentOperator: Operator;
   initialCashFund?: number;
+  onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
 }
 
 interface ConceptDetail {
@@ -18,7 +19,7 @@ interface ConceptDetail {
   time: string;
   qty: number;
   totalPrice: number;
-  metadata?: SaleItem['metadata'];
+  metadata?: CartItemMetadata;
 }
 
 interface ConceptGroup {
@@ -36,8 +37,10 @@ export default function CorteXModal({
   expenses,
   currentBranch,
   currentOperator,
-  initialCashFund = 1000.00
+  initialCashFund = 1000.00,
+  onFinalizeCorteX
 }: CorteXModalProps) {
+
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     accesorios: false,
     abonos: false,
@@ -134,13 +137,14 @@ export default function CorteXModal({
       }
 
       const detailObj: ConceptDetail = {
-        ticketFolio: ticket.folio,
+        ticketFolio: ticket.folio || ticket.id,
         paymentMethod: ticket.paymentMethod,
         time: new Date(ticket.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
         qty,
         totalPrice: itemTotal,
         metadata: item.metadata
       };
+
 
       if (!categoryConceptMaps[catKey][conceptName]) {
         categoryConceptMaps[catKey][conceptName] = {
@@ -201,13 +205,58 @@ export default function CorteXModal({
   const cardAndTransferTotal = cardSalesTotal + transferSalesTotal;
   const expectedCashInDrawer = initialCashFund + cashSalesTotal - totalExpenses;
 
+  const corteFolio = `CTX-${Date.now().toString().slice(-6)}`;
+  const currentDateStr = new Date().toLocaleDateString('es-MX');
+  const currentTimeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
   const handlePrint = () => {
     window.print();
   };
 
-  const corteFolio = `CTX-${Date.now().toString().slice(-6)}`;
-  const currentDateStr = new Date().toLocaleDateString('es-MX');
-  const currentTimeStr = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const handleFinalizeShift = () => {
+    // 1. Trigger thermal print
+    window.print();
+
+    // 2. Build official CorteXRecord snapshot
+    const corteRecord: CorteXRecord = {
+      id: corteFolio,
+      timestamp: new Date().toISOString(),
+      dateStr: currentDateStr,
+      timeStr: currentTimeStr,
+      branchId: currentBranch.id,
+      branchName: currentBranch.name,
+      operatorName: currentOperator.name,
+      initialCashFund,
+      cashSales: cashSalesTotal,
+      cardSales: cardSalesTotal,
+      transferSales: transferSalesTotal,
+      totalSales: totalSalesAll,
+      totalExpenses,
+      netIncome,
+      expectedCashInDrawer,
+      ticketIds: branchTickets.map((t) => t.id),
+      expenseIds: branchExpenses.map((e) => e.id),
+      breakdown: {
+        accesoriosTotal: totalAccesoriosProductos,
+        accesoriosCount: countAccesoriosProductos,
+        abonosTotal: totalAbonos,
+        abonosCount: countAbonos,
+        enganchesTotal: totalEnganches,
+        enganchesCount: countEnganches,
+        reparacionesTotal: totalReparaciones,
+        reparacionesCount: countReparaciones,
+        recargasTotal: totalRecargas,
+        recargasCount: countRecargas
+      }
+
+    };
+
+    if (onFinalizeCorteX) {
+      onFinalizeCorteX(corteRecord);
+    }
+    onClose();
+  };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
@@ -724,22 +773,36 @@ export default function CorteXModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
-          <button
-            onClick={handlePrint}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
-          >
-            <Printer className="w-4 h-4 text-yellow-300" />
-            Imprimir Ticket Corte X
-          </button>
+        <div className="p-3.5 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleFinalizeShift}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+              title="Guarda el corte oficial en la nube, imprime el ticket térmico y finaliza el turno actual"
+            >
+              <PackageCheck className="w-4 h-4 text-emerald-200" />
+              <Printer className="w-3.5 h-3.5 text-yellow-300" />
+              <span>Imprimir y Cerrar Turno (Corte Oficial)</span>
+            </button>
+
+            <button
+              onClick={handlePrint}
+              className="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Solo imprime un comprobante parcial sin archivar el turno"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-300" />
+              <span>Imprimir Vista Previa (Turno Abierto)</span>
+            </button>
+          </div>
 
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
           >
             Cerrar Ventana
           </button>
         </div>
+
 
       </div>
     </div>

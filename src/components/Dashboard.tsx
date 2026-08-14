@@ -8,12 +8,29 @@ import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
 import SettingsModule from './SettingsModule';
-import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem } from '../types';
+import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
-import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench } from 'lucide-react';
+import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench, Cloud, CheckCircle2 } from 'lucide-react';
+import {
+  subscribeToProducts,
+  saveProductToFirestore,
+  deleteProductFromFirestore,
+  subscribeToSales,
+  saveSaleTicketToFirestore,
+  subscribeToExpenses,
+  saveExpenseToFirestore,
+  subscribeToRepairPrices,
+  saveRepairPriceToFirestore,
+  deleteRepairPriceFromFirestore,
+  subscribeToNotifications,
+  saveNotificationToFirestore,
+  deleteNotificationFromFirestore,
+  subscribeToCortesX,
+  executeAndSaveCorteX
+} from '../lib/firebase';
 
 const ALL_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
@@ -84,11 +101,57 @@ export default function Dashboard({
   const [isRepairModalOpen, setIsRepairModalOpen] = useState(false);
   const [isRepairPriceCatalogOpen, setIsRepairPriceCatalogOpen] = useState(false);
 
-  // Shared Data States for POS and Inventory
+  // Shared Data States synced with Firebase Firestore
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [repairPrices, setRepairPrices] = useState<RepairPriceItem[]>(INITIAL_REPAIR_PRICES);
   const [salesTickets, setSalesTickets] = useState<SaleTicket[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [cortesX, setCortesX] = useState<CorteXRecord[]>([]);
+  const [cloudSynced, setCloudSynced] = useState(true);
+
+  // -----------------------------------------------------------
+  // Real-time Firestore Subscriptions
+  // -----------------------------------------------------------
+  useEffect(() => {
+    const unsubProducts = subscribeToProducts((prods) => {
+      if (prods && prods.length > 0) {
+        setProducts(prods);
+      }
+    });
+
+    const unsubSales = subscribeToSales((sales) => {
+      setSalesTickets(sales);
+    });
+
+    const unsubExpenses = subscribeToExpenses((exps) => {
+      setExpenses(exps);
+    });
+
+    const unsubRepairPrices = subscribeToRepairPrices((prices) => {
+      if (prices && prices.length > 0) {
+        setRepairPrices(prices);
+      }
+    });
+
+    const unsubCortes = subscribeToCortesX((cortes) => {
+      setCortesX(cortes);
+    });
+
+    const unsubNotifs = subscribeToNotifications((notifs) => {
+      if (notifs && notifs.length > 0) {
+        setNotifications(notifs);
+      }
+    });
+
+    return () => {
+      unsubProducts();
+      unsubSales();
+      unsubExpenses();
+      unsubRepairPrices();
+      unsubCortes();
+      unsubNotifs();
+    };
+  }, []);
 
   const isAdmin = currentOperator.role === 'admin';
 
@@ -102,21 +165,32 @@ export default function Dashboard({
   // Repair Price Catalog Handlers
   const handleAddRepairPrice = (newItem: RepairPriceItem) => {
     setRepairPrices((prev) => [newItem, ...prev]);
+    saveRepairPriceToFirestore(newItem).catch((err) => console.error('Error saving repair price:', err));
   };
 
   const handleUpdateRepairPrice = (updatedItem: RepairPriceItem) => {
     setRepairPrices((prev) => prev.map((p) => (p.id === updatedItem.id ? updatedItem : p)));
+    saveRepairPriceToFirestore(updatedItem).catch((err) => console.error('Error updating repair price:', err));
   };
 
   const handleDeleteRepairPrice = (id: string) => {
     setRepairPrices((prev) => prev.filter((p) => p.id !== id));
+    deleteRepairPriceFromFirestore(id).catch((err) => console.error('Error deleting repair price:', err));
   };
 
-  // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal)
-  const handleCompleteSale = (ticket: SaleTicket) => {
+  // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal and Firestore Sync)
+  const handleCompleteSale = async (ticket: SaleTicket) => {
+    // 1. Optimistically add to local sales tickets
     setSalesTickets((prev) => [ticket, ...prev]);
 
-    // Update product stock and remove sold IMEIs
+    // 2. Persist ticket to Firebase Firestore
+    try {
+      await saveSaleTicketToFirestore(ticket);
+    } catch (err) {
+      console.error('Error saving sale ticket to Firestore:', err);
+    }
+
+    // 3. Update product stock and remove sold IMEIs in state and in Firestore
     setProducts((prevProducts) =>
       prevProducts.map((p) => {
         // Find matching item in ticket
@@ -154,7 +228,7 @@ export default function Dashboard({
           ? (soldImei ? p.imeiList.filter((im) => im.toUpperCase() !== soldImei.toUpperCase()) : p.imeiList)
           : undefined;
 
-        return {
+        const updatedProduct: Product = {
           ...p,
           stock: newTotalStock,
           branchStock: newBranchStock,
@@ -162,6 +236,13 @@ export default function Dashboard({
           imeiList: updatedImeiList,
           imei: updatedImeiList && updatedImeiList.length > 0 ? updatedImeiList[0] : (soldImei && p.imei?.toUpperCase() === soldImei.toUpperCase() ? '' : p.imei)
         };
+
+        // Persist updated product stock to Firestore
+        saveProductToFirestore(updatedProduct).catch((err) =>
+          console.error('Error updating product stock in Firestore:', err)
+        );
+
+        return updatedProduct;
       })
     );
   };
@@ -169,19 +250,36 @@ export default function Dashboard({
   // Add Expense Handler
   const handleAddExpense = (expense: Expense) => {
     setExpenses((prev) => [expense, ...prev]);
+    saveExpenseToFirestore(expense).catch((err) => console.error('Error saving expense:', err));
   };
 
   // Inventory Handlers
   const handleAddProduct = (newProd: Product) => {
     setProducts((prev) => [newProd, ...prev]);
+    saveProductToFirestore(newProd).catch((err) => console.error('Error saving new product:', err));
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === updatedProd.id ? updatedProd : p)));
+    saveProductToFirestore(updatedProd).catch((err) => console.error('Error updating product:', err));
   };
 
   const handleDeleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
+    deleteProductFromFirestore(id).catch((err) => console.error('Error deleting product:', err));
+  };
+
+  // Finalize Corte X Handler (Saves snapshot and flags shift tickets/expenses as closed)
+  const handleFinalizeCorteX = async (corteRecord: CorteXRecord) => {
+    const unclosedTickets = salesTickets.filter((t) => t.branchId === currentBranch.id && !t.corteXId);
+    const unclosedExpenses = expenses.filter((e) => e.branchId === currentBranch.id && !e.corteXId);
+
+    try {
+      await executeAndSaveCorteX(corteRecord, unclosedTickets, unclosedExpenses);
+      setCortesX((prev) => [corteRecord, ...prev]);
+    } catch (err) {
+      console.error('Error finalizing Corte X in Firestore:', err);
+    }
   };
 
   // Filter notifications for current user/branch
@@ -196,6 +294,7 @@ export default function Dashboard({
   // Clicking an alert marks it as read and clears/dismisses it
   const handleDismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    deleteNotificationFromFirestore(id).catch((err) => console.error('Error dismissing notification:', err));
   };
 
   const handleClearAllNotifications = () => {
@@ -217,19 +316,22 @@ export default function Dashboard({
     };
 
     setNotifications((prev) => [notification, ...prev]);
+    saveNotificationToFirestore(notification).catch((err) => console.error('Error saving notification:', err));
   };
 
   const handleUpdateNotificationStatus = (notifId: string, status: 'pendiente' | 'en_camino' | 'cumplido') => {
     setNotifications((prev) =>
       prev.map((n) => {
         if (n.id === notifId && n.requestDetails) {
-          return {
+          const updated = {
             ...n,
             requestDetails: {
               ...n.requestDetails,
               status
             }
           };
+          saveNotificationToFirestore(updated).catch((err) => console.error('Error updating notification status:', err));
+          return updated;
         }
         return n;
       })
@@ -261,6 +363,7 @@ export default function Dashboard({
             onDeleteRepairPrice={handleDeleteRepairPrice}
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
+            onFinalizeCorteX={handleFinalizeCorteX}
           />
         );
       case 'inventory':
@@ -319,6 +422,7 @@ export default function Dashboard({
   };
 
   return (
+
     <div className="flex h-screen bg-neutral-100 overflow-hidden font-sans text-neutral-900">
       
       {/* Left Sidebar Section */}
@@ -344,7 +448,12 @@ export default function Dashboard({
                activeModule === 'executive' ? 'Dirección General' : 
                activeModule === 'users' ? 'Usuarios' : 'Configuración'}
             </h2>
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200 text-[11px] font-bold">
+              <Cloud className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+              <span>Nube Firebase Activa</span>
+            </div>
           </div>
+
           
           <div className="flex items-center gap-2.5">
             {/* Quick POS Operations Buttons in Header (Only in Module 1: POS) */}

@@ -26,7 +26,7 @@ import {
   VolumeX,
   AlertCircle
 } from 'lucide-react';
-import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord } from '../types';
+import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord } from '../types';
 import RechargeModal from './RechargeModal';
 import CreditDeviceModal from './CreditDeviceModal';
 import ExpenseModal from './ExpenseModal';
@@ -58,7 +58,9 @@ interface PosModuleProps {
   onDeleteRepairPrice?: (id: string) => void;
   isRepairPriceCatalogOpen?: boolean;
   setIsRepairPriceCatalogOpen?: (open: boolean) => void;
+  onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
 }
+
 
 export default function PosModule({
   products,
@@ -79,8 +81,10 @@ export default function PosModule({
   onUpdateRepairPrice = () => {},
   onDeleteRepairPrice = () => {},
   isRepairPriceCatalogOpen = false,
-  setIsRepairPriceCatalogOpen = () => {}
+  setIsRepairPriceCatalogOpen = () => {},
+  onFinalizeCorteX
 }: PosModuleProps) {
+
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -116,12 +120,6 @@ export default function PosModule({
 
   const [isCreditDeviceModalOpen, setIsCreditDeviceModalOpen] = useState(false);
   const [selectedCreditProduct, setSelectedCreditProduct] = useState<Product | null>(null);
-
-  // Mandatory Equipment IMEI Selection State
-  const [isSelectImeiModalOpen, setIsSelectImeiModalOpen] = useState(false);
-  const [selectedEquipmentForSale, setSelectedEquipmentForSale] = useState<Product | null>(null);
-  const [posImeiInput, setPosImeiInput] = useState('');
-  const [posImeiError, setPosImeiError] = useState<string | null>(null);
 
   const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
@@ -220,13 +218,11 @@ export default function PosModule({
         });
       } else {
         playBeepSound();
-        addToCart(foundProductByImei, foundProductByImei.price, {
-          imei: foundImeiString,
-          deviceModel: foundProductByImei.name
-        });
+        setSelectedCreditProduct(foundProductByImei);
+        setIsCreditDeviceModalOpen(true);
         setScanFeedback({
           type: 'success',
-          text: `¡IMEI Escaneado y Validado!: ${foundProductByImei.name} (IMEI: ${foundImeiString})`
+          text: `¡IMEI Validado!: ${foundProductByImei.name}. Seleccione Contado o Crédito.`
         });
       }
       setScannerInput('');
@@ -235,7 +231,7 @@ export default function PosModule({
     }
 
     // If string looks like a 10-15 digit IMEI but was not found:
-    if (/^\d{10,15}$/.test(queryUpper)) {
+    if (/^\d{8,18}$/.test(queryUpper)) {
       setScanFeedback({
         type: 'error',
         text: `❌ BLOQUEO DE TRAZABILIDAD: El IMEI "${queryUpper}" NO coincide con ningún equipo activo en el inventario de ${currentBranch.name}.`
@@ -258,7 +254,7 @@ export default function PosModule({
       handleProductClick(matchedProduct);
       setScanFeedback({
         type: 'success',
-        text: `¡Agregado por escáner!: ${matchedProduct.name} ($${matchedProduct.price.toFixed(2)})`
+        text: `¡Producto Seleccionado!: ${matchedProduct.name}`
       });
     } else {
       setScanFeedback({
@@ -280,18 +276,46 @@ export default function PosModule({
 
   // Products array (filtered by category and search query if active)
   const filteredProducts = products.filter((p) => {
-    const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
     const q = searchQuery.trim().toLowerCase();
+    const isSpecificDevice = (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && 
+      p.id !== 'prod-equipo-credito-gen' && 
+      p.id !== 'prod-abono-gen';
+
+    // Without search query, hide individual phone models so they don't clutter the screen with 50 buttons
+    if (!q && isSpecificDevice) {
+      return false;
+    }
+
+    let matchesCategory = true;
+    if (selectedCategory === 'all') {
+      matchesCategory = true;
+    } else if (selectedCategory === 'accesorio') {
+      matchesCategory = p.category === 'accesorio' || p.inventoryType === 'accesorio';
+    } else if (selectedCategory === 'equipo') {
+      matchesCategory = p.category === 'equipo_credito' || p.category === 'equipo' || p.inventoryType === 'equipo';
+    } else if (selectedCategory === 'servicio') {
+      matchesCategory = p.category === 'servicio' || p.id === 'prod-reparacion-gen';
+    } else if (selectedCategory === 'recarga') {
+      matchesCategory = p.category === 'recarga';
+    } else if (selectedCategory === 'abono') {
+      matchesCategory = p.id === 'prod-abono-gen' || p.name.toLowerCase().includes('abono');
+    } else {
+      matchesCategory = p.category === selectedCategory;
+    }
+
     const matchesSearch =
       !q ||
       p.name.toLowerCase().includes(q) ||
       p.code.toLowerCase().includes(q) ||
       p.id.toLowerCase().includes(q) ||
+      p.brand?.toLowerCase().includes(q) ||
+      p.model?.toLowerCase().includes(q) ||
       p.imei?.toLowerCase().includes(q) ||
       p.imeiList?.some(im => im.toLowerCase().includes(q)) ||
       (p.branchImeiMap && Object.values(p.branchImeiMap).some(arr => arr.some(im => im.toLowerCase().includes(q))));
     return matchesCategory && matchesSearch;
   });
+
 
   // Add Product handler
   const handleProductClick = (product: Product) => {
@@ -306,7 +330,15 @@ export default function PosModule({
       return;
     }
 
-    if (product.id === 'prod-equipo-credito-gen' || product.code === 'EQ-CRED') {
+    // ALL equipment / phone sales (generic button or specific model) route cleanly through unified modal
+    if (
+      product.id === 'prod-equipo-credito-gen' || 
+      product.code === 'EQ-VENTA' ||
+      product.code === 'EQ-CRED' ||
+      product.inventoryType === 'equipo' || 
+      product.category === 'equipo_credito' ||
+      product.category === 'telefonia'
+    ) {
       setSelectedCreditProduct(product);
       setIsCreditDeviceModalOpen(true);
       return;
@@ -317,28 +349,7 @@ export default function PosModule({
       return;
     }
 
-    // If product is an Equipment item, enforce IMEI selection!
-    if (product.inventoryType === 'equipo' || product.category === 'equipo_credito') {
-      const branchImeis = product.branchImeiMap?.[currentBranch.id] || [];
-      const availImeis = branchImeis.length > 0 ? branchImeis : (product.imeiList || (product.imei ? [product.imei] : []));
-
-      if (availImeis.length === 0) {
-        setScanFeedback({
-          type: 'error',
-          text: `❌ SIN STOCK DE IMEI: No hay IMEIs activos para ${product.name} en ${currentBranch.name}.`
-        });
-        setTimeout(() => setScanFeedback(null), 4000);
-        return;
-      }
-
-      setSelectedEquipmentForSale(product);
-      setPosImeiInput(availImeis[0] || '');
-      setPosImeiError(null);
-      setIsSelectImeiModalOpen(true);
-      return;
-    }
-
-    // Standard products (Accessories, fixed price repairs, etc.)
+    // Standard products (Accessories, fixed price services, etc.)
     addToCart(product, product.price);
   };
 
@@ -567,22 +578,91 @@ export default function PosModule({
               </button>
             </div>
           )}
+
+          {/* Quick Category Filter Bar */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 pt-1 no-scrollbar text-xs font-extrabold">
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer ${
+                selectedCategory === 'all'
+                  ? 'bg-slate-900 text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Todos ({products.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('accesorio')}
+              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
+                selectedCategory === 'accesorio'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
+              }`}
+            >
+              <Tag className="w-3 h-3" />
+              Accesorios ({products.filter(p => p.category === 'accesorio' || p.inventoryType === 'accesorio').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('equipo')}
+              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
+                selectedCategory === 'equipo'
+                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+              }`}
+            >
+              <Smartphone className="w-3 h-3" />
+              Equipos / Celulares ({products.filter(p => p.category === 'equipo_credito' || p.category === 'equipo' || p.inventoryType === 'equipo').length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('servicio')}
+              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
+                selectedCategory === 'servicio'
+                  ? 'bg-amber-600 text-white shadow-2xs'
+                  : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
+              }`}
+            >
+              <Wrench className="w-3 h-3" />
+              Taller / Reparaciones
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('recarga')}
+              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
+                selectedCategory === 'recarga'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
+              }`}
+            >
+              <Zap className="w-3 h-3" />
+              Recargas
+            </button>
+          </div>
         </div>
         
         {filteredProducts.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16">
             <ShoppingBag className="w-12 h-12 mb-3 text-slate-300 stroke-1" />
-            <p className="text-sm font-bold text-slate-700">No hay productos registrados.</p>
+            <p className="text-sm font-bold text-slate-700">No hay productos en esta categoría o búsqueda.</p>
             <p className="text-xs text-slate-400 mt-1">
-              Puedes agregar más productos desde el módulo de <strong>Inventario</strong>.
+              Los nuevos modelos registrados en <strong>Inventario</strong> aparecen automáticamente aquí.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3.5">
             {filteredProducts.map((p) => {
               const isRecarga = p.category === 'recarga';
-              const isEquipoCredito = p.category === 'equipo_credito';
+              const isEquipoCredito = p.category === 'equipo_credito' || p.inventoryType === 'equipo';
               const isReparacion = p.id === 'prod-reparacion-gen' || (p.category === 'servicio' && p.price === 0);
+
+              const branchStockQty = p.branchStock?.[currentBranch.id] !== undefined
+                ? p.branchStock[currentBranch.id]
+                : p.stock;
+
+              const isOutOfStock = !isRecarga && !isReparacion && p.id !== 'prod-abono-gen' && branchStockQty <= 0;
 
               return (
                 <button
@@ -595,6 +675,8 @@ export default function PosModule({
                       ? 'bg-indigo-50/50 border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50'
                       : isReparacion
                       ? 'bg-amber-50/50 border-amber-200 hover:border-amber-400 hover:bg-amber-50'
+                      : isOutOfStock
+                      ? 'bg-red-50/20 border-red-200 hover:border-red-400 hover:bg-red-50/40'
                       : 'bg-white border-slate-200/90 hover:border-blue-400 hover:bg-slate-50/80'
                   }`}
                 >
@@ -610,7 +692,7 @@ export default function PosModule({
                     )}
                     {isEquipoCredito && (
                       <span className="text-[10px] font-medium px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full">
-                        Crédito
+                        Equipo
                       </span>
                     )}
                     {isReparacion && (
@@ -628,7 +710,7 @@ export default function PosModule({
                   {/* Bottom row: Price / Stock info */}
                   <div className="flex items-center justify-between w-full pt-2 border-t border-slate-100 mt-auto">
                     <span className="text-sm font-bold text-slate-900">
-                      {isRecarga || isEquipoCredito || isReparacion ? (
+                      {isRecarga || (isEquipoCredito && p.price === 0) || isReparacion ? (
                         <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
                           {isReparacion ? 'Dejar / Entregar' : 'Ingresar Monto'}
                         </span>
@@ -637,11 +719,15 @@ export default function PosModule({
                       )}
                     </span>
 
-                    {!isRecarga && !isEquipoCredito && !isReparacion && (
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                        p.stock < 5 ? 'bg-red-50 text-red-600 font-semibold' : 'text-slate-400'
+                    {!isRecarga && !isReparacion && p.id !== 'prod-abono-gen' && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        isOutOfStock 
+                          ? 'bg-red-100 text-red-700 font-extrabold' 
+                          : branchStockQty < 5 
+                          ? 'bg-amber-100 text-amber-800' 
+                          : 'bg-slate-100 text-slate-600'
                       }`}>
-                        Stock: {p.stock}
+                        {isOutOfStock ? 'Agotado (0)' : `Stock: ${branchStockQty}`}
                       </span>
                     )}
                   </div>
@@ -651,6 +737,7 @@ export default function PosModule({
             })}
           </div>
         )}
+
       </div>
 
       {/* RIGHT COLUMN: COMPACT, SLEEK CARRITO DE COMPRAS */}
@@ -843,157 +930,6 @@ export default function PosModule({
         onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
       />
 
-      {/* Equipment Mandatory IMEI Selection Modal */}
-      {isSelectImeiModalOpen && selectedEquipmentForSale && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
-            
-            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-indigo-400" />
-                <div>
-                  <h3 className="font-bold text-sm">Seleccionar IMEI Obligatorio</h3>
-                  <p className="text-[11px] text-slate-300">{selectedEquipmentForSale.name}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setIsSelectImeiModalOpen(false);
-                  setSelectedEquipmentForSale(null);
-                }}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!selectedEquipmentForSale) return;
-
-                const cleanImei = posImeiInput.trim().toUpperCase();
-                if (!cleanImei || cleanImei.length < 10) {
-                  setPosImeiError('Por favor ingresa o selecciona un IMEI válido (mínimo 10 o 15 dígitos).');
-                  return;
-                }
-
-                const branchImeis = selectedEquipmentForSale.branchImeiMap?.[currentBranch.id] || selectedEquipmentForSale.imeiList || [];
-                const isMatched = branchImeis.some(im => im.toUpperCase() === cleanImei);
-
-                if (!isMatched) {
-                  setPosImeiError(`❌ El IMEI "${cleanImei}" no pertenece al inventario activo de ${selectedEquipmentForSale.name} en ${currentBranch.name}.`);
-                  return;
-                }
-
-                addToCart(selectedEquipmentForSale, selectedEquipmentForSale.price, {
-                  imei: cleanImei,
-                  deviceModel: selectedEquipmentForSale.name
-                });
-
-                setIsSelectImeiModalOpen(false);
-                setSelectedEquipmentForSale(null);
-                setPosImeiInput('');
-                setPosImeiError(null);
-              }}
-              className="p-5 space-y-4"
-            >
-              {posImeiError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-rose-900 text-xs font-semibold">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <span>{posImeiError}</span>
-                </div>
-              )}
-
-              <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase text-indigo-800 tracking-wider">Sucursal Actual:</span>
-                  <p className="text-xs font-extrabold text-indigo-950">{currentBranch.name}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Precio Venta:</span>
-                  <p className="text-sm font-black text-slate-900">${selectedEquipmentForSale.price.toFixed(2)}</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                  <span>Escanear o Ingresar IMEI (15 dígitos) *</span>
-                  <span className="text-[10px] text-indigo-600 font-mono">Requerido</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={15}
-                  placeholder="Ej. 354890123456701"
-                  value={posImeiInput}
-                  onChange={(e) => {
-                    setPosImeiInput(e.target.value.toUpperCase());
-                    setPosImeiError(null);
-                  }}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-mono font-black text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-none"
-                  autoFocus
-                />
-              </div>
-
-              {/* Available IMEIs Chips for Current Branch */}
-              {(() => {
-                const availImeis = selectedEquipmentForSale.branchImeiMap?.[currentBranch.id] || selectedEquipmentForSale.imeiList || [];
-                if (availImeis.length === 0) return null;
-                return (
-                  <div>
-                    <label className="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
-                      IMEIs Disponibles en esta Sucursal ({availImeis.length}):
-                    </label>
-                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
-                      {availImeis.map((im) => (
-                        <button
-                          key={im}
-                          type="button"
-                          onClick={() => {
-                            setPosImeiInput(im);
-                            setPosImeiError(null);
-                          }}
-                          className={`px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition-all cursor-pointer ${
-                            posImeiInput.toUpperCase() === im.toUpperCase()
-                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                              : 'bg-white hover:bg-indigo-50 text-slate-800 border-slate-300'
-                          }`}
-                        >
-                          {im}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSelectImeiModalOpen(false);
-                    setSelectedEquipmentForSale(null);
-                  }}
-                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center gap-1.5 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Agregar a Carrito
-                </button>
-              </div>
-
-            </form>
-
-          </div>
-        </div>
-      )}
-
       <CreditPaymentModal
         isOpen={isCreditPaymentModalOpen}
         onClose={() => setIsCreditPaymentModalOpen(false)}
@@ -1037,7 +973,9 @@ export default function PosModule({
         expenses={expenses}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        onFinalizeCorteX={onFinalizeCorteX}
       />
+
 
       <TicketReceiptModal
         isOpen={isTicketReceiptOpen}
