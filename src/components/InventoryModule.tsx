@@ -1,7 +1,32 @@
 import React, { useState, useMemo } from 'react';
-import { Package, Plus, Search, ArrowRightLeft, Smartphone, Headphones, Building2, X, PlusCircle, AlertTriangle, SlidersHorizontal, CheckCircle2, DollarSign, Info, Lock, ShieldCheck, History } from 'lucide-react';
+import { 
+  Package, 
+  Plus, 
+  Search, 
+  ArrowRightLeft, 
+  Smartphone, 
+  Headphones, 
+  Building2, 
+  X, 
+  PlusCircle, 
+  AlertTriangle, 
+  SlidersHorizontal, 
+  CheckCircle2, 
+  DollarSign, 
+  Info, 
+  Lock, 
+  ShieldCheck, 
+  History,
+  ShieldAlert,
+  AlertCircle,
+  Check,
+  Ban,
+  Fingerprint,
+  Printer
+} from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement } from '../types';
 import { InventoryMovementsModal } from './InventoryMovementsModal';
+import InventoryPrintModal from './InventoryPrintModal';
 
 interface InventoryModuleProps {
   products: Product[];
@@ -37,6 +62,9 @@ export default function InventoryModule({
 
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Modal Impresión y Auditoría de Inventario
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // Modal 0: Historial de Movimientos de los últimos 15 días
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
@@ -233,12 +261,98 @@ export default function InventoryModule({
     return list.sort(naturalProductSort);
   }, [products, searchQuery, activeInventoryTab]);
 
+  // --- SISTEMA ANTI-DUPLICADOS (CÓDIGOS E IMEIS ESTRICTAMENTE ÚNICOS) ---
+
+  // 1. Verificación de Código de Producto Único
+  const checkDuplicateCode = (codeToTest: string, excludeProductId?: string) => {
+    const clean = codeToTest.trim().toUpperCase();
+    if (!clean) return { isDuplicate: false, conflictingProduct: undefined };
+
+    const conflict = products.find(
+      (p) => p.code.trim().toUpperCase() === clean && (!excludeProductId || p.id !== excludeProductId)
+    );
+
+    if (conflict) {
+      return {
+        isDuplicate: true,
+        conflictingProduct: conflict
+      };
+    }
+    return { isDuplicate: false, conflictingProduct: undefined };
+  };
+
+  // 2. Verificación de IMEI Único (tanto en el lote actual como en todo el inventario de todas las sucursales)
+  const checkDuplicateImei = (
+    imeiToTest: string,
+    batch: string[],
+    currentIndex: number
+  ) => {
+    const clean = imeiToTest.trim().toUpperCase();
+    if (!clean) {
+      return {
+        isDuplicate: false,
+        isDuplicateInBatch: false,
+        batchDuplicateIndex: -1,
+        isDuplicateInSystem: false,
+        conflictingProduct: undefined,
+        conflictingBranchId: undefined,
+        conflictingBranchName: undefined
+      };
+    }
+
+    // A) Revisar si está repetido dentro del mismo lote que se está capturando
+    const batchDuplicateIndex = batch.findIndex(
+      (otherImei, idx) => idx !== currentIndex && otherImei.trim().toUpperCase() === clean
+    );
+    const isDuplicateInBatch = batchDuplicateIndex !== -1;
+
+    // B) Revisar si ya existe en la base de datos de productos
+    let conflictingProduct: Product | undefined;
+    let conflictingBranchId: string | undefined;
+
+    for (const p of products) {
+      // 1. Revisar en branchImeiMap (para saber la sucursal exacta)
+      if (p.branchImeiMap) {
+        for (const [bId, imeis] of Object.entries(p.branchImeiMap)) {
+          if (Array.isArray(imeis) && imeis.some((im) => im.trim().toUpperCase() === clean)) {
+            conflictingProduct = p;
+            conflictingBranchId = bId;
+            break;
+          }
+        }
+      }
+      if (conflictingProduct) break;
+
+      // 2. Revisar en imeiList o imei individual
+      const pImeis = p.imeiList || (p.imei ? [p.imei] : []);
+      if (pImeis.some((im) => im.trim().toUpperCase() === clean)) {
+        conflictingProduct = p;
+        break;
+      }
+    }
+
+    const isDuplicateInSystem = !!conflictingProduct;
+    const branchName = conflictingBranchId 
+      ? (OFFICIAL_BRANCHES.find(b => b.id === conflictingBranchId)?.name || conflictingBranchId)
+      : undefined;
+
+    return {
+      isDuplicate: isDuplicateInBatch || isDuplicateInSystem,
+      isDuplicateInBatch,
+      batchDuplicateIndex,
+      isDuplicateInSystem,
+      conflictingProduct,
+      conflictingBranchId,
+      conflictingBranchName: branchName
+    };
+  };
+
   // --- HANDLER: INGRESAR (MODELO, CANTIDAD Y SUCURSAL) ---
   const handleOpenIngresar = () => {
     setIngresarMode('existente');
     const firstProd = tabProducts[0];
     setIngresarSelectedProdId(firstProd ? firstProd.id : '');
-    setIngresarBranchId(currentBranch.id || 'b-bodega');
+    setIngresarBranchId(currentBranch?.id || 'b-bodega');
     setIngresarQuantity('1');
     setNewCode('');
     setNewName('');
@@ -292,9 +406,27 @@ export default function InventoryModule({
         const numCost = parseFloat(newCostPrice) || 0;
         const numPrice = parseFloat(newPrice) || 0;
 
-        const generatedCode = newCode.trim()
-          ? newCode.trim().toUpperCase()
-          : `EQ-${newName.slice(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+        let generatedCode = newCode.trim() ? newCode.trim().toUpperCase() : '';
+
+        // Validación estricta anti-duplicados de código para equipos
+        if (generatedCode) {
+          const codeDup = checkDuplicateCode(generatedCode);
+          if (codeDup.isDuplicate && codeDup.conflictingProduct) {
+            alert(
+              `❌ CÓDIGO DE EQUIPO DUPLICADO:\n\nEl código "${generatedCode}" ya está registrado en el producto "${codeDup.conflictingProduct.name}" (ID: ${codeDup.conflictingProduct.id}).\n\nNo se permite duplicar códigos de productos. Por favor ingrese un código único o déjelo vacío para auto-generarlo.`
+            );
+            return;
+          }
+        } else {
+          // Generación automática garantizando 0 colisiones
+          const baseClean = newName.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, 'EQ');
+          let randomSuffix = Math.floor(100 + Math.random() * 900);
+          generatedCode = `EQ-${baseClean}-${randomSuffix}`;
+          while (checkDuplicateCode(generatedCode).isDuplicate) {
+            randomSuffix = Math.floor(1000 + Math.random() * 9000);
+            generatedCode = `EQ-${baseClean}-${randomSuffix}`;
+          }
+        }
 
         setPendingEquipmentData({
           isExisting: false,
@@ -369,6 +501,17 @@ export default function InventoryModule({
           return;
         }
 
+        const cleanCode = newCode.trim().toUpperCase();
+
+        // Validación estricta anti-duplicados de código para accesorios
+        const codeDup = checkDuplicateCode(cleanCode);
+        if (codeDup.isDuplicate && codeDup.conflictingProduct) {
+          alert(
+            `❌ CÓDIGO DE PRODUCTO DUPLICADO:\n\nEl código "${cleanCode}" ya pertenece al producto existente:\n• "${codeDup.conflictingProduct.name}" (Categoría: ${codeDup.conflictingProduct.category})\n\nNo se permite duplicar códigos ni códigos de barra. Por favor asigne un código único.`
+          );
+          return;
+        }
+
         const numCost = parseFloat(newCostPrice) || 0;
         const numPrice = parseFloat(newPrice) || 0;
 
@@ -380,7 +523,7 @@ export default function InventoryModule({
 
         const newProd: Product = {
           id: `prod-${Date.now()}`,
-          code: newCode.trim().toUpperCase(),
+          code: cleanCode,
           name: newName.trim(),
           category: 'accesorio',
           inventoryType: 'accesorio',
@@ -428,25 +571,38 @@ export default function InventoryModule({
 
     // 1. Strict quantity validation
     if (finalImeis.length !== qty) {
-      alert(`❌ REGISTRO BLOQUEADO: Debes ingresar exactamente ${qty} número(s) de IMEI válidos para este registro. No se permiten compras/ingresos sin IMEI.`);
+      alert(`❌ REGISTRO BLOQUEADO: Debes ingresar exactamente ${qty} número(s) de IMEI válidos para este registro (tienes ${finalImeis.length} completados). No se permiten equipos sin IMEI.`);
       return;
     }
 
-    // 2. Check internal duplicates in batch
+    // 2. Validate format/length
+    const invalidImei = finalImeis.find(im => im.length < 8);
+    if (invalidImei) {
+      alert(`❌ IMEI INVÁLIDO: El IMEI "${invalidImei}" es demasiado corto (mínimo 8 a 15 dígitos numéricos).`);
+      return;
+    }
+
+    // 3. Check internal duplicates in batch
     const uniqueSet = new Set(finalImeis);
     if (uniqueSet.size < finalImeis.length) {
-      alert(`❌ DUPLICADO DETECTADO: Has ingresado IMEIs repetidos en esta captura. Cada celular debe tener un IMEI único.`);
+      const duplicatesInBatch: string[] = [];
+      finalImeis.forEach((im, idx) => {
+        if (finalImeis.indexOf(im) !== idx && !duplicatesInBatch.includes(im)) {
+          duplicatesInBatch.push(im);
+        }
+      });
+      alert(`❌ DUPLICADO EN LOTE DETECTADO:\n\nHas ingresado los siguientes IMEIs repetidos en esta captura:\n• ${duplicatesInBatch.join(', ')}\n\nCada celular debe tener un IMEI 100% único.`);
       return;
     }
 
-    // 3. Check external duplicates across system
+    // 4. Check external duplicates across entire system
     for (const im of finalImeis) {
-      for (const p of products) {
-        const allProdImeis = p.imeiList || (p.imei ? [p.imei] : []);
-        if (allProdImeis.some((existingIm) => existingIm.toUpperCase() === im)) {
-          alert(`❌ IMEI YA REGISTRADO: El IMEI "${im}" ya existe en el inventario (${p.name}). Los IMEIs deben ser 100% únicos en todo el sistema.`);
-          return;
-        }
+      const dupCheck = checkDuplicateImei(im, finalImeis, -1);
+      if (dupCheck.isDuplicateInSystem && dupCheck.conflictingProduct) {
+        alert(
+          `❌ IMEI YA EXISTE EN EL SISTEMA:\n\nEl IMEI "${im}" ya está registrado en el inventario activo:\n• Producto: "${dupCheck.conflictingProduct.name}"\n• Ubicación: ${dupCheck.conflictingBranchName || 'Sistema'}\n\nLos IMEIs son identificadores mundiales únicos y no pueden duplicarse bajo ninguna circunstancia.`
+        );
+        return;
       }
     }
 
@@ -1062,6 +1218,11 @@ export default function InventoryModule({
             <Smartphone className="w-4 h-4 text-amber-300" />
             2. EQUIPOS
           </button>
+
+          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-[11px] font-extrabold shadow-2xs">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Anti-Duplicados Activo</span>
+          </div>
         </div>
 
         {/* DERECHA: BÚSQUEDA + BOTONES INGRESAR, TRANSFERIR Y AJUSTAR */}
@@ -1114,6 +1275,16 @@ export default function InventoryModule({
           >
             <DollarSign className="w-4 h-4" />
             Precios
+          </button>
+
+          {/* Botón IMPRIMIR INVENTARIO (NUEVO) */}
+          <button
+            onClick={() => setIsPrintModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
+            title="Generar archivo e imprimir reporte de inventario (equipos celulares y accesorios)"
+          >
+            <Printer className="w-4 h-4 text-amber-300" />
+            <span>Imprimir</span>
           </button>
 
           {/* Botón HISTORIAL DE MOVIMIENTOS (15 DÍAS) */}
@@ -1378,20 +1549,48 @@ export default function InventoryModule({
                         placeholder="Ej. Samsung Galaxy A54 128GB"
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
                       />
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <label className="block text-[11px] font-extrabold text-blue-950 mb-1">Código Interno</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-[11px] font-extrabold text-blue-950">Código Interno</label>
+                          {newCode.trim() && (
+                            (() => {
+                              const dup = checkDuplicateCode(newCode);
+                              return dup.isDuplicate ? (
+                                <span className="text-[10px] font-extrabold text-rose-600 flex items-center gap-0.5">
+                                  <AlertCircle className="w-3 h-3" /> Duplicado
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-extrabold text-emerald-600 flex items-center gap-0.5">
+                                  <Check className="w-3 h-3" /> Disponible
+                                </span>
+                              );
+                            })()
+                          )}
+                        </div>
                         <input
                           type="text"
-                          placeholder="Ej. EQ-SAMA54"
+                          placeholder="Ej. EQ-SAMA54 (Opcional)"
                           value={newCode}
                           onChange={(e) => setNewCode(e.target.value)}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold uppercase bg-white"
+                          className={`w-full px-2.5 py-1.5 border rounded-lg text-xs font-bold uppercase transition-all ${
+                            newCode.trim() && checkDuplicateCode(newCode).isDuplicate
+                              ? 'border-rose-500 bg-rose-50/60 text-rose-950 focus:ring-2 focus:ring-rose-500'
+                              : newCode.trim()
+                              ? 'border-emerald-500 bg-emerald-50/40 text-emerald-950 focus:ring-2 focus:ring-emerald-500'
+                              : 'border-slate-300 bg-white focus:ring-2 focus:ring-blue-500'
+                          }`}
                         />
+                        {newCode.trim() && checkDuplicateCode(newCode).isDuplicate && (
+                          <div className="mt-1 p-1.5 bg-rose-100 border border-rose-300 rounded-lg text-[10px] font-bold text-rose-800 flex items-start gap-1">
+                            <Ban className="w-3 h-3 text-rose-600 shrink-0 mt-0.5" />
+                            <span>Código en uso por "{checkDuplicateCode(newCode).conflictingProduct?.name}"</span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-[11px] font-extrabold text-blue-950 mb-1">Precio Inicial (Costo)</label>
@@ -1401,7 +1600,7 @@ export default function InventoryModule({
                           placeholder="$0.00"
                           value={newCostPrice}
                           onChange={(e) => setNewCostPrice(e.target.value)}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
                       <div>
@@ -1412,7 +1611,7 @@ export default function InventoryModule({
                           placeholder="$0.00"
                           value={newPrice}
                           onChange={(e) => setNewPrice(e.target.value)}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
                     </div>
@@ -1426,7 +1625,7 @@ export default function InventoryModule({
                         placeholder="Ej. Distribuidor Celular Telcel / Macropay"
                         value={newSupplier}
                         onChange={(e) => setNewSupplier(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
@@ -1436,15 +1635,43 @@ export default function InventoryModule({
                   {/* Campos para Nuevo Accesorio */}
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">Código *</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-extrabold text-slate-700">Código *</label>
+                        {newCode.trim() && (
+                          (() => {
+                            const dup = checkDuplicateCode(newCode);
+                            return dup.isDuplicate ? (
+                              <span className="text-[10px] font-extrabold text-rose-600 flex items-center gap-0.5">
+                                <AlertCircle className="w-3 h-3" /> Duplicado
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-extrabold text-emerald-600 flex items-center gap-0.5">
+                                <Check className="w-3 h-3" /> Disponible
+                              </span>
+                            );
+                          })()
+                        )}
+                      </div>
                       <input
                         type="text"
                         required
                         placeholder="Ej. AUDI-01"
                         value={newCode}
                         onChange={(e) => setNewCode(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold uppercase"
+                        className={`w-full px-2.5 py-1.5 border rounded-lg text-xs font-bold uppercase transition-all ${
+                          newCode.trim() && checkDuplicateCode(newCode).isDuplicate
+                            ? 'border-rose-500 bg-rose-50/60 text-rose-950 focus:ring-2 focus:ring-rose-500'
+                            : newCode.trim()
+                            ? 'border-emerald-500 bg-emerald-50/40 text-emerald-950 focus:ring-2 focus:ring-emerald-500'
+                            : 'border-slate-300 focus:ring-2 focus:ring-emerald-600'
+                        }`}
                       />
+                      {newCode.trim() && checkDuplicateCode(newCode).isDuplicate && (
+                        <div className="mt-1 p-1.5 bg-rose-100 border border-rose-300 rounded-lg text-[10px] font-bold text-rose-800 flex items-start gap-1">
+                          <Ban className="w-3 h-3 text-rose-600 shrink-0 mt-0.5" />
+                          <span>Ya asignado a: "{checkDuplicateCode(newCode).conflictingProduct?.name}"</span>
+                        </div>
+                      )}
                     </div>
                     <div className="col-span-2">
                       <label className="block text-[11px] font-extrabold text-slate-700 mb-1">Nombre / Modelo *</label>
@@ -1454,7 +1681,7 @@ export default function InventoryModule({
                         placeholder="Ej. Audífonos Gamer X"
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold focus:ring-2 focus:ring-emerald-600"
                       />
                     </div>
                   </div>
@@ -2085,70 +2312,194 @@ export default function InventoryModule({
                     Escanee el IMEI de cada equipo con su lector de código de barras.
                   </p>
                   <p className="text-[11px] text-blue-700 mt-0.5">
-                    Al presionar <span className="font-mono font-bold bg-blue-100 px-1 rounded">Enter</span> el cursor avanzará automáticamente al siguiente campo.
+                    Al presionar <span className="font-mono font-bold bg-blue-100 px-1 rounded">Enter</span> el cursor avanzará automáticamente al siguiente campo. El sistema valida en tiempo real que ningún IMEI esté duplicado.
                   </p>
                 </div>
               </div>
 
-              {/* INPUTS DE IMEIS */}
+              {/* Banner General de Alerta si hay duplicados detectados */}
+              {(() => {
+                let batchDupCount = 0;
+                let sysDupCount = 0;
+
+                imeiInputs.forEach((im, idx) => {
+                  const clean = im.trim().toUpperCase();
+                  if (clean) {
+                    const chk = checkDuplicateImei(clean, imeiInputs, idx);
+                    if (chk.isDuplicateInBatch) batchDupCount++;
+                    if (chk.isDuplicateInSystem) sysDupCount++;
+                  }
+                });
+
+                if (batchDupCount > 0 || sysDupCount > 0) {
+                  return (
+                    <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 text-xs flex items-start gap-2">
+                      <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-extrabold text-rose-950">
+                          🚫 BLOQUEO ANTI-DUPLICADOS ACTIVO: Se detectaron IMEIs duplicados
+                        </p>
+                        <p className="text-[11px] text-rose-800 mt-0.5">
+                          {batchDupCount > 0 && `• ${batchDupCount} IMEI(s) repetidos dentro de este mismo lote. `}
+                          {sysDupCount > 0 && `• ${sysDupCount} IMEI(s) ya existentes en el inventario activo. `}
+                          Corrija los campos marcados en rojo para poder continuar.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* INPUTS DE IMEIS CON VALIDACIÓN EN TIEMPO REAL */}
               <div className="max-h-72 overflow-y-auto space-y-2.5 pr-1 border border-slate-200 p-3 rounded-xl bg-slate-50">
-                {Array.from({ length: pendingEquipmentData.qty }).map((_, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <span className="w-20 text-[11px] font-mono font-extrabold text-slate-500 shrink-0">
-                      Equipo #{idx + 1}:
-                    </span>
-                    <input
-                      id={`imei-input-${idx}`}
-                      type="text"
-                      placeholder={`Escanee IMEI #${idx + 1}`}
-                      value={imeiInputs[idx] || ''}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setImeiInputs((prev) => {
-                          const copy = [...prev];
-                          copy[idx] = val;
-                          return copy;
-                        });
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const next = document.getElementById(`imei-input-${idx + 1}`);
-                          if (next) {
-                            next.focus();
-                          }
-                        }
-                      }}
-                      className="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-extrabold text-slate-900 bg-white focus:ring-2 focus:ring-amber-500 uppercase"
-                    />
+                {Array.from({ length: pendingEquipmentData.qty }).map((_, idx) => {
+                  const currentVal = imeiInputs[idx] || '';
+                  const cleanVal = currentVal.trim().toUpperCase();
+                  const dupCheck = cleanVal ? checkDuplicateImei(cleanVal, imeiInputs, idx) : null;
+                  const hasBatchDup = dupCheck?.isDuplicateInBatch || false;
+                  const hasSystemDup = dupCheck?.isDuplicateInSystem || false;
+                  const isValidAndUnique = cleanVal.length >= 8 && !hasBatchDup && !hasSystemDup;
+
+                  return (
+                    <div 
+                      key={idx} 
+                      className={`p-2.5 rounded-xl border transition-all ${
+                        hasBatchDup || hasSystemDup
+                          ? 'bg-rose-50/70 border-rose-300 ring-1 ring-rose-400'
+                          : isValidAndUnique
+                          ? 'bg-emerald-50/40 border-emerald-300'
+                          : 'bg-white border-slate-200'
+                      } space-y-1.5`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-20 text-[11px] font-mono font-extrabold text-slate-600 shrink-0">
+                          Equipo #{idx + 1}:
+                        </span>
+                        <div className="relative flex-1">
+                          <input
+                            id={`imei-input-${idx}`}
+                            type="text"
+                            placeholder={`Escanee o escriba IMEI #${idx + 1}`}
+                            value={imeiInputs[idx] || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setImeiInputs((prev) => {
+                                const copy = [...prev];
+                                copy[idx] = val;
+                                return copy;
+                              });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const next = document.getElementById(`imei-input-${idx + 1}`);
+                                if (next) {
+                                  next.focus();
+                                }
+                              }
+                            }}
+                            className={`w-full px-3 py-2 border rounded-xl text-xs font-mono font-extrabold uppercase transition-all ${
+                              hasBatchDup || hasSystemDup
+                                ? 'border-rose-500 bg-white text-rose-950 focus:ring-2 focus:ring-rose-500'
+                                : isValidAndUnique
+                                ? 'border-emerald-500 bg-white text-emerald-950 focus:ring-2 focus:ring-emerald-500'
+                                : 'border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-amber-500'
+                            }`}
+                          />
+                          {isValidAndUnique && (
+                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] font-extrabold text-emerald-600">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>Único</span>
+                            </div>
+                          )}
+                          {(hasBatchDup || hasSystemDup) && (
+                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] font-extrabold text-rose-600">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Notificaciones específicas de duplicado por renglón */}
+                      {hasBatchDup && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-700 bg-rose-100 p-1.5 rounded-lg border border-rose-300">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                          <span>⚠️ DUPLICADO EN LOTE: Idéntico al Equipo #{(dupCheck?.batchDuplicateIndex ?? 0) + 1}</span>
+                        </div>
+                      )}
+
+                      {hasSystemDup && dupCheck?.conflictingProduct && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-800 bg-rose-100 p-1.5 rounded-lg border border-rose-300">
+                          <Ban className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                          <span>
+                            ❌ YA EXISTE EN SISTEMA: Registrado en "{dupCheck.conflictingProduct.name}" ({dupCheck.conflictingBranchName || 'Inventario'})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pie del modal con conteo y validación de guardado */}
+              {(() => {
+                const filledCount = imeiInputs.filter((s) => s.trim()).length;
+                let hasAnyDuplicates = false;
+
+                imeiInputs.forEach((im, idx) => {
+                  const clean = im.trim().toUpperCase();
+                  if (clean) {
+                    const chk = checkDuplicateImei(clean, imeiInputs, idx);
+                    if (chk.isDuplicate) hasAnyDuplicates = true;
+                  }
+                });
+
+                const isComplete = filledCount === pendingEquipmentData.qty;
+                const canSubmit = isComplete && !hasAnyDuplicates;
+
+                return (
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="space-y-0.5">
+                      <span className={`text-xs font-extrabold block ${
+                        isComplete && !hasAnyDuplicates ? 'text-emerald-700' : 'text-slate-500'
+                      }`}>
+                        {`${filledCount} / ${pendingEquipmentData.qty} campos completados`}
+                      </span>
+                      {hasAnyDuplicates && (
+                        <span className="text-[10px] font-extrabold text-rose-600 block">
+                          Corrija los duplicados antes de guardar
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsImeiCaptureModalOpen(false);
+                          setPendingEquipmentData(null);
+                        }}
+                        className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!canSubmit}
+                        className={`px-5 py-2 rounded-xl text-xs font-black shadow-sm transition-all flex items-center gap-1.5 ${
+                          canSubmit
+                            ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 cursor-pointer'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+                        }`}
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        Guardar Equipos y IMEIs
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-xs font-extrabold text-slate-500">
-                  {`${imeiInputs.filter((s) => s.trim()).length} / ${pendingEquipmentData.qty} campos completados`}
-                </span>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsImeiCaptureModalOpen(false);
-                      setPendingEquipmentData(null);
-                    }}
-                    className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black shadow-sm cursor-pointer"
-                  >
-                    Guardar Equipos y IMEIs
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
 
             </form>
 
@@ -2673,6 +3024,16 @@ export default function InventoryModule({
         movements={inventoryMovements}
         currentBranch={currentBranch || OFFICIAL_BRANCHES[0]}
         branches={allBranches}
+      />
+
+      {/* MODAL DE IMPRESIÓN Y REPORTE DE INVENTARIO */}
+      <InventoryPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        products={products}
+        currentBranch={currentBranch}
+        currentOperator={currentOperator}
+        allBranches={allBranches}
       />
 
     </div>

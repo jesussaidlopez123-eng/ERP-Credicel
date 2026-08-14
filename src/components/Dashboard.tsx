@@ -325,7 +325,16 @@ export default function Dashboard({
 
   // Inventory Handlers
   const handleAddProduct = (newProd: Product) => {
-    setProducts((prev) => [...prev, newProd]);
+    setProducts((prev) => {
+      // Check if product with this ID or Code already exists
+      const existingIdx = prev.findIndex(p => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase());
+      if (existingIdx !== -1) {
+        const updatedList = [...prev];
+        updatedList[existingIdx] = { ...prev[existingIdx], ...newProd };
+        return updatedList;
+      }
+      return [...prev, newProd];
+    });
     saveProductToFirestore(newProd).catch((err) => console.error('Error saving new product:', err));
   };
 
