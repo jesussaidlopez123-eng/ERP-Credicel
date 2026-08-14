@@ -8,7 +8,7 @@ import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
 import SettingsModule from './SettingsModule';
-import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord } from '../types';
+import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
@@ -29,7 +29,10 @@ import {
   saveNotificationToFirestore,
   deleteNotificationFromFirestore,
   subscribeToCortesX,
-  executeAndSaveCorteX
+  executeAndSaveCorteX,
+  subscribeToInventoryMovements,
+  saveInventoryMovementToFirestore,
+  saveInventoryMovementsBatchToFirestore
 } from '../lib/firebase';
 
 const ALL_BRANCHES: Branch[] = [
@@ -107,6 +110,7 @@ export default function Dashboard({
   const [salesTickets, setSalesTickets] = useState<SaleTicket[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [cortesX, setCortesX] = useState<CorteXRecord[]>([]);
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [cloudSynced, setCloudSynced] = useState(true);
 
   // -----------------------------------------------------------
@@ -143,6 +147,10 @@ export default function Dashboard({
       }
     });
 
+    const unsubMovements = subscribeToInventoryMovements((movs) => {
+      setInventoryMovements(movs);
+    });
+
     return () => {
       unsubProducts();
       unsubSales();
@@ -150,6 +158,7 @@ export default function Dashboard({
       unsubRepairPrices();
       unsubCortes();
       unsubNotifs();
+      unsubMovements();
     };
   }, []);
 
@@ -161,6 +170,20 @@ export default function Dashboard({
       setActiveModule('pos');
     }
   }, [isAdmin, activeModule]);
+
+  // Inventory Movement Recording Helper
+  const handleRecordInventoryMovement = (movementData: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => {
+    const newMovement: InventoryMovement = {
+      ...movementData,
+      id: (movementData as any).id || `mov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: (movementData as any).timestamp || new Date().toISOString()
+    };
+
+    setInventoryMovements((prev) => [newMovement, ...prev]);
+    saveInventoryMovementToFirestore(newMovement).catch((err) =>
+      console.error('Error saving inventory movement to Firestore:', err)
+    );
+  };
 
   // Repair Price Catalog Handlers
   const handleAddRepairPrice = (newItem: RepairPriceItem) => {
@@ -178,7 +201,7 @@ export default function Dashboard({
     deleteRepairPriceFromFirestore(id).catch((err) => console.error('Error deleting repair price:', err));
   };
 
-  // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal and Firestore Sync)
+  // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)
   const handleCompleteSale = async (ticket: SaleTicket) => {
     // 1. Optimistically add to local sales tickets
     setSalesTickets((prev) => [ticket, ...prev]);
@@ -190,7 +213,53 @@ export default function Dashboard({
       console.error('Error saving sale ticket to Firestore:', err);
     }
 
-    // 3. Update product stock and remove sold IMEIs in state and in Firestore
+    // 3. Register inventory movements for sold products
+    const branchName = ALL_BRANCHES.find((b) => b.id === ticket.branchId)?.name || ticket.branchId;
+    const saleMovements: InventoryMovement[] = [];
+
+    ticket.items.forEach((item) => {
+      const prodId = item.product?.id || '';
+      if (
+        prodId === 'prod-recarga-gen' ||
+        prodId === 'prod-abono-gen' ||
+        prodId === 'prod-reparacion-gen'
+      ) {
+        return;
+      }
+      const prod = products.find((p) => p.id === prodId) || item.product;
+      const prodName = prod?.name || 'Artículo';
+      const prodCode = prod?.code || 'S/C';
+
+      const mov: InventoryMovement = {
+        id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        type: 'venta',
+        productId: prod?.id || prodId,
+        productCode: prodCode,
+        productName: prodName,
+        category: prod?.category,
+        inventoryType: prod?.inventoryType,
+        quantity: -item.quantity,
+        targetBranchId: ticket.branchId,
+        targetBranchName: branchName,
+        operatorName: ticket.operatorName || currentOperator.name,
+        operatorId: currentOperator.id,
+        ticketId: ticket.folio || ticket.id,
+        unitPrice: item.unitPrice,
+        details: `Venta POS en Ticket #${ticket.folio || ticket.id.slice(-6)}: ${item.quantity} pza(s) vendida(s) en ${branchName}`,
+        imeis: item.metadata?.imei ? [item.metadata.imei] : undefined
+      };
+      saleMovements.push(mov);
+    });
+
+    if (saleMovements.length > 0) {
+      setInventoryMovements((prev) => [...saleMovements, ...prev]);
+      saveInventoryMovementsBatchToFirestore(saleMovements).catch((err) =>
+        console.error('Error saving sale inventory movements batch:', err)
+      );
+    }
+
+    // 4. Update product stock and remove sold IMEIs in state and in Firestore
     setProducts((prevProducts) =>
       prevProducts.map((p) => {
         // Find matching item in ticket
@@ -374,6 +443,10 @@ export default function Dashboard({
             onUpdateProduct={handleUpdateProduct}
             onDeleteProduct={handleDeleteProduct}
             currentBranch={currentBranch}
+            currentOperator={currentOperator}
+            allBranches={ALL_BRANCHES}
+            inventoryMovements={inventoryMovements}
+            onRecordMovement={handleRecordInventoryMovement}
           />
         );
       case 'purchases':

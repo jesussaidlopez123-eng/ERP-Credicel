@@ -1,13 +1,18 @@
 import React, { useState, useMemo } from 'react';
-import { Package, Plus, Search, ArrowRightLeft, Smartphone, Headphones, Building2, X, PlusCircle, AlertTriangle, SlidersHorizontal, CheckCircle2, DollarSign, Info, Lock, ShieldCheck } from 'lucide-react';
-import { Product, Branch } from '../types';
+import { Package, Plus, Search, ArrowRightLeft, Smartphone, Headphones, Building2, X, PlusCircle, AlertTriangle, SlidersHorizontal, CheckCircle2, DollarSign, Info, Lock, ShieldCheck, History } from 'lucide-react';
+import { Product, Branch, Operator, InventoryMovement } from '../types';
+import { InventoryMovementsModal } from './InventoryMovementsModal';
 
 interface InventoryModuleProps {
   products: Product[];
   onAddProduct: (product: Product) => void;
   onUpdateProduct: (product: Product) => void;
   onDeleteProduct: (id: string) => void;
-  currentBranch: Branch;
+  currentBranch?: Branch;
+  currentOperator?: Operator;
+  allBranches?: Branch[];
+  inventoryMovements?: InventoryMovement[];
+  onRecordMovement?: (movement: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => void;
 }
 
 const OFFICIAL_BRANCHES = [
@@ -21,13 +26,20 @@ export default function InventoryModule({
   onAddProduct,
   onUpdateProduct,
   onDeleteProduct,
-  currentBranch
+  currentBranch,
+  currentOperator,
+  allBranches = OFFICIAL_BRANCHES,
+  inventoryMovements = [],
+  onRecordMovement
 }: InventoryModuleProps) {
   // 1. Tab Principal: Accesorios vs Equipos
   const [activeInventoryTab, setActiveInventoryTab] = useState<'accesorio' | 'equipo'>('accesorio');
 
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Modal 0: Historial de Movimientos de los últimos 15 días
+  const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
 
   // Modals state
   // Modal 1: Ingresar (Agregar Stock / Nuevo Producto / Nuevo Equipo)
@@ -328,6 +340,22 @@ export default function InventoryModule({
           stock: newTotalStock
         };
 
+        const branchName = OFFICIAL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        onRecordMovement?.({
+          type: 'ingreso',
+          productId: prod.id,
+          productCode: prod.code,
+          productName: prod.name,
+          category: prod.category,
+          inventoryType: 'accesorio',
+          quantity: qty,
+          targetBranchId: ingresarBranchId,
+          targetBranchName: branchName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          details: `Ingreso de stock (+${qty} pza(s)) en ${branchName}`
+        });
+
         onUpdateProduct(updated);
         setIsIngresarModalOpen(false);
       } else {
@@ -363,6 +391,24 @@ export default function InventoryModule({
           branchStock: newBranchStock,
           color: 'bg-slate-800 text-white'
         };
+
+        const branchName = OFFICIAL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        onRecordMovement?.({
+          type: 'creacion',
+          productId: newProd.id,
+          productCode: newProd.code,
+          productName: newProd.name,
+          category: 'accesorio',
+          inventoryType: 'accesorio',
+          quantity: qty,
+          targetBranchId: ingresarBranchId,
+          targetBranchName: branchName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          unitPrice: numPrice,
+          costPrice: numCost,
+          details: `Alta de nuevo accesorio e ingreso inicial de ${qty} pza(s) en ${branchName}`
+        });
 
         onAddProduct(newProd);
         setIsIngresarModalOpen(false);
@@ -443,6 +489,23 @@ export default function InventoryModule({
         stock: newTotalStock
       };
 
+      const branchName = OFFICIAL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      onRecordMovement?.({
+        type: 'ingreso',
+        productId: prod.id,
+        productCode: prod.code,
+        productName: prod.name,
+        category: prod.category,
+        inventoryType: 'equipo',
+        quantity: qty,
+        targetBranchId: branchId,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        imeis: finalImeis,
+        details: `Ingreso de ${qty} equipo(s) con captura de IMEIs en ${branchName}`
+      });
+
       onUpdateProduct(updated);
     } else {
       // New equipment model
@@ -474,6 +537,25 @@ export default function InventoryModule({
         branchStock: newBranchStock,
         color: 'bg-blue-800 text-white'
       };
+
+      const branchName = OFFICIAL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      onRecordMovement?.({
+        type: 'creacion',
+        productId: newProd.id,
+        productCode: newProd.code,
+        productName: newProd.name,
+        category: 'equipo_credito',
+        inventoryType: 'equipo',
+        quantity: qty,
+        targetBranchId: branchId,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        unitPrice: price || 0,
+        costPrice: costPrice || 0,
+        imeis: finalImeis,
+        details: `Alta de nuevo equipo celular e ingreso de ${qty} pza(s) con IMEIs en ${branchName}`
+      });
 
       onAddProduct(newProd);
     }
@@ -567,6 +649,23 @@ export default function InventoryModule({
       `Traspaso: ${prod.name}`,
       `De ${fromName} ➔ ${toName} (${qty} pza(s))`,
       () => {
+        onRecordMovement?.({
+          type: 'traspaso',
+          productId: prod.id,
+          productCode: prod.code,
+          productName: prod.name,
+          category: prod.category,
+          inventoryType: prod.inventoryType || 'accesorio',
+          quantity: qty,
+          sourceBranchId: fromBranchId,
+          sourceBranchName: fromName,
+          targetBranchId: toBranchId,
+          targetBranchName: toName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          details: `Traspaso de ${qty} pza(s) de ${fromName} ➔ ${toName}`
+        });
+
         onUpdateProduct(updated);
         setIsTransferModalOpen(false);
       }
@@ -627,6 +726,24 @@ export default function InventoryModule({
       `Traspaso de Equipos con IMEI: ${product.name}`,
       `De ${fromName} ➔ ${toName} (${qty} IMEI(s))`,
       () => {
+        onRecordMovement?.({
+          type: 'traspaso',
+          productId: product.id,
+          productCode: product.code,
+          productName: product.name,
+          category: product.category,
+          inventoryType: 'equipo',
+          quantity: qty,
+          sourceBranchId: fromBranchId,
+          sourceBranchName: fromName,
+          targetBranchId: toBranchId,
+          targetBranchName: toName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          imeis: selectedTransferImeis,
+          details: `Traspaso de ${qty} equipo(s) con IMEI de ${fromName} ➔ ${toName}`
+        });
+
         onUpdateProduct(updated);
         setIsTransferImeiModalOpen(false);
         setPendingTransferData(null);
@@ -747,6 +864,22 @@ export default function InventoryModule({
       `Ajuste (${actionText}): ${prod.name}`,
       `Sucursal: ${branchName} | Cantidad: ${qty} pza(s) | Motivo: ${ajustarReason}`,
       () => {
+        onRecordMovement?.({
+          type: 'ajuste',
+          productId: prod.id,
+          productCode: prod.code,
+          productName: prod.name,
+          category: prod.category,
+          inventoryType: prod.inventoryType || 'accesorio',
+          quantity: ajustarAction === 'merma' ? -qty : qty,
+          targetBranchId: ajustarBranchId,
+          targetBranchName: branchName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          reason: ajustarReason,
+          details: `Ajuste (${actionText}): ${ajustarAction === 'merma' ? `-${qty}` : `+${qty}`} pza(s) en ${branchName}. Motivo: ${ajustarReason}`
+        });
+
         onUpdateProduct(updated);
         setIsAjustarModalOpen(false);
       }
@@ -802,6 +935,23 @@ export default function InventoryModule({
       `Baja de IMEIs por Merma: ${product.name}`,
       `Sucursal: ${branchName} | ${qty} IMEI(s) a eliminar del inventario`,
       () => {
+        onRecordMovement?.({
+          type: 'ajuste',
+          productId: product.id,
+          productCode: product.code,
+          productName: product.name,
+          category: product.category,
+          inventoryType: 'equipo',
+          quantity: -qty,
+          targetBranchId: branchId,
+          targetBranchName: branchName,
+          operatorName: currentOperator?.name || 'Admin',
+          operatorId: currentOperator?.id,
+          reason: pendingAjustarData.reason || 'Baja de IMEIs por merma',
+          imeis: selectedAjustarImeis,
+          details: `Baja de ${qty} IMEI(s) por merma en ${branchName}. Motivo: ${pendingAjustarData.reason || 'Producto dañado / merma'}`
+        });
+
         onUpdateProduct(updated);
         setIsAjustarImeiModalOpen(false);
         setPendingAjustarData(null);
@@ -859,6 +1009,23 @@ export default function InventoryModule({
       costPrice: numCost,
       price: numPrice
     };
+
+    onRecordMovement?.({
+      type: 'precio',
+      productId: prod.id,
+      productCode: prod.code,
+      productName: prod.name,
+      category: prod.category,
+      inventoryType: prod.inventoryType,
+      quantity: 0,
+      operatorName: currentOperator?.name || 'Admin',
+      operatorId: currentOperator?.id,
+      oldCostPrice: prod.costPrice,
+      newCostPrice: numCost,
+      oldPrice: prod.price,
+      newPrice: numPrice,
+      details: `Cambio de Precios: Costo $${prod.costPrice?.toFixed(2) || '0.00'} ➔ $${numCost.toFixed(2)} | Venta $${prod.price?.toFixed(2) || '0.00'} ➔ $${numPrice.toFixed(2)}`
+    });
 
     onUpdateProduct(updated);
     setIsPriceModalOpen(false);
@@ -947,6 +1114,21 @@ export default function InventoryModule({
           >
             <DollarSign className="w-4 h-4" />
             Precios
+          </button>
+
+          {/* Botón HISTORIAL DE MOVIMIENTOS (15 DÍAS) */}
+          <button
+            onClick={() => setIsMovementsModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 border border-slate-700"
+            title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
+          >
+            <History className="w-4 h-4 text-purple-300" />
+            <span>Historial (15 Días)</span>
+            {inventoryMovements && inventoryMovements.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-black bg-purple-500 text-white rounded-full">
+                {inventoryMovements.length}
+              </span>
+            )}
           </button>
 
         </div>
@@ -2483,6 +2665,15 @@ export default function InventoryModule({
           </div>
         </div>
       )}
+
+      {/* MODAL 0: HISTORIAL DE MOVIMIENTOS DE LOS ÚLTIMOS 15 DÍAS */}
+      <InventoryMovementsModal
+        isOpen={isMovementsModalOpen}
+        onClose={() => setIsMovementsModalOpen(false)}
+        movements={inventoryMovements}
+        currentBranch={currentBranch || OFFICIAL_BRANCHES[0]}
+        branches={allBranches}
+      />
 
     </div>
   );

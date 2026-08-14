@@ -14,10 +14,11 @@ import {
   orderBy
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
-import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, Branch } from '../types';
+import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, Branch, InventoryMovement } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
+import { getInitialInventoryMovements } from '../data/initialMovements';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -503,3 +504,141 @@ export async function deleteNotificationFromFirestore(id: string) {
     throw err;
   }
 }
+
+// ----------------------------------------------------
+// 8. INVENTORY MOVEMENTS (HISTORIAL DE 15 DÍAS CON AUTO-PURGA)
+// ----------------------------------------------------
+const MOVEMENTS_COLLECTION = 'inventoryMovements';
+const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000; // 15 días exactos en milisegundos
+
+/**
+ * Purga de manera automática registros en Firestore que tengan más de 15 días de antigüedad
+ */
+export async function purgeOldInventoryMovementsFromFirestore(): Promise<number> {
+  try {
+    const colRef = collection(db, MOVEMENTS_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    if (snapshot.empty) return 0;
+
+    const now = Date.now();
+    const cutoffTime = now - FIFTEEN_DAYS_MS;
+    const batch = writeBatch(db);
+    let purgedCount = 0;
+
+    snapshot.forEach((d) => {
+      const data = d.data() as InventoryMovement;
+      const docTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
+      if (isNaN(docTime) || docTime < cutoffTime) {
+        batch.delete(d.ref);
+        purgedCount++;
+      }
+    });
+
+    if (purgedCount > 0) {
+      await batch.commit();
+      console.log(`[Firestore] 🧹 Se purgaron automáticamente ${purgedCount} movimientos obsoletos (> 15 días).`);
+    }
+
+    return purgedCount;
+  } catch (err) {
+    console.error('[Firestore] Error purgando movimientos antiguos:', err);
+    return 0;
+  }
+}
+
+export function subscribeToInventoryMovements(
+  onMovementsUpdate: (movements: InventoryMovement[]) => void,
+  onError?: (err: any) => void
+) {
+  const colRef = collection(db, MOVEMENTS_COLLECTION);
+
+  return onSnapshot(
+    colRef,
+    async (snapshot) => {
+      const now = Date.now();
+      const cutoffTime = now - FIFTEEN_DAYS_MS;
+
+      if (snapshot.empty) {
+        // Inicializar con movimientos de ejemplo de los últimos 15 días
+        const initialMovs = getInitialInventoryMovements();
+        try {
+          const batch = writeBatch(db);
+          initialMovs.forEach((m) => {
+            const ref = doc(db, MOVEMENTS_COLLECTION, m.id);
+            batch.set(ref, cleanForFirestore(m));
+          });
+          await batch.commit();
+          onMovementsUpdate(initialMovs);
+        } catch (seedErr) {
+          console.error('[Firestore] Error inicializando movimientos:', seedErr);
+          onMovementsUpdate(initialMovs);
+        }
+      } else {
+        const validMovements: InventoryMovement[] = [];
+        const expiredRefs: any[] = [];
+
+        snapshot.forEach((d) => {
+          const item = d.data() as InventoryMovement;
+          const itemTime = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+
+          if (isNaN(itemTime) || itemTime < cutoffTime) {
+            // Documento expirado (> 15 días)
+            expiredRefs.push(d.ref);
+          } else {
+            validMovements.push(item);
+          }
+        });
+
+        // Purgar en segundo plano los documentos expirados sin bloquear la UI
+        if (expiredRefs.length > 0) {
+          try {
+            const batch = writeBatch(db);
+            expiredRefs.forEach((ref) => batch.delete(ref));
+            batch.commit().catch((err) => console.error('[Firestore] Error en purga automática:', err));
+          } catch (e) {
+            console.error('[Firestore] Error creando batch de purga:', e);
+          }
+        }
+
+        // Ordenar cronológicamente del más reciente al más antiguo
+        validMovements.sort((a, b) => {
+          const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return tB - tA;
+        });
+
+        onMovementsUpdate(validMovements);
+      }
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToInventoryMovements error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function saveInventoryMovementToFirestore(movement: InventoryMovement) {
+  try {
+    const docRef = doc(db, MOVEMENTS_COLLECTION, movement.id);
+    await setDoc(docRef, cleanForFirestore(movement));
+  } catch (err) {
+    console.error('[Firestore] Error saving inventory movement:', err);
+    throw err;
+  }
+}
+
+export async function saveInventoryMovementsBatchToFirestore(movements: InventoryMovement[]) {
+  if (movements.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    movements.forEach((m) => {
+      const ref = doc(db, MOVEMENTS_COLLECTION, m.id);
+      batch.set(ref, cleanForFirestore(m));
+    });
+    await batch.commit();
+  } catch (err) {
+    console.error('[Firestore] Error saving batch inventory movements:', err);
+    throw err;
+  }
+}
+

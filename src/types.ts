@@ -249,5 +249,38 @@ export interface AppState {
   currentOperator: Operator | null;
 }
 
+export type InventoryMovementType = 'ingreso' | 'traspaso' | 'ajuste' | 'venta' | 'baja' | 'creacion' | 'precio';
+
+export interface InventoryMovement {
+  id: string; // mov-xxxx
+  timestamp: string; // ISO string (e.g. 2026-08-14T09:30:00.000Z)
+  type: InventoryMovementType;
+  productId: string;
+  productCode: string;
+  productName: string;
+  category?: string;
+  inventoryType?: 'accesorio' | 'equipo';
+  quantity: number; // e.g. +5, -1, 5
+  previousStock?: number;
+  newStock?: number;
+  sourceBranchId?: string;
+  sourceBranchName?: string;
+  targetBranchId?: string;
+  targetBranchName?: string;
+  operatorName: string;
+  operatorId?: string;
+  reason?: string;
+  details: string;
+  imeis?: string[];
+  ticketId?: string;
+  unitPrice?: number;
+  costPrice?: number;
+  oldPrice?: number;
+  newPrice?: number;
+  oldCostPrice?: number;
+  newCostPrice?: number;
+}
+
+
 
 
