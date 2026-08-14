@@ -13,7 +13,7 @@ import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
-import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench, Cloud, CheckCircle2 } from 'lucide-react';
+import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench, Cloud, CheckCircle2, Menu } from 'lucide-react';
 import {
   subscribeToProducts,
   saveProductToFirestore,
@@ -94,6 +94,7 @@ export default function Dashboard({
   onLogout 
 }: DashboardProps) {
   const [activeModule, setActiveModule] = useState<ModuleId>('pos');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isCreateNoticeOpen, setIsCreateNoticeOpen] = useState(false);
@@ -496,7 +497,7 @@ export default function Dashboard({
 
   return (
 
-    <div className="flex h-screen bg-neutral-100 overflow-hidden font-sans text-neutral-900">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans text-slate-900">
       
       {/* Left Sidebar Section */}
       <Sidebar 
@@ -505,15 +506,26 @@ export default function Dashboard({
         onLogout={onLogout}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        isMobileOpen={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
       {/* Main Workspace Section */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-between px-6 shrink-0 relative z-30">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-neutral-800 capitalize tracking-tight">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 shrink-0 relative z-30">
+          <div className="flex items-center gap-2.5 sm:gap-4">
+            {/* Hamburger Button on Mobile */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              title="Abrir Menú de Navegación"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <h2 className="text-base sm:text-xl font-black text-slate-800 capitalize tracking-tight">
               {activeModule === 'pos' ? 'Punto de Venta (POS)' : 
                activeModule === 'inventory' ? 'Inventario' : 
                activeModule === 'purchases' ? 'Compras' : 
