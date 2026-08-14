@@ -155,6 +155,13 @@ export default function TicketReceiptModal({
                     <div>💬 Concepto: <strong>{item.metadata.repairType === 'anticipo' ? 'Anticipo' : 'Saldo Final Liquidado'}</strong></div>
                   </div>
                 )}
+
+                {/* Specific metadata for Phone Cases (Fundas) */}
+                {item.metadata?.caseModel && (
+                  <div className="text-[10px] text-blue-900 font-sans bg-blue-50 p-1.5 rounded border border-blue-200">
+                    <div>📱 Modelo Funda: <strong className="font-bold text-blue-950">{item.metadata.caseModel}</strong></div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

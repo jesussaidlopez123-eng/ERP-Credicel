@@ -404,6 +404,44 @@ export default function SalesModule({
     return result.sort((a, b) => b.dateIsoKey.localeCompare(a.dateIsoKey));
   }, [combinedTickets, selectedBranchId, searchQuery]);
 
+  // Ranking de Modelos de Fundas Más Vendidos (Agrupación dinámica sin registro previo)
+  const fundaModelRanking = useMemo(() => {
+    const map: Record<string, { model: string; count: number; totalRevenue: number; categories: Set<string>; lastSold: string }> = {};
+    let totalFundas = 0;
+
+    combinedTickets.forEach((ticket) => {
+      if (selectedBranchId !== 'all' && ticket.branchId !== selectedBranchId) return;
+
+      ticket.items.forEach((item) => {
+        const isFunda =
+          (item.product.name || '').toLowerCase().includes('funda') ||
+          (item.product.category || '').toLowerCase().includes('funda') ||
+          (item.product.code || '').toLowerCase().startsWith('fun') ||
+          !!item.metadata?.caseModel;
+
+        if (isFunda) {
+          const modelKey = (item.metadata?.caseModel || 'Sin Modelo Específico').trim();
+          if (!map[modelKey]) {
+            map[modelKey] = {
+              model: modelKey,
+              count: 0,
+              totalRevenue: 0,
+              categories: new Set(),
+              lastSold: ticket.timestamp
+            };
+          }
+          map[modelKey].count += item.quantity;
+          map[modelKey].totalRevenue += item.totalPrice;
+          map[modelKey].categories.add(item.product.name);
+          totalFundas += item.quantity;
+        }
+      });
+    });
+
+    const list = Object.values(map).sort((a, b) => b.count - a.count);
+    return { list, totalFundas };
+  }, [combinedTickets, selectedBranchId]);
+
   // 2. EQUIPOS DATA: Individual Device Sale Records
   const equipoRecords = useMemo(() => {
     const list: Array<{
@@ -1027,7 +1065,87 @@ export default function SalesModule({
       {/* CATEGORY 1: ACCESORIOS (RENGLONES DE DIAS CON VENTAS + VENTANA EMERGENTE) */}
       {/* ------------------------------------------------------------------------- */}
       {activeTab === 'accesorio' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+
+          {/* FUNDAS TOP SELLING MODELS RANKING WIDGET */}
+          <div className="bg-gradient-to-br from-blue-900 via-indigo-900 to-slate-900 text-white rounded-3xl p-5 border border-blue-800/80 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-800/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-500/20 rounded-xl border border-blue-400/30 text-blue-300">
+                  <Smartphone className="w-5 h-5 text-blue-300" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm tracking-tight text-white flex items-center gap-2">
+                    📱 Modelos de Fundas Más Vendidos
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-blue-500/30 text-blue-200 rounded-full border border-blue-400/30">
+                      Demanda Real
+                    </span>
+                  </h3>
+                  <p className="text-xs text-blue-200/80">
+                    Modelos registrados en cada venta sin necesidad de inventario individualizado
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <span className="text-[11px] text-blue-300 font-medium block">Total Fundas Vendidas</span>
+                <span className="font-mono font-black text-white text-base">
+                  {fundaModelRanking.totalFundas} piezas
+                </span>
+              </div>
+            </div>
+
+            {fundaModelRanking.list.length === 0 ? (
+              <div className="py-6 text-center text-blue-200/60 text-xs">
+                Aún no hay ventas de fundas con modelo especificado en este periodo/sucursal.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                {fundaModelRanking.list.map((item, idx) => {
+                  const percent = fundaModelRanking.totalFundas > 0 ? (item.count / fundaModelRanking.totalFundas) * 100 : 0;
+                  return (
+                    <div 
+                      key={item.model}
+                      className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10 hover:border-blue-400/40 transition-all flex flex-col justify-between"
+                    >
+                      <div className="flex items-start justify-between gap-1.5 mb-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`w-5 h-5 flex items-center justify-center rounded-lg text-[10px] font-black shrink-0 ${
+                            idx === 0 ? 'bg-amber-400 text-slate-950 font-black' :
+                            idx === 1 ? 'bg-slate-300 text-slate-900 font-bold' :
+                            idx === 2 ? 'bg-amber-600 text-white font-bold' :
+                            'bg-white/20 text-white'
+                          }`}>
+                            #{idx + 1}
+                          </span>
+                          <span className="font-extrabold text-xs text-white truncate" title={item.model}>
+                            {item.model}
+                          </span>
+                        </div>
+                        <span className="font-mono font-black text-emerald-300 text-xs shrink-0">
+                          {item.count} pzs
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 mt-1">
+                        <div className="flex justify-between text-[10px] text-blue-200 font-mono">
+                          <span>${item.totalRevenue.toFixed(2)} MXN</span>
+                          <span>{percent.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-blue-400 to-emerald-400 rounded-full"
+                            style={{ width: `${Math.min(100, Math.max(5, percent))}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ShoppingBag className="w-5 h-5 text-blue-600" />
@@ -1856,6 +1974,11 @@ export default function SalesModule({
                                               <span className="flex items-center gap-0.5"><Clock className="w-3 h-3 text-slate-400" /> {op.time}</span>
                                               <span>•</span>
                                               <span className="flex items-center gap-0.5"><User className="w-3 h-3 text-slate-400" /> {op.operatorName}</span>
+                                              {op.metadata?.caseModel && (
+                                                <span className="font-bold text-blue-800 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                                                  📱 Modelo: {op.metadata.caseModel}
+                                                </span>
+                                              )}
                                               {op.metadata?.phoneNumber && (
                                                 <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                                                   📲 {op.metadata.phoneNumber} ({op.metadata.carrier || 'Telcel'})
@@ -2049,6 +2172,11 @@ export default function SalesModule({
                             >
                               <div>
                                 <span className="font-bold text-slate-900">{item.product.name}</span>
+                                {item.metadata?.caseModel && (
+                                  <span className="text-[10px] text-blue-700 block font-bold">
+                                    📱 Modelo: {item.metadata.caseModel}
+                                  </span>
+                                )}
                                 {item.metadata?.clientName && (
                                   <span className="text-[10px] text-amber-700 block font-medium">
                                     Cliente: {item.metadata.clientName}

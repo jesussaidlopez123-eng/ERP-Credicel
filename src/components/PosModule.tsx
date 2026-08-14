@@ -36,6 +36,7 @@ import RepairModal from './RepairModal';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import PaymentCheckoutModal from './PaymentCheckoutModal';
 import CreditPaymentModal from './CreditPaymentModal';
+import CaseModelModal from './CaseModelModal';
 import { RepairPriceItem } from '../types';
 
 interface PosModuleProps {
@@ -139,6 +140,8 @@ export default function PosModule({
   const [isTicketReceiptOpen, setIsTicketReceiptOpen] = useState(false);
   const [isPaymentCheckoutModalOpen, setIsPaymentCheckoutModalOpen] = useState(false);
   const [isCreditPaymentModalOpen, setIsCreditPaymentModalOpen] = useState(false);
+  const [isCaseModelModalOpen, setIsCaseModelModalOpen] = useState(false);
+  const [selectedFundaProduct, setSelectedFundaProduct] = useState<Product | null>(null);
 
   // Focus scanner input on load
   useEffect(() => {
@@ -393,6 +396,14 @@ export default function PosModule({
   }, [products, searchQuery, selectedCategory]);
 
 
+  // Dynamic phone case detection: Any product with "funda" or "case" in name or category
+  const isFundaProduct = (p: Product): boolean => {
+    const name = (p.name || '').toLowerCase();
+    const cat = (p.category || '').toLowerCase();
+    const code = (p.code || '').toLowerCase();
+    return name.includes('funda') || cat.includes('funda') || code.startsWith('fun') || name.includes('case');
+  };
+
   // Add Product handler
   const handleProductClick = (product: Product) => {
     if (product.id === 'prod-abono-gen' || product.name.toLowerCase().includes('abono')) {
@@ -425,20 +436,60 @@ export default function PosModule({
       return;
     }
 
+    // Dynamic Funda / Case Detection -> Prompt for Phone Model
+    if (isFundaProduct(product)) {
+      setSelectedFundaProduct(product);
+      setIsCaseModelModalOpen(true);
+      return;
+    }
+
     // Standard products (Accessories, fixed price services, etc.)
     addToCart(product, product.price);
   };
 
-  const addToCart = (product: Product, unitPrice: number, metadata?: CartItemMetadata) => {
+  const handleConfirmCaseModel = (product: Product, modelName: string, quantity: number = 1) => {
+    addToCart(product, product.price, { caseModel: modelName }, quantity);
+  };
+
+  const addToCart = (product: Product, unitPrice: number, metadata?: CartItemMetadata, initialQty: number = 1) => {
     setCart((prevCart) => {
-      // If it's a special product with unique metadata, add as separate line
+      // If it's a phone case with a model specified, group by same product AND same caseModel
+      if (metadata?.caseModel) {
+        const existingCaseIndex = prevCart.findIndex(
+          (i) => i.product.id === product.id && i.metadata?.caseModel === metadata.caseModel
+        );
+
+        if (existingCaseIndex > -1) {
+          const updated = [...prevCart];
+          const item = updated[existingCaseIndex];
+          const newQty = item.quantity + initialQty;
+          updated[existingCaseIndex] = {
+            ...item,
+            quantity: newQty,
+            totalPrice: newQty * item.unitPrice
+          };
+          return updated;
+        }
+
+        const newItem: CartItem = {
+          cartItemId: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          product,
+          quantity: initialQty,
+          unitPrice,
+          totalPrice: unitPrice * initialQty,
+          metadata
+        };
+        return [...prevCart, newItem];
+      }
+
+      // If it's a special product with unique metadata (recharge, credit phone, repair), add as separate line
       if (metadata) {
         const newItem: CartItem = {
           cartItemId: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           product,
-          quantity: 1,
+          quantity: initialQty,
           unitPrice,
-          totalPrice: unitPrice,
+          totalPrice: unitPrice * initialQty,
           metadata
         };
         return [...prevCart, newItem];
@@ -452,7 +503,7 @@ export default function PosModule({
       if (existingIndex > -1) {
         const updated = [...prevCart];
         const item = updated[existingIndex];
-        const newQty = item.quantity + 1;
+        const newQty = item.quantity + initialQty;
         updated[existingIndex] = {
           ...item,
           quantity: newQty,
@@ -465,9 +516,9 @@ export default function PosModule({
       const newItem: CartItem = {
         cartItemId: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         product,
-        quantity: 1,
+        quantity: initialQty,
         unitPrice,
-        totalPrice: unitPrice
+        totalPrice: unitPrice * initialQty
       };
       return [...prevCart, newItem];
     });
@@ -916,6 +967,16 @@ export default function PosModule({
                   </div>
                 )}
 
+                {/* Specific metadata for Phone Cases (Fundas) */}
+                {item.metadata?.caseModel && (
+                  <div className="text-[10px] bg-blue-50 text-blue-950 px-2 py-1.5 rounded-lg border border-blue-200/80 font-medium flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <Smartphone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Modelo: <strong className="font-bold text-blue-900">{item.metadata.caseModel}</strong></span>
+                    </span>
+                  </div>
+                )}
+
                 {/* Quantity Controls & Price */}
                 <div className="flex items-center justify-between pt-0.5">
                   <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
@@ -1058,6 +1119,13 @@ export default function PosModule({
         onClose={() => setIsTicketReceiptOpen(false)}
         ticket={completedTicket}
         currentBranch={currentBranch}
+      />
+
+      <CaseModelModal
+        isOpen={isCaseModelModalOpen}
+        onClose={() => setIsCaseModelModalOpen(false)}
+        product={selectedFundaProduct}
+        onConfirm={handleConfirmCaseModel}
       />
 
     </div>
