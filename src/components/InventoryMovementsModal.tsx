@@ -27,8 +27,6 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
   const [selectedType, setSelectedType] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<'15d' | '7d' | '3d' | 'today'>('15d');
 
-  if (!isOpen) return null;
-
   // Safe branches list
   const safeBranches: Branch[] = Array.isArray(branches) ? branches : [];
 
@@ -256,6 +254,8 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
         );
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">

@@ -16,11 +16,13 @@ import {
   User, 
   Layers, 
   ShieldCheck, 
-  Eye, 
-  EyeOff,
-  Copy,
-  Check,
-  Receipt
+  Copy, 
+  Check, 
+  Receipt,
+  Download,
+  FileSpreadsheet,
+  Table,
+  Sparkles
 } from 'lucide-react';
 import { Product, Branch, Operator } from '../types';
 
@@ -46,23 +48,23 @@ export default function InventoryPrintModal({
   ]
 }: InventoryPrintModalProps) {
 
-  // Filter States
+  // 1. FILTER STATES (Declared unconditionally at top level)
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'equipo' | 'accesorio'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // Customization Display Options
+  // 2. CUSTOMIZATION DISPLAY OPTIONS
   const [showImeis, setShowImeis] = useState<boolean>(true);
   const [showCosts, setShowCosts] = useState<boolean>(true);
   const [showAuditCheckboxes, setShowAuditCheckboxes] = useState<boolean>(true);
   const [hideZeroStock, setHideZeroStock] = useState<boolean>(false);
   const [printFormat, setPrintFormat] = useState<'letter' | 'thermal'>('letter');
 
-  // Copy state
-  const [isCopied, setIsCopied] = useState<boolean>(false);
+  // 3. COPY & EXPORT FEEDBACK STATES
+  const [isCopiedExcel, setIsCopiedExcel] = useState<boolean>(false);
+  const [isCopiedText, setIsCopiedText] = useState<boolean>(false);
 
-  if (!isOpen) return null;
-
+  // Helper functions
   const getBranchName = (branchId: string): string => {
     const found = allBranches.find(b => b.id === branchId);
     return found ? found.name : branchId;
@@ -70,6 +72,7 @@ export default function InventoryPrintModal({
 
   // Helper to calculate product stock for a specific branch or all
   const getProductStock = (product: Product, branchId: string): number => {
+    if (!product) return 0;
     if (branchId === 'all') {
       if (product.branchStock) {
         return Object.values(product.branchStock).reduce((sum, val) => sum + (val || 0), 0);
@@ -85,14 +88,15 @@ export default function InventoryPrintModal({
   // Helper to get IMEIs for a product filtered by branch
   const getProductImeis = (product: Product, branchId: string): { imei: string; branchId?: string }[] => {
     const list: { imei: string; branchId?: string }[] = [];
+    if (!product) return list;
 
     if (product.branchImeiMap) {
       Object.entries(product.branchImeiMap).forEach(([bId, imeis]) => {
         if (branchId === 'all' || branchId === bId) {
           if (Array.isArray(imeis)) {
             imeis.forEach(im => {
-              if (im && im.trim()) {
-                list.push({ imei: im.trim(), branchId: bId });
+              if (im && String(im).trim()) {
+                list.push({ imei: String(im).trim(), branchId: bId });
               }
             });
           }
@@ -103,16 +107,19 @@ export default function InventoryPrintModal({
         ? product.imeiList
         : (product.imei ? [product.imei] : []);
       imeis.forEach(im => {
-        if (im && im.trim()) list.push({ imei: im.trim() });
+        if (im && String(im).trim()) list.push({ imei: String(im).trim() });
       });
     }
 
     return list;
   };
 
-  // Filter products based on selected parameters
+  // 4. MEMOIZED FILTERED PRODUCTS (Unconditional Hook)
   const filteredProducts = useMemo(() => {
-    return products.filter((prod) => {
+    const safeProducts = Array.isArray(products) ? products : [];
+    return safeProducts.filter((prod) => {
+      if (!prod) return false;
+
       // Category filter
       const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
       if (selectedCategory === 'equipo' && !isEquip) return false;
@@ -128,7 +135,7 @@ export default function InventoryPrintModal({
         const matchesCode = (prod.code || '').toLowerCase().includes(q);
         const matchesName = (prod.name || '').toLowerCase().includes(q);
         const matchesCategory = (prod.category || '').toLowerCase().includes(q);
-        const matchesImeis = (prod.imeiList || []).some(im => im.toLowerCase().includes(q)) || 
+        const matchesImeis = (prod.imeiList || []).some(im => String(im).toLowerCase().includes(q)) || 
                              (prod.imei || '').toLowerCase().includes(q);
         if (!matchesCode && !matchesName && !matchesCategory && !matchesImeis) {
           return false;
@@ -139,7 +146,7 @@ export default function InventoryPrintModal({
     });
   }, [products, selectedBranchId, selectedCategory, hideZeroStock, searchQuery]);
 
-  // Separate into Cell Phones and Accessories
+  // 5. SEPARATE LISTS (Unconditional Hooks)
   const phoneProducts = useMemo(() => {
     return filteredProducts.filter(p => p.inventoryType === 'equipo' || p.category === 'equipo_credito');
   }, [filteredProducts]);
@@ -148,7 +155,7 @@ export default function InventoryPrintModal({
     return filteredProducts.filter(p => !(p.inventoryType === 'equipo' || p.category === 'equipo_credito'));
   }, [filteredProducts]);
 
-  // Summary Metrics
+  // 6. SUMMARY METRICS (Unconditional Hook)
   const summaryMetrics = useMemo(() => {
     let totalItems = filteredProducts.length;
     let totalUnits = 0;
@@ -188,13 +195,171 @@ export default function InventoryPrintModal({
     };
   }, [filteredProducts, selectedBranchId]);
 
-  const handlePrint = () => {
-    window.print();
+  // ==========================================
+  // EXPORT TO EXCEL (.CSV with UTF-8 BOM)
+  // ==========================================
+  const handleDownloadExcelCSV = () => {
+    if (filteredProducts.length === 0) {
+      alert('No hay productos en el inventario que coincidan con los filtros seleccionados.');
+      return;
+    }
+
+    try {
+      const headers = [
+        'Tipo Inventario',
+        'Código / SKU',
+        'Producto / Modelo',
+        'Categoría',
+        'Proveedor',
+        'Stock Total',
+        'Stock Bodega Central',
+        'Stock Navojoa',
+        'Stock Huatabampo',
+        'Costo Unitario ($)',
+        'Precio Venta ($)',
+        'Valuación Costo Total ($)',
+        'Valuación Venta Total ($)',
+        'Margen Bruto Unit. ($)',
+        'Margen Estimado (%)',
+        'Cantidad de IMEIs',
+        'Lista de IMEIs (Trazabilidad)'
+      ];
+
+      const rows = filteredProducts.map((prod) => {
+        const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
+        const typeLabel = isEquip ? 'Equipo Celular' : 'Accesorio / Producto';
+        const stockTotal = getProductStock(prod, selectedBranchId);
+        const stockBodega = prod.branchStock?.['b-bodega'] || 0;
+        const stockNavojoa = prod.branchStock?.['b-navojoa'] || 0;
+        const stockHuata = prod.branchStock?.['b-huatabampo'] || 0;
+        const cost = prod.costPrice || 0;
+        const price = prod.price || 0;
+        const valCost = stockTotal * cost;
+        const valSale = stockTotal * price;
+        const marginUnit = price - cost;
+        const marginPct = cost > 0 ? ((marginUnit / cost) * 100).toFixed(1) : '100';
+
+        const imeis = getProductImeis(prod, selectedBranchId);
+        const imeisFormatted = imeis.map(im => im.branchId ? `${im.imei} (${getBranchName(im.branchId)})` : im.imei).join('; ');
+
+        return [
+          `"${typeLabel}"`,
+          `"${String(prod.code || '').replace(/"/g, '""')}"`,
+          `"${String(prod.name || '').replace(/"/g, '""')}"`,
+          `"${String(prod.category || '').replace(/"/g, '""')}"`,
+          `"${String(prod.supplier || 'N/A').replace(/"/g, '""')}"`,
+          stockTotal,
+          stockBodega,
+          stockNavojoa,
+          stockHuata,
+          cost.toFixed(2),
+          price.toFixed(2),
+          valCost.toFixed(2),
+          valSale.toFixed(2),
+          marginUnit.toFixed(2),
+          `${marginPct}%`,
+          imeis.length,
+          `"${imeisFormatted.replace(/"/g, '""')}"`
+        ];
+      });
+
+      // UTF-8 Byte Order Mark (\uFEFF) ensures Excel opens accents/ñ correctly
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      
+      const branchTag = selectedBranchId === 'all' ? 'CONSOLIDADO' : getBranchName(selectedBranchId).toUpperCase().replace(/\s+/g, '_');
+      const dateTag = new Date().toISOString().slice(0, 10);
+      const filename = `INVENTARIO_${branchTag}_${dateTag}.csv`;
+
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error exporting Excel CSV:', err);
+      alert('Ocurrió un error al generar la hoja de Excel.');
+    }
   };
 
+  // ==========================================
+  // COPY FOR EXCEL (TSV - TAB SEPARATED)
+  // Direct paste into Excel / Google Sheets
+  // ==========================================
+  const handleCopyForExcel = () => {
+    if (filteredProducts.length === 0) {
+      alert('No hay productos para copiar.');
+      return;
+    }
+
+    try {
+      const headers = [
+        'Tipo',
+        'Código',
+        'Producto / Modelo',
+        'Categoría',
+        'Stock Total',
+        'Bodega Central',
+        'Navojoa',
+        'Huatabampo',
+        'Costo Unit.',
+        'Precio Venta',
+        'Valuación Costo',
+        'Valuación Venta',
+        'IMEIs'
+      ];
+
+      const rows = filteredProducts.map((prod) => {
+        const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
+        const typeLabel = isEquip ? 'Celular' : 'Accesorio';
+        const stockTotal = getProductStock(prod, selectedBranchId);
+        const stockBodega = prod.branchStock?.['b-bodega'] || 0;
+        const stockNavojoa = prod.branchStock?.['b-navojoa'] || 0;
+        const stockHuata = prod.branchStock?.['b-huatabampo'] || 0;
+        const cost = prod.costPrice || 0;
+        const price = prod.price || 0;
+        const valCost = (stockTotal * cost).toFixed(2);
+        const valSale = (stockTotal * price).toFixed(2);
+
+        const imeis = getProductImeis(prod, selectedBranchId);
+        const imeisFormatted = imeis.map(i => i.imei).join('; ');
+
+        return [
+          typeLabel,
+          prod.code,
+          prod.name,
+          prod.category,
+          stockTotal,
+          stockBodega,
+          stockNavojoa,
+          stockHuata,
+          cost.toFixed(2),
+          price.toFixed(2),
+          valCost,
+          valSale,
+          imeisFormatted
+        ].join('\t');
+      });
+
+      const tsvContent = [headers.join('\t'), ...rows].join('\n');
+      navigator.clipboard.writeText(tsvContent);
+
+      setIsCopiedExcel(true);
+      setTimeout(() => setIsCopiedExcel(false), 2500);
+    } catch (err) {
+      console.error('Error copying TSV for Excel:', err);
+    }
+  };
+
+  // ==========================================
+  // COPY TEXT SUMMARY FOR WHATSAPP / NOTES
+  // ==========================================
   const handleCopyTextReport = () => {
     let text = `====================================================\n`;
-    text += `   REPORTE DE INVENTARIO FÍSICO Y VALUACIÓN\n`;
+    text += `   REPORTE DE INVENTARIO Y ARQUEO FÍSICO\n`;
     text += `====================================================\n`;
     text += `Sucursal: ${selectedBranchId === 'all' ? 'Todas las Sucursales' : getBranchName(selectedBranchId)}\n`;
     text += `Fecha: ${new Date().toLocaleDateString('es-MX')} ${new Date().toLocaleTimeString('es-MX')}\n`;
@@ -207,14 +372,14 @@ export default function InventoryPrintModal({
     text += `----------------------------------------------------\n\n`;
 
     if (phoneProducts.length > 0) {
-      text += `--- EQUIPOS CELULARES (${phoneProducts.length} modelos) ---\n`;
+      text += `--- EQUIPOS CELULARES (${phoneProducts.length} modelos / ${summaryMetrics.totalPhoneUnits} pzs) ---\n`;
       phoneProducts.forEach(p => {
         const stock = getProductStock(p, selectedBranchId);
-        text += `[${p.code}] ${p.name} - Stock: ${stock} pzs - Precio: $${p.price.toFixed(2)}\n`;
+        text += `• [${p.code}] ${p.name} | Stock: ${stock} pzs | Precio: $${p.price.toFixed(2)}\n`;
         if (showImeis) {
           const imeis = getProductImeis(p, selectedBranchId);
           if (imeis.length > 0) {
-            text += `   IMEIs (${imeis.length}): ${imeis.map(i => i.imei).join(', ')}\n`;
+            text += `  IMEIs (${imeis.length}): ${imeis.map(i => i.imei).join(', ')}\n`;
           }
         }
       });
@@ -222,16 +387,20 @@ export default function InventoryPrintModal({
     }
 
     if (accessoryProducts.length > 0) {
-      text += `--- ACCESORIOS Y PRODUCTOS (${accessoryProducts.length} modelos) ---\n`;
+      text += `--- ACCESORIOS Y REFACCIONES (${accessoryProducts.length} modelos / ${summaryMetrics.totalAccessoryUnits} pzs) ---\n`;
       accessoryProducts.forEach(p => {
         const stock = getProductStock(p, selectedBranchId);
-        text += `[${p.code}] ${p.name} - Stock: ${stock} pzs - Precio: $${p.price.toFixed(2)}\n`;
+        text += `• [${p.code}] ${p.name} | Stock: ${stock} pzs | Precio: $${p.price.toFixed(2)}\n`;
       });
     }
 
     navigator.clipboard.writeText(text);
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+    setIsCopiedText(true);
+    setTimeout(() => setIsCopiedText(false), 2500);
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const currentDateFormatted = new Date().toLocaleDateString('es-MX', {
@@ -246,6 +415,9 @@ export default function InventoryPrintModal({
     minute: '2-digit',
     second: '2-digit'
   });
+
+  // STRICT CONDITIONAL RENDER: ONLY AFTER ALL HOOKS HAVE BEEN EXECUTED!
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto">
@@ -289,42 +461,65 @@ export default function InventoryPrintModal({
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto">
         
         {/* MODAL HEADER - NO PRINT */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white shrink-0 no-print">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-4 bg-slate-900 text-white shrink-0 no-print gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-400">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-400 shrink-0">
               <Printer className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-black tracking-tight text-white">
-                  Reporte Imprimible de Inventario y Auditoría
+                  Reporte y Exportación de Inventario
                 </h2>
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
                   {summaryMetrics.totalUnits} Unidades
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Genera hojas de arqueo físico, conteo de stock y valuación con desglose de IMEIs
+                Imprime reportes de arqueo físico o exporta a Excel / Hojas de Cálculo con desglose de IMEIs
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            
+            {/* BOTÓN DESCARGAR EXCEL (.CSV) */}
+            <button
+              onClick={handleDownloadExcelCSV}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm border border-emerald-400/30 cursor-pointer"
+              title="Descargar archivo compatible con Microsoft Excel y Google Sheets (.csv)"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+              <span>Descargar Excel</span>
+            </button>
+
+            {/* BOTÓN COPIAR PARA EXCEL (TSV) */}
+            <button
+              onClick={handleCopyForExcel}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-700 cursor-pointer"
+              title="Copiar celdas tabuladas para pegar directamente en Excel (Ctrl + V)"
+            >
+              {isCopiedExcel ? <Check className="w-4 h-4 text-emerald-400" /> : <Table className="w-4 h-4 text-emerald-400" />}
+              <span>{isCopiedExcel ? '¡Copiado para Excel!' : 'Copiar p/ Excel'}</span>
+            </button>
+
+            {/* BOTÓN COPIAR TEXTO */}
             <button
               onClick={handleCopyTextReport}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-700 cursor-pointer"
-              title="Copiar texto resumen al portapapeles"
+              title="Copiar resumen en texto plano para WhatsApp"
             >
-              {isCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
-              <span>{isCopied ? '¡Copiado!' : 'Copiar Texto'}</span>
+              {isCopiedText ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
+              <span>{isCopiedText ? '¡Copiado!' : 'Copiar Texto'}</span>
             </button>
 
+            {/* BOTÓN IMPRIMIR / PDF */}
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Printer className="w-4 h-4 text-amber-300" />
-              <span>Imprimir Reporte (PDF)</span>
+              <span>Imprimir / PDF</span>
             </button>
 
             <button
@@ -458,7 +653,7 @@ export default function InventoryPrintModal({
 
             {/* Print Format Selector */}
             <div className="flex items-center gap-2">
-              <span className="text-[11px] font-extrabold text-slate-500">Formato:</span>
+              <span className="text-[11px] font-extrabold text-slate-500">Formato Papel:</span>
               <div className="bg-slate-200 p-0.5 rounded-xl flex items-center gap-1">
                 <button
                   type="button"
