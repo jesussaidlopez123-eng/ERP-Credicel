@@ -56,11 +56,11 @@ export default function CreditPaymentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-4 bg-indigo-600 text-white flex items-center justify-between border-b border-indigo-700">
+        <div className="p-4 bg-indigo-600 text-white flex items-center justify-between border-b border-indigo-700 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-indigo-700/80 rounded-xl">
               <CreditCard className="w-5 h-5 text-indigo-200" />
@@ -80,7 +80,7 @@ export default function CreditPaymentModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
           
           {/* Platform Field (Strict Written Input) */}
           <div>

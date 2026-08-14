@@ -204,8 +204,8 @@ export default function RepairModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col my-auto max-h-[92vh]">
         
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 bg-amber-600 text-white shrink-0">
@@ -255,7 +255,7 @@ export default function RepairModal({
 
         {/* TAB 1: RECEPCION DE EQUIPO */}
         {activeTab === 'recepcion' && (
-          <form onSubmit={handleRecepcionSubmit} className="p-6 space-y-4 overflow-y-auto">
+          <form onSubmit={handleRecepcionSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
             
             <div className="bg-amber-50/70 border border-amber-200/80 p-3 rounded-xl text-xs text-amber-900 font-medium">
               Completa la información del cliente y del celular para registrar la recepción en el taller.

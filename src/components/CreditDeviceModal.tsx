@@ -244,11 +244,11 @@ export default function CreditDeviceModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className={`flex items-center justify-between px-6 py-4 text-white ${saleMode === 'contado' ? 'bg-emerald-800' : 'bg-indigo-900'}`}>
+        <div className={`flex items-center justify-between px-5 sm:px-6 py-3.5 sm:py-4 text-white shrink-0 ${saleMode === 'contado' ? 'bg-emerald-800' : 'bg-indigo-900'}`}>
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-white/10 rounded-xl">
               <Smartphone className="w-5 h-5" />
@@ -271,7 +271,7 @@ export default function CreditDeviceModal({
         </div>
 
         {/* Mode Selector Tabs (Contado vs Crédito) */}
-        <div className="px-6 pt-4 pb-2 bg-slate-50 border-b border-slate-200">
+        <div className="px-5 sm:px-6 pt-3.5 pb-2 bg-slate-50 border-b border-slate-200 shrink-0">
           <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
             Tipo de Venta de Equipo
           </label>
@@ -279,7 +279,7 @@ export default function CreditDeviceModal({
             <button
               type="button"
               onClick={() => handleSwitchSaleMode('credito')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 saleMode === 'credito'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-700 hover:text-slate-900 hover:bg-slate-300/50'
@@ -292,19 +292,20 @@ export default function CreditDeviceModal({
             <button
               type="button"
               onClick={() => handleSwitchSaleMode('contado')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 saleMode === 'contado'
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-slate-700 hover:text-slate-900 hover:bg-slate-300/50'
               }`}
             >
-              <Banknote className="w-4 h-4" />
-              <span>De Contado (100% Pago)</span>
+              <Smartphone className="w-4 h-4" />
+              <span>De Contado</span>
             </button>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           
           {/* Validation Banner if IMEI invalid */}
           {validationError && (

@@ -50,11 +50,11 @@ export default function RechargeModal({
   const currentFinalAmount = customAmount ? parseFloat(customAmount) || 0 : amount;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-emerald-700 text-white">
+        <div className="flex items-center justify-between px-6 py-4 bg-emerald-700 text-white shrink-0">
           <div className="flex items-center gap-2">
             <DollarSign className="w-6 h-6 text-emerald-200" />
             <div>
@@ -70,7 +70,7 @@ export default function RechargeModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1">
           
           {/* Preset Amounts */}
           <div>

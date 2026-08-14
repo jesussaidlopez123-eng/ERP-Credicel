@@ -68,7 +68,7 @@ export default function ExpenseModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
       
       {/* Print Styles for 80mm POS Thermal Printers */}
       <style>{`
@@ -99,13 +99,13 @@ export default function ExpenseModal({
         }
       `}</style>
 
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-6">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
         
         {/* IF EXPENSE IS JUST CREATED: SHOW RECEIPT TICKET VIEW */}
         {createdExpense ? (
-          <div>
+          <div className="flex flex-col flex-1 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 bg-red-800 text-white no-print">
+            <div className="flex items-center justify-between px-5 py-3.5 bg-red-800 text-white no-print shrink-0">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-red-200" />
                 <div>
@@ -122,7 +122,7 @@ export default function ExpenseModal({
             </div>
 
             {/* RECEIPT CONTENT (PRINTABLE THERMAL AREA) */}
-            <div id="thermal-expense-receipt" className="p-5 font-mono text-xs text-slate-800 space-y-3 bg-slate-50 border-b border-slate-200">
+            <div id="thermal-expense-receipt" className="p-5 font-mono text-xs text-slate-800 space-y-3 bg-slate-50 border-b border-slate-200 overflow-y-auto flex-1">
               
               {/* Business & Branch Header */}
               <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-400">
@@ -184,7 +184,7 @@ export default function ExpenseModal({
             </div>
 
             {/* Modal Bottom Action Buttons (Screen Only) */}
-            <div className="p-4 bg-white flex flex-col sm:flex-row items-center justify-between gap-2 no-print">
+            <div className="p-4 bg-white flex flex-col sm:flex-row items-center justify-between gap-2 no-print shrink-0 border-t border-slate-200">
               <button
                 type="button"
                 onClick={handlePrint}
@@ -214,9 +214,9 @@ export default function ExpenseModal({
           </div>
         ) : (
           /* FORM VIEW */
-          <div>
+          <div className="flex flex-col flex-1 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 bg-red-900 text-white">
+            <div className="flex items-center justify-between px-6 py-4 bg-red-900 text-white shrink-0">
               <div className="flex items-center gap-2">
                 <PlusCircle className="w-5 h-5 text-red-300" />
                 <div>
@@ -232,7 +232,7 @@ export default function ExpenseModal({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
               
               {/* Amount */}
               <div>

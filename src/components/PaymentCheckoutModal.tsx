@@ -48,8 +48,8 @@ export default function PaymentCheckoutModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[92vh] animate-in fade-in zoom-in-95 duration-150">
         
         {/* MODAL HEADER */}
         <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
@@ -74,7 +74,7 @@ export default function PaymentCheckoutModal({
         </div>
 
         {/* MAIN BODY */}
-        <div className="p-4 space-y-3.5">
+        <div className="p-4 space-y-3.5 overflow-y-auto flex-1">
           
           {/* TOTAL & CAMBIO SUMMARY */}
           <div className="bg-slate-900 text-white p-3.5 rounded-xl flex justify-between items-center shadow-inner">

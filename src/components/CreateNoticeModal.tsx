@@ -93,11 +93,11 @@ export default function CreateNoticeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white">
+        <div className="flex items-center justify-between px-6 py-4 bg-slate-900 text-white shrink-0">
           <div className="flex items-center gap-2">
             {noticeType === 'aviso' ? (
               <Megaphone className="w-5 h-5 text-yellow-400" />
@@ -122,7 +122,7 @@ export default function CreateNoticeModal({
         </div>
 
         {/* Notice Type Selector Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-100 p-1.5 gap-1.5">
+        <div className="flex border-b border-slate-200 bg-slate-100 p-1.5 gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setNoticeType('aviso')}
@@ -151,7 +151,7 @@ export default function CreateNoticeModal({
         </div>
 
         {noticeType === 'aviso' && !isAdmin ? (
-          <div className="p-6 text-center space-y-3">
+          <div className="p-6 text-center space-y-3 overflow-y-auto flex-1">
             <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto">
               <ShieldCheck className="w-6 h-6" />
             </div>
@@ -168,7 +168,7 @@ export default function CreateNoticeModal({
           </div>
         ) : (
           /* Form Body */
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
             
             {/* Urgency Selector */}
             <div>

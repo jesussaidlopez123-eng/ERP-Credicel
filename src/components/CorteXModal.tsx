@@ -413,7 +413,7 @@ export default function CorteXModal({
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-4 flex flex-col max-h-[92vh] no-print">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden my-auto flex flex-col max-h-[92vh] no-print">
         
         {/* Header Section */}
         <div className="bg-gradient-to-b from-slate-900 to-slate-950 text-white border-b border-slate-800 shrink-0">
