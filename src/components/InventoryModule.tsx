@@ -22,11 +22,13 @@ import {
   Check,
   Ban,
   Fingerprint,
-  Printer
+  Printer,
+  Pencil
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement } from '../types';
 import { InventoryMovementsModal } from './InventoryMovementsModal';
 import InventoryPrintModal from './InventoryPrintModal';
+import EditProductModal from './EditProductModal';
 
 interface InventoryModuleProps {
   products: Product[];
@@ -85,6 +87,9 @@ export default function InventoryModule({
 
   // Modal Info Producto Detallado
   const [infoProduct, setInfoProduct] = useState<Product | null>(null);
+
+  // Modal Editar / Modificar Registro de Producto o Teléfono
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   // Modal 5: Capturar IMEIs al registrar equipos
   const [isImeiCaptureModalOpen, setIsImeiCaptureModalOpen] = useState(false);
@@ -1187,6 +1192,46 @@ export default function InventoryModule({
     setIsPriceModalOpen(false);
   };
 
+  // --- HANDLER: MODIFICAR / EDITAR REGISTRO DE PRODUCTO O CELULAR ---
+  const handleSaveEditedProduct = (updatedProduct: Product) => {
+    const original = products.find(p => p.id === updatedProduct.id);
+    
+    // Si cambiaron precios, nombre o proveedor, registrar movimiento de auditoría
+    const priceChanged = original && (original.price !== updatedProduct.price || original.costPrice !== updatedProduct.costPrice);
+    const supplierChanged = original && original.supplier !== updatedProduct.supplier;
+    const nameChanged = original && original.name !== updatedProduct.name;
+
+    if (priceChanged || supplierChanged || nameChanged) {
+      const detailsList: string[] = [];
+      if (nameChanged) detailsList.push(`Nombre: "${original?.name}" ➔ "${updatedProduct.name}"`);
+      if (supplierChanged) detailsList.push(`Proveedor: "${original?.supplier || 'N/A'}" ➔ "${updatedProduct.supplier || 'N/A'}"`);
+      if (priceChanged) {
+        detailsList.push(`Costo $${original?.costPrice?.toFixed(2) || '0.00'} ➔ $${updatedProduct.costPrice?.toFixed(2) || '0.00'}`);
+        detailsList.push(`Venta $${original?.price?.toFixed(2) || '0.00'} ➔ $${updatedProduct.price?.toFixed(2) || '0.00'}`);
+      }
+
+      onRecordMovement?.({
+        type: 'precio',
+        productId: updatedProduct.id,
+        productCode: updatedProduct.code,
+        productName: updatedProduct.name,
+        category: updatedProduct.category,
+        inventoryType: updatedProduct.inventoryType,
+        quantity: 0,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        oldCostPrice: original?.costPrice,
+        newCostPrice: updatedProduct.costPrice,
+        oldPrice: original?.price,
+        newPrice: updatedProduct.price,
+        details: `Modificación de Registro: ${detailsList.join(' | ')}`
+      });
+    }
+
+    onUpdateProduct(updatedProduct);
+    setEditingProduct(null);
+  };
+
   return (
     <div className="h-full flex flex-col p-3 bg-slate-100 overflow-y-auto space-y-3">
       
@@ -1267,6 +1312,19 @@ export default function InventoryModule({
             Ajustar
           </button>
 
+          {/* Botón EDITAR / MODIFICAR REGISTRO */}
+          <button
+            onClick={() => {
+              const first = filteredProducts[0] || tabProducts[0] || null;
+              setEditingProduct(first);
+            }}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
+            title="Modificar registro de teléfonos o artículos (proveedor, precios, modelo, etc.)"
+          >
+            <Pencil className="w-4 h-4" />
+            Editar
+          </button>
+
           {/* Botón CAMBIAR PRECIOS ($) */}
           <button
             onClick={handleOpenPriceModal}
@@ -1277,14 +1335,18 @@ export default function InventoryModule({
             Precios
           </button>
 
-          {/* Botón IMPRIMIR INVENTARIO (NUEVO) */}
+          {/* Botón IMPRIMIR INVENTARIO (SELECCIÓN DINÁMICA POR TAB: EQUIPOS O ACCESORIOS) */}
           <button
             onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-            title="Generar archivo e imprimir reporte de inventario (equipos celulares y accesorios)"
+            className={`flex items-center justify-center gap-1.5 px-3.5 py-2 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 ${
+              activeInventoryTab === 'equipo' 
+                ? 'bg-blue-700 hover:bg-blue-800' 
+                : 'bg-purple-700 hover:bg-purple-800'
+            }`}
+            title={`Generar archivo e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos Celulares' : 'Accesorios'}`}
           >
             <Printer className="w-4 h-4 text-amber-300" />
-            <span>Imprimir</span>
+            <span>{activeInventoryTab === 'equipo' ? 'Imprimir Equipos' : 'Imprimir Accesorios'}</span>
           </button>
 
           {/* Botón HISTORIAL DE MOVIMIENTOS (15 DÍAS) */}
@@ -1323,7 +1385,7 @@ export default function InventoryModule({
                   <th className="p-3 text-center w-28 bg-emerald-950">NAVOJOA</th>
                   <th className="p-3 text-center w-28 bg-purple-950 border-r border-slate-800">HUATABAMPO</th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
-                  <th className="p-3 text-center w-12">INFO</th>
+                  <th className="p-3 text-center w-28">ACCIONES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -1446,15 +1508,27 @@ export default function InventoryModule({
                           </span>
                         </td>
 
-                        {/* Icono de Información (Detalles y Proveedor) */}
+                        {/* Acciones: Modificar y Ver Información */}
                         <td className="p-3 text-center">
-                          <button
-                            onClick={() => setInfoProduct(p)}
-                            className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all cursor-pointer border border-blue-200"
-                            title="Ver Información Detallada del Artículo / Proveedor"
-                          >
-                            <Info className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingProduct(p)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-300 font-extrabold text-[11px] shadow-2xs"
+                              title={`Modificar datos de ${isTypeEquipo ? 'este teléfono' : 'este artículo'} (precios, proveedor, modelo, etc.)`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              <span>Editar</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInfoProduct(p)}
+                              className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all cursor-pointer border border-blue-200 shadow-2xs"
+                              title="Ver Información Detallada del Artículo / Proveedor"
+                            >
+                              <Info className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
 
                       </tr>
@@ -2259,7 +2333,19 @@ export default function InventoryModule({
                 </div>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = infoProduct;
+                    setInfoProduct(null);
+                    setEditingProduct(target);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs shadow-sm cursor-pointer transition-all"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Modificar Datos</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setInfoProduct(null)}
@@ -3034,6 +3120,18 @@ export default function InventoryModule({
         currentBranch={currentBranch}
         currentOperator={currentOperator}
         allBranches={allBranches}
+        initialCategory={activeInventoryTab}
+      />
+
+      {/* MODAL DE MODIFICACIÓN / EDICIÓN DE REGISTRO (TELÉFONOS Y ARTÍCULOS) */}
+      <EditProductModal
+        isOpen={Boolean(editingProduct)}
+        onClose={() => setEditingProduct(null)}
+        product={editingProduct}
+        products={tabProducts}
+        onSave={handleSaveEditedProduct}
+        currentOperator={currentOperator}
+        branches={allBranches}
       />
 
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Printer, 
   X, 
@@ -33,6 +33,7 @@ interface InventoryPrintModalProps {
   currentBranch?: Branch;
   currentOperator?: Operator;
   allBranches?: Branch[];
+  initialCategory?: 'accesorio' | 'equipo' | 'all';
 }
 
 export default function InventoryPrintModal({
@@ -45,12 +46,13 @@ export default function InventoryPrintModal({
     { id: 'b-bodega', name: 'Bodega Central' },
     { id: 'b-navojoa', name: 'Navojoa' },
     { id: 'b-huatabampo', name: 'Huatabampo' }
-  ]
+  ],
+  initialCategory = 'all'
 }: InventoryPrintModalProps) {
 
   // 1. FILTER STATES (Declared unconditionally at top level)
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'equipo' | 'accesorio'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'equipo' | 'accesorio'>(initialCategory);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // 2. CUSTOMIZATION DISPLAY OPTIONS
@@ -63,6 +65,13 @@ export default function InventoryPrintModal({
   // 3. COPY & EXPORT FEEDBACK STATES
   const [isCopiedExcel, setIsCopiedExcel] = useState<boolean>(false);
   const [isCopiedText, setIsCopiedText] = useState<boolean>(false);
+
+  // Sync category when opening modal according to the active tab in inventory
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedCategory(initialCategory);
+    }
+  }, [isOpen, initialCategory]);
 
   // Helper functions
   const getBranchName = (branchId: string): string => {
@@ -195,6 +204,23 @@ export default function InventoryPrintModal({
     };
   }, [filteredProducts, selectedBranchId]);
 
+  // Dynamic titles and labels based on active selected category
+  const reportCategoryTitle = useMemo(() => {
+    if (selectedCategory === 'equipo') {
+      return 'REPORTE DE INVENTARIO: EQUIPOS CELULARES';
+    }
+    if (selectedCategory === 'accesorio') {
+      return 'REPORTE DE INVENTARIO: ACCESORIOS Y REFACCIONES';
+    }
+    return 'REPORTE GENERAL DE INVENTARIO Y ARQUEO FÍSICO';
+  }, [selectedCategory]);
+
+  const reportCategoryBadge = useMemo(() => {
+    if (selectedCategory === 'equipo') return 'Solo Equipos Celulares';
+    if (selectedCategory === 'accesorio') return 'Solo Accesorios y Refacciones';
+    return 'Consolidado General';
+  }, [selectedCategory]);
+
   // ==========================================
   // EXPORT TO EXCEL (.CSV with UTF-8 BOM)
   // ==========================================
@@ -205,7 +231,27 @@ export default function InventoryPrintModal({
     }
 
     try {
-      const headers = [
+      const isOnlyAccessories = selectedCategory === 'accesorio';
+      const isOnlyPhones = selectedCategory === 'equipo';
+
+      // Build context-aware headers
+      const headers = isOnlyAccessories ? [
+        'Tipo',
+        'Código / SKU',
+        'Accesorio / Producto',
+        'Categoría',
+        'Proveedor',
+        'Stock Total',
+        'Stock Bodega Central',
+        'Stock Navojoa',
+        'Stock Huatabampo',
+        'Costo Unitario ($)',
+        'Precio Venta ($)',
+        'Valuación Costo Total ($)',
+        'Valuación Venta Total ($)',
+        'Margen Bruto Unit. ($)',
+        'Margen Estimado (%)'
+      ] : [
         'Tipo Inventario',
         'Código / SKU',
         'Producto / Modelo',
@@ -227,7 +273,7 @@ export default function InventoryPrintModal({
 
       const rows = filteredProducts.map((prod) => {
         const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
-        const typeLabel = isEquip ? 'Equipo Celular' : 'Accesorio / Producto';
+        const typeLabel = isEquip ? 'Equipo Celular' : 'Accesorio';
         const stockTotal = getProductStock(prod, selectedBranchId);
         const stockBodega = prod.branchStock?.['b-bodega'] || 0;
         const stockNavojoa = prod.branchStock?.['b-navojoa'] || 0;
@@ -238,6 +284,26 @@ export default function InventoryPrintModal({
         const valSale = stockTotal * price;
         const marginUnit = price - cost;
         const marginPct = cost > 0 ? ((marginUnit / cost) * 100).toFixed(1) : '100';
+
+        if (isOnlyAccessories) {
+          return [
+            `"${typeLabel}"`,
+            `"${String(prod.code || '').replace(/"/g, '""')}"`,
+            `"${String(prod.name || '').replace(/"/g, '""')}"`,
+            `"${String(prod.category || '').replace(/"/g, '""')}"`,
+            `"${String(prod.supplier || 'N/A').replace(/"/g, '""')}"`,
+            stockTotal,
+            stockBodega,
+            stockNavojoa,
+            stockHuata,
+            cost.toFixed(2),
+            price.toFixed(2),
+            valCost.toFixed(2),
+            valSale.toFixed(2),
+            marginUnit.toFixed(2),
+            `${marginPct}%`
+          ];
+        }
 
         const imeis = getProductImeis(prod, selectedBranchId);
         const imeisFormatted = imeis.map(im => im.branchId ? `${im.imei} (${getBranchName(im.branchId)})` : im.imei).join('; ');
@@ -269,8 +335,9 @@ export default function InventoryPrintModal({
       const url = URL.createObjectURL(blob);
       
       const branchTag = selectedBranchId === 'all' ? 'CONSOLIDADO' : getBranchName(selectedBranchId).toUpperCase().replace(/\s+/g, '_');
+      const categoryTag = selectedCategory === 'equipo' ? 'EQUIPOS' : (selectedCategory === 'accesorio' ? 'ACCESORIOS' : 'COMPLETO');
       const dateTag = new Date().toISOString().slice(0, 10);
-      const filename = `INVENTARIO_${branchTag}_${dateTag}.csv`;
+      const filename = `INVENTARIO_${categoryTag}_${branchTag}_${dateTag}.csv`;
 
       const link = document.createElement('a');
       link.setAttribute('href', url);
@@ -296,7 +363,22 @@ export default function InventoryPrintModal({
     }
 
     try {
-      const headers = [
+      const isOnlyAccessories = selectedCategory === 'accesorio';
+
+      const headers = isOnlyAccessories ? [
+        'Tipo',
+        'Código',
+        'Accesorio / Producto',
+        'Categoría',
+        'Stock Total',
+        'Bodega Central',
+        'Navojoa',
+        'Huatabampo',
+        'Costo Unit.',
+        'Precio Venta',
+        'Valuación Costo',
+        'Valuación Venta'
+      ] : [
         'Tipo',
         'Código',
         'Producto / Modelo',
@@ -323,6 +405,23 @@ export default function InventoryPrintModal({
         const price = prod.price || 0;
         const valCost = (stockTotal * cost).toFixed(2);
         const valSale = (stockTotal * price).toFixed(2);
+
+        if (isOnlyAccessories) {
+          return [
+            typeLabel,
+            prod.code,
+            prod.name,
+            prod.category,
+            stockTotal,
+            stockBodega,
+            stockNavojoa,
+            stockHuata,
+            cost.toFixed(2),
+            price.toFixed(2),
+            valCost,
+            valSale
+          ].join('\t');
+        }
 
         const imeis = getProductImeis(prod, selectedBranchId);
         const imeisFormatted = imeis.map(i => i.imei).join('; ');
@@ -359,7 +458,7 @@ export default function InventoryPrintModal({
   // ==========================================
   const handleCopyTextReport = () => {
     let text = `====================================================\n`;
-    text += `   REPORTE DE INVENTARIO Y ARQUEO FÍSICO\n`;
+    text += `   ${reportCategoryTitle}\n`;
     text += `====================================================\n`;
     text += `Sucursal: ${selectedBranchId === 'all' ? 'Todas las Sucursales' : getBranchName(selectedBranchId)}\n`;
     text += `Fecha: ${new Date().toLocaleDateString('es-MX')} ${new Date().toLocaleTimeString('es-MX')}\n`;
@@ -371,7 +470,7 @@ export default function InventoryPrintModal({
     }
     text += `----------------------------------------------------\n\n`;
 
-    if (phoneProducts.length > 0) {
+    if (selectedCategory !== 'accesorio' && phoneProducts.length > 0) {
       text += `--- EQUIPOS CELULARES (${phoneProducts.length} modelos / ${summaryMetrics.totalPhoneUnits} pzs) ---\n`;
       phoneProducts.forEach(p => {
         const stock = getProductStock(p, selectedBranchId);
@@ -386,7 +485,7 @@ export default function InventoryPrintModal({
       text += `\n`;
     }
 
-    if (accessoryProducts.length > 0) {
+    if (selectedCategory !== 'equipo' && accessoryProducts.length > 0) {
       text += `--- ACCESORIOS Y REFACCIONES (${accessoryProducts.length} modelos / ${summaryMetrics.totalAccessoryUnits} pzs) ---\n`;
       accessoryProducts.forEach(p => {
         const stock = getProductStock(p, selectedBranchId);
@@ -463,20 +562,40 @@ export default function InventoryPrintModal({
         {/* MODAL HEADER - NO PRINT */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-4 bg-slate-900 text-white shrink-0 no-print gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center text-blue-400 shrink-0">
-              <Printer className="w-5 h-5" />
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+              selectedCategory === 'equipo' 
+                ? 'bg-blue-600/30 border-blue-400/40 text-blue-400' 
+                : selectedCategory === 'accesorio'
+                ? 'bg-purple-600/30 border-purple-400/40 text-purple-400'
+                : 'bg-emerald-600/30 border-emerald-400/40 text-emerald-400'
+            }`}>
+              {selectedCategory === 'equipo' ? (
+                <Smartphone className="w-5 h-5" />
+              ) : selectedCategory === 'accesorio' ? (
+                <Headphones className="w-5 h-5" />
+              ) : (
+                <Printer className="w-5 h-5" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-black tracking-tight text-white">
-                  Reporte y Exportación de Inventario
+                  {selectedCategory === 'equipo' 
+                    ? 'Reporte de Inventario: Equipos Celulares' 
+                    : selectedCategory === 'accesorio'
+                    ? 'Reporte de Inventario: Accesorios y Refacciones'
+                    : 'Reporte General de Inventario'}
                 </h2>
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
                   {summaryMetrics.totalUnits} Unidades
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Imprime reportes de arqueo físico o exporta a Excel / Hojas de Cálculo con desglose de IMEIs
+                {selectedCategory === 'equipo' 
+                  ? 'Filtro exclusivo para teléfonos celulares con trazabilidad de IMEIs' 
+                  : selectedCategory === 'accesorio'
+                  ? 'Filtro exclusivo para accesorios, refacciones y fundas'
+                  : 'Reporte consolidado de todos los artículos'}
               </p>
             </div>
           </div>
@@ -500,7 +619,7 @@ export default function InventoryPrintModal({
               title="Copiar celdas tabuladas para pegar directamente en Excel (Ctrl + V)"
             >
               {isCopiedExcel ? <Check className="w-4 h-4 text-emerald-400" /> : <Table className="w-4 h-4 text-emerald-400" />}
-              <span>{isCopiedExcel ? '¡Copiado para Excel!' : 'Copiar p/ Excel'}</span>
+              <span>{isCopiedExcel ? '¡Copiado!' : 'Copiar p/ Excel'}</span>
             </button>
 
             {/* BOTÓN COPIAR TEXTO */}
@@ -537,6 +656,28 @@ export default function InventoryPrintModal({
           {/* Main Filter Dropdowns */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             
+            {/* Category / Inventory Type Filter */}
+            <div>
+              <label className="block text-[11px] font-extrabold text-slate-700 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5 text-purple-600" />
+                  Sección de Inventario
+                </span>
+                <span className="text-[10px] text-purple-700 bg-purple-100 px-1.5 py-0.2 rounded font-bold">
+                  {reportCategoryBadge}
+                </span>
+              </label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value as any)}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-600 focus:outline-none cursor-pointer"
+              >
+                <option value="accesorio">🎧 Solo Accesorios y Refacciones</option>
+                <option value="equipo">📱 Solo Equipos Celulares</option>
+                <option value="all">📱🎧 Todo el Inventario (Consolidado)</option>
+              </select>
+            </div>
+
             {/* Branch Selector */}
             <div>
               <label className="block text-[11px] font-extrabold text-slate-700 mb-1 flex items-center gap-1">
@@ -554,23 +695,6 @@ export default function InventoryPrintModal({
                     📍 {b.name}
                   </option>
                 ))}
-              </select>
-            </div>
-
-            {/* Category Filter */}
-            <div>
-              <label className="block text-[11px] font-extrabold text-slate-700 mb-1 flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5 text-purple-600" />
-                Tipo de Inventario
-              </label>
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value as any)}
-                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-600 focus:outline-none cursor-pointer"
-              >
-                <option value="all">📱🎧 Todo el Inventario (Equipos y Accesorios)</option>
-                <option value="equipo">📱 Solo Equipos Celulares</option>
-                <option value="accesorio">🎧 Solo Accesorios y Refacciones</option>
               </select>
             </div>
 
@@ -596,19 +720,21 @@ export default function InventoryPrintModal({
             
             <div className="flex flex-wrap items-center gap-4 font-bold text-slate-700">
               
-              {/* Desglosar IMEIs */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showImeis}
-                  onChange={(e) => setShowImeis(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="flex items-center gap-1">
-                  <Smartphone className="w-3.5 h-3.5 text-amber-600" />
-                  Desglosar Lista de IMEIs
-                </span>
-              </label>
+              {/* Desglosar IMEIs (only relevant when phones are included) */}
+              {selectedCategory !== 'accesorio' && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showImeis}
+                    onChange={(e) => setShowImeis(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1">
+                    <Smartphone className="w-3.5 h-3.5 text-amber-600" />
+                    Desglosar Lista de IMEIs
+                  </span>
+                </label>
+              )}
 
               {/* Mostrar Costos y Márgenes */}
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -703,7 +829,7 @@ export default function InventoryPrintModal({
                     <span className="text-xs font-bold text-slate-500">CONTROL MULTI-SUCURSAL</span>
                   </div>
                   <h1 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight mt-1">
-                    REPORTE GENERAL DE INVENTARIO Y ARQUEO FÍSICO
+                    {reportCategoryTitle}
                   </h1>
                   <p className="text-xs font-bold text-slate-600">
                     Sucursal: <strong className="text-slate-900 underline">{selectedBranchId === 'all' ? 'Todas las Sucursales (Consolidado)' : getBranchName(selectedBranchId)}</strong>
@@ -733,22 +859,34 @@ export default function InventoryPrintModal({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs print-break-inside-avoid">
               
               <div className="space-y-0.5">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">Modelos / SKUs</span>
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
+                  {selectedCategory === 'equipo' ? 'Modelos de Celular' : selectedCategory === 'accesorio' ? 'Modelos / SKUs' : 'Modelos / SKUs'}
+                </span>
                 <span className="text-base font-black text-slate-900 font-mono block">
                   {summaryMetrics.totalItems} productos
                 </span>
                 <span className="text-[10px] text-slate-500 font-semibold">
-                  {phoneProducts.length} equipos • {accessoryProducts.length} acc.
+                  {selectedCategory === 'equipo' 
+                    ? `${phoneProducts.length} equipos registrados` 
+                    : selectedCategory === 'accesorio'
+                    ? `${accessoryProducts.length} accesorios`
+                    : `${phoneProducts.length} equipos • ${accessoryProducts.length} acc.`}
                 </span>
               </div>
 
               <div className="space-y-0.5">
-                <span className="text-[10px] font-black text-blue-600 uppercase tracking-wider block">Piezas Físicas (Stock)</span>
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-wider block">
+                  {selectedCategory === 'equipo' ? 'Equipos Celulares (Stock)' : 'Piezas Físicas (Stock)'}
+                </span>
                 <span className="text-base font-black text-blue-950 font-mono block">
                   {summaryMetrics.totalUnits} piezas
                 </span>
                 <span className="text-[10px] text-blue-700 font-semibold">
-                  {summaryMetrics.totalPhoneUnits} celulares • {summaryMetrics.totalAccessoryUnits} accesorios
+                  {selectedCategory === 'equipo'
+                    ? `${summaryMetrics.totalPhoneUnits} unidades en existencia`
+                    : selectedCategory === 'accesorio'
+                    ? `${summaryMetrics.totalAccessoryUnits} accesorios en existencia`
+                    : `${summaryMetrics.totalPhoneUnits} celulares • ${summaryMetrics.totalAccessoryUnits} accesorios`}
                 </span>
               </div>
 
@@ -784,7 +922,7 @@ export default function InventoryPrintModal({
                   <div className="flex items-center gap-2">
                     <Smartphone className="w-4 h-4 text-amber-300" />
                     <h2 className="text-xs font-black uppercase tracking-wider">
-                      1. EQUIPOS CELULARES ({phoneProducts.length} modelos / {summaryMetrics.totalPhoneUnits} piezas)
+                      {selectedCategory === 'all' ? '1. ' : ''}EQUIPOS CELULARES ({phoneProducts.length} modelos / {summaryMetrics.totalPhoneUnits} piezas)
                     </h2>
                   </div>
                   <span className="text-[10px] font-extrabold text-blue-200">
@@ -933,7 +1071,7 @@ export default function InventoryPrintModal({
                   <div className="flex items-center gap-2">
                     <Headphones className="w-4 h-4 text-emerald-400" />
                     <h2 className="text-xs font-black uppercase tracking-wider">
-                      2. ACCESORIOS Y REFACCIONES ({accessoryProducts.length} productos / {summaryMetrics.totalAccessoryUnits} piezas)
+                      {selectedCategory === 'all' ? '2. ' : ''}ACCESORIOS Y REFACCIONES ({accessoryProducts.length} productos / {summaryMetrics.totalAccessoryUnits} piezas)
                     </h2>
                   </div>
                   <span className="text-[10px] font-extrabold text-slate-300">
