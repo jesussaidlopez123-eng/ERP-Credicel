@@ -10,17 +10,17 @@ import { InventoryMovement, InventoryMovementType, Branch } from '../types';
 interface InventoryMovementsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  movements: InventoryMovement[];
-  currentBranch: Branch;
-  branches: Branch[];
+  movements?: InventoryMovement[];
+  currentBranch?: Branch;
+  branches?: Branch[];
 }
 
 export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = ({
   isOpen,
   onClose,
-  movements,
+  movements = [],
   currentBranch,
-  branches
+  branches = []
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
@@ -29,11 +29,15 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
 
   if (!isOpen) return null;
 
-  // Format date helper
-  const formatDate = (isoString: string) => {
+  // Safe branches list
+  const safeBranches: Branch[] = Array.isArray(branches) ? branches : [];
+
+  // Format date helper with robust fallback
+  const formatDate = (isoString?: string) => {
+    if (!isoString) return 'Reciente';
     try {
       const d = new Date(isoString);
-      if (isNaN(d.getTime())) return isoString;
+      if (isNaN(d.getTime())) return String(isoString);
       
       const now = new Date();
       const isToday = d.toDateString() === now.toDateString();
@@ -53,65 +57,75 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
 
       return `${d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} • ${timeStr}`;
     } catch {
-      return isoString;
+      return String(isoString || 'Reciente');
     }
   };
 
   // Filtered movements based on all criteria within the 15-day range
   const filteredMovements = useMemo(() => {
-    const now = Date.now();
-    const dayMs = 24 * 60 * 60 * 1000;
+    try {
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
 
-    let maxAgeMs = 15 * dayMs;
-    if (timeRange === 'today') {
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      maxAgeMs = now - startOfToday.getTime();
-    } else if (timeRange === '3d') {
-      maxAgeMs = 3 * dayMs;
-    } else if (timeRange === '7d') {
-      maxAgeMs = 7 * dayMs;
-    }
-
-    const cutoff = now - maxAgeMs;
-
-    return movements.filter((m) => {
-      const mTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
-      if (mTime < cutoff) return false;
-
-      // Filter by Branch
-      if (selectedBranchId !== 'all') {
-        const matchesTarget = m.targetBranchId === selectedBranchId;
-        const matchesSource = m.sourceBranchId === selectedBranchId;
-        if (!matchesTarget && !matchesSource) return false;
+      let maxAgeMs = 15 * dayMs;
+      if (timeRange === 'today') {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        maxAgeMs = now - startOfToday.getTime();
+      } else if (timeRange === '3d') {
+        maxAgeMs = 3 * dayMs;
+      } else if (timeRange === '7d') {
+        maxAgeMs = 7 * dayMs;
       }
 
-      // Filter by Type
-      if (selectedType !== 'all') {
-        if (selectedType === 'ingreso' && m.type !== 'ingreso' && m.type !== 'creacion') return false;
-        if (selectedType === 'traspaso' && m.type !== 'traspaso') return false;
-        if (selectedType === 'ajuste' && m.type !== 'ajuste') return false;
-        if (selectedType === 'venta' && m.type !== 'venta') return false;
-        if (selectedType === 'precio' && m.type !== 'precio') return false;
-      }
+      const cutoff = now - maxAgeMs;
+      const rawList = Array.isArray(movements) ? movements : [];
 
-      // Filter by Search Query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = m.productName?.toLowerCase().includes(q);
-        const matchesCode = m.productCode?.toLowerCase().includes(q);
-        const matchesOp = m.operatorName?.toLowerCase().includes(q);
-        const matchesDetails = m.details?.toLowerCase().includes(q);
-        const matchesReason = m.reason?.toLowerCase().includes(q);
-        const matchesImei = m.imeis?.some((im) => im.toLowerCase().includes(q));
+      return rawList.filter((m) => {
+        if (!m || typeof m !== 'object') return false;
 
-        if (!matchesName && !matchesCode && !matchesOp && !matchesDetails && !matchesReason && !matchesImei) {
+        const mTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+        if (!isNaN(mTime) && mTime > 0 && mTime < cutoff) {
           return false;
         }
-      }
 
-      return true;
-    });
+        // Filter by Branch
+        if (selectedBranchId !== 'all') {
+          const matchesTarget = m.targetBranchId === selectedBranchId;
+          const matchesSource = m.sourceBranchId === selectedBranchId;
+          if (!matchesTarget && !matchesSource) return false;
+        }
+
+        // Filter by Type
+        if (selectedType !== 'all') {
+          if (selectedType === 'ingreso' && m.type !== 'ingreso' && m.type !== 'creacion') return false;
+          if (selectedType === 'traspaso' && m.type !== 'traspaso') return false;
+          if (selectedType === 'ajuste' && m.type !== 'ajuste' && m.type !== 'baja') return false;
+          if (selectedType === 'venta' && m.type !== 'venta') return false;
+          if (selectedType === 'precio' && m.type !== 'precio') return false;
+        }
+
+        // Filter by Search Query
+        if (searchQuery && searchQuery.trim()) {
+          const q = searchQuery.toLowerCase().trim();
+          const matchesName = String(m.productName || '').toLowerCase().includes(q);
+          const matchesCode = String(m.productCode || '').toLowerCase().includes(q);
+          const matchesOp = String(m.operatorName || '').toLowerCase().includes(q);
+          const matchesDetails = String(m.details || '').toLowerCase().includes(q);
+          const matchesReason = String(m.reason || '').toLowerCase().includes(q);
+          const matchesImei = Array.isArray(m.imeis) && m.imeis.some((im) => String(im || '').toLowerCase().includes(q));
+
+          if (!matchesName && !matchesCode && !matchesOp && !matchesDetails && !matchesReason && !matchesImei) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+    } catch (err) {
+      console.error('[InventoryMovementsModal] Filter calculation error:', err);
+      return [];
+    }
   }, [movements, selectedBranchId, selectedType, timeRange, searchQuery]);
 
   // Statistics for summary banner
@@ -122,10 +136,12 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
     let totalAjustesCount = 0;
 
     filteredMovements.forEach((m) => {
+      if (!m) return;
+      const q = Math.abs(Number(m.quantity) || 0);
       if (m.type === 'ingreso' || m.type === 'creacion') {
-        totalIngresosQty += Math.abs(m.quantity || 0);
+        totalIngresosQty += q;
       } else if (m.type === 'venta') {
-        totalVentasQty += Math.abs(m.quantity || 0);
+        totalVentasQty += q;
       } else if (m.type === 'traspaso') {
         totalTraspasosCount++;
       } else if (m.type === 'ajuste' || m.type === 'baja') {
@@ -149,38 +165,39 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
       return;
     }
 
-    const headers = ['ID', 'Fecha y Hora', 'Tipo', 'Código', 'Producto', 'Categoría', 'Cantidad', 'Origen', 'Destino', 'Operador', 'Detalle', 'IMEIs'];
-    const rows = filteredMovements.map((m) => [
-      m.id,
-      m.timestamp ? new Date(m.timestamp).toLocaleString('es-MX') : '',
-      m.type,
-      m.productCode || '',
-      `"${(m.productName || '').replace(/"/g, '""')}"`,
-      m.inventoryType || m.category || '',
-      m.quantity,
-      m.sourceBranchName || m.sourceBranchId || '',
-      m.targetBranchName || m.targetBranchId || '',
-      `"${(m.operatorName || '').replace(/"/g, '""')}"`,
-      `"${(m.details || '').replace(/"/g, '""')}"`,
-      m.imeis ? `"${m.imeis.join('; ')}"` : ''
-    ]);
+    try {
+      const headers = ['ID', 'Fecha y Hora', 'Tipo', 'Código', 'Producto', 'Categoría', 'Cantidad', 'Origen', 'Destino', 'Operador', 'Detalle', 'IMEIs'];
+      const rows = filteredMovements.map((m) => [
+        String(m.id || ''),
+        m.timestamp ? new Date(m.timestamp).toLocaleString('es-MX') : '',
+        String(m.type || ''),
+        String(m.productCode || ''),
+        `"${String(m.productName || '').replace(/"/g, '""')}"`,
+        String(m.inventoryType || m.category || ''),
+        Number(m.quantity) || 0,
+        String(m.sourceBranchName || m.sourceBranchId || ''),
+        String(m.targetBranchName || m.targetBranchId || ''),
+        `"${String(m.operatorName || '').replace(/"/g, '""')}"`,
+        `"${String(m.details || '').replace(/"/g, '""')}"`,
+        Array.isArray(m.imeis) ? `"${m.imeis.join('; ')}"` : ''
+      ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Historial_Movimientos_Inventario_15Dias_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const handlePrint = () => {
-    window.print();
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `Historial_Movimientos_Inventario_15Dias_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (csvErr) {
+      console.error('Error generating CSV:', csvErr);
+      alert('Ocurrió un error al generar el archivo CSV.');
+    }
   };
 
   // Movement badge styler
-  const renderTypeBadge = (type: InventoryMovementType) => {
+  const renderTypeBadge = (type: InventoryMovementType | string) => {
     switch (type) {
       case 'ingreso':
         return (
@@ -366,9 +383,9 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
               className="py-2 px-3 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-600 focus:outline-none cursor-pointer"
             >
               <option value="all">🏢 Todas las Sucursales</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
+              {safeBranches.map((b) => (
+                <option key={b?.id || Math.random()} value={b?.id || ''}>
+                  {b?.name || b?.id || 'Sucursal'}
                 </option>
               ))}
             </select>
@@ -441,25 +458,28 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
             </div>
           ) : (
             <div className="space-y-2.5">
-              {filteredMovements.map((mov) => {
-                const isPositive = mov.quantity > 0;
-                const isNegative = mov.quantity < 0;
+              {filteredMovements.map((mov, index) => {
+                if (!mov) return null;
+                const movIdKey = mov.id || `mov-${index}`;
+                const qtyNum = Number(mov.quantity) || 0;
+                const isPositive = qtyNum > 0;
+                const isNegative = qtyNum < 0;
 
                 return (
                   <div
-                    key={mov.id}
+                    key={movIdKey}
                     className="bg-white rounded-2xl border border-slate-200 p-3.5 sm:p-4 hover:shadow-md transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3"
                   >
                     {/* Left: Type, Timestamp, Product & Details */}
                     <div className="flex items-start gap-3.5 flex-1 min-w-0">
                       <div className="shrink-0 mt-0.5">
-                        {renderTypeBadge(mov.type)}
+                        {renderTypeBadge(mov.type || 'ingreso')}
                       </div>
 
                       <div className="space-y-1 min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-black text-xs text-slate-900">
-                            {mov.productName}
+                            {mov.productName || 'Artículo'}
                           </span>
                           {mov.productCode && (
                             <span className="font-mono text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
@@ -474,11 +494,11 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
 
                         {/* Details and Reason */}
                         <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                          {mov.details}
+                          {mov.details || 'Movimiento de inventario'}
                         </p>
 
                         {/* IMEIs Breakdown if applicable */}
-                        {mov.imeis && mov.imeis.length > 0 && (
+                        {Array.isArray(mov.imeis) && mov.imeis.length > 0 && (
                           <div className="pt-1 flex flex-wrap items-center gap-1.5">
                             <span className="text-[10px] font-bold text-slate-500">IMEI(s):</span>
                             {mov.imeis.map((im, idx) => (
@@ -486,7 +506,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
                                 key={idx}
                                 className="font-mono text-[10px] font-black bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200"
                               >
-                                📱 {im}
+                                📱 {String(im)}
                               </span>
                             ))}
                           </div>
@@ -501,9 +521,9 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
                       <div className="text-right text-[11px]">
                         {mov.type === 'traspaso' ? (
                           <div className="flex items-center gap-1 text-slate-700 font-bold">
-                            <span className="text-slate-500">{mov.sourceBranchName || mov.sourceBranchId}</span>
+                            <span className="text-slate-500">{mov.sourceBranchName || mov.sourceBranchId || 'Origen'}</span>
                             <ArrowRightLeft className="w-3 h-3 text-blue-600" />
-                            <span className="text-blue-700 font-black">{mov.targetBranchName || mov.targetBranchId}</span>
+                            <span className="text-blue-700 font-black">{mov.targetBranchName || mov.targetBranchId || 'Destino'}</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1 text-slate-600 font-bold">
@@ -528,7 +548,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
                               : 'bg-blue-600 text-white'
                           }`}
                         >
-                          {isPositive ? `+${mov.quantity}` : `${mov.quantity}`} pz
+                          {isPositive ? `+${qtyNum}` : `${qtyNum}`} pz
                         </div>
                       )}
 
