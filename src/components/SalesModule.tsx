@@ -26,6 +26,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
+import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import CorteXModal from './CorteXModal';
 
 interface SalesModuleProps {
@@ -75,8 +76,10 @@ export default function SalesModule({
     const savedList = [...cortesX];
 
     // 2. Also calculate any date+branch groupings for tickets that don't have a saved corte record yet
-    const unassignedTickets = salesTickets.filter(t => !t.corteXId);
-    const unassignedExpenses = expenses.filter(e => !e.corteXId);
+    const safeTickets = Array.isArray(salesTickets) ? salesTickets : [];
+    const safeExpenses = Array.isArray(expenses) ? expenses : [];
+    const unassignedTickets = safeTickets.filter(t => !t.corteXId);
+    const unassignedExpenses = safeExpenses.filter(e => !e.corteXId);
 
     const groupedUnassigned: Record<string, {
       dateIsoKey: string;
@@ -89,18 +92,17 @@ export default function SalesModule({
     }> = {};
 
     unassignedTickets.forEach(ticket => {
-      const d = new Date(ticket.timestamp);
-      const dateIsoKey = d.toISOString().split('T')[0];
-      const dateStr = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
-      const timeStr = d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-      const key = `${dateIsoKey}_${ticket.branchId}`;
+      const dateIsoKey = safeDateIsoKey(ticket.timestamp);
+      const dateStr = safeFormatDate(ticket.timestamp);
+      const timeStr = safeFormatTime(ticket.timestamp);
+      const key = `${dateIsoKey}_${ticket.branchId || 'general'}`;
 
       if (!groupedUnassigned[key]) {
         groupedUnassigned[key] = {
           dateIsoKey,
           dateStr,
           timeStr,
-          branchId: ticket.branchId,
+          branchId: ticket.branchId || 'general',
           branchName: getBranchName(ticket.branchId),
           tickets: [],
           expenses: []
@@ -110,18 +112,17 @@ export default function SalesModule({
     });
 
     unassignedExpenses.forEach(exp => {
-      const d = new Date(exp.timestamp);
-      const dateIsoKey = d.toISOString().split('T')[0];
-      const dateStr = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
-      const timeStr = d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-      const key = `${dateIsoKey}_${exp.branchId}`;
+      const dateIsoKey = safeDateIsoKey(exp.timestamp || exp.date);
+      const dateStr = safeFormatDate(exp.timestamp || exp.date);
+      const timeStr = safeFormatTime(exp.timestamp || exp.date);
+      const key = `${dateIsoKey}_${exp.branchId || 'general'}`;
 
       if (!groupedUnassigned[key]) {
         groupedUnassigned[key] = {
           dateIsoKey,
           dateStr,
           timeStr,
-          branchId: exp.branchId,
+          branchId: exp.branchId || 'general',
           branchName: getBranchName(exp.branchId),
           tickets: [],
           expenses: []
@@ -147,15 +148,16 @@ export default function SalesModule({
       let recCnt = 0;
 
       group.tickets.forEach(t => {
-        if (t.paymentMethod === 'Efectivo') cash += t.total;
-        if (t.paymentMethod === 'Tarjeta') card += t.total;
-        if (t.paymentMethod === 'Transferencia') transfer += t.total;
+        if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
+        if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
+        if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
 
-        t.items.forEach(item => {
-          const pName = item.product.name.toLowerCase();
-          const cat = item.product.category;
-          const tot = item.totalPrice;
-          const qty = item.quantity;
+        const items = Array.isArray(t.items) ? t.items : [];
+        items.forEach(item => {
+          const pName = (item.product?.name || '').toLowerCase();
+          const cat = item.product?.category;
+          const tot = item.totalPrice || 0;
+          const qty = item.quantity || 1;
 
           if (pName.includes('abono')) {
             aboTot += tot;
@@ -176,7 +178,7 @@ export default function SalesModule({
         });
       });
 
-      const totalExp = group.expenses.reduce((sum, e) => sum + e.amount, 0);
+      const totalExp = group.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
       const totalSales = cash + card + transfer;
       const initialFund = 1000;
 

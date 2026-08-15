@@ -572,7 +572,7 @@ export default function PosModule({
   ) => {
     const newTicket: SaleTicket = {
       id: `TCK-${Math.floor(100000 + Math.random() * 900000)}`,
-      timestamp: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      timestamp: new Date().toISOString(),
       branchId: currentBranch.id,
       operatorName: currentOperator.name,
       items: [...cart],

@@ -52,7 +52,7 @@ export default function ExpenseModal({
       id: `exp-${Date.now()}`,
       amount: numAmount,
       concept: concept.trim(),
-      timestamp: `${dateStr} ${timeStr}`,
+      timestamp: new Date().toISOString(),
       operatorName: currentOperator.name,
       branchId: currentBranch.id
     };

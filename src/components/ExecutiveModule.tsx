@@ -49,6 +49,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import { Branch, Operator, SaleTicket, Expense, Product, CartItem } from '../types';
+import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 
 interface ExecutiveModuleProps {
   currentBranch: Branch;
@@ -155,7 +156,7 @@ export default function ExecutiveModule({
       // Period filter
       if (selectedPeriod === 'all') return true;
 
-      const ticketDate = new Date(t.timestamp);
+      const ticketDate = parseSafeDate(t.timestamp);
       const now = new Date();
 
       if (selectedPeriod === 'today') {
@@ -183,9 +184,8 @@ export default function ExecutiveModule({
         return false;
       }
       if (selectedPeriod === 'all') return true;
-      const expDate = new Date(e.timestamp || e.date || Date.now());
+      const expDate = parseSafeDate(e.timestamp || e.date);
       const now = new Date();
-
 
       if (selectedPeriod === 'today') {
         return expDate.toDateString() === now.toDateString();
@@ -204,18 +204,18 @@ export default function ExecutiveModule({
 
   // Calculate live branch performance stats
   const liveBranchesList = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = safeDateIsoKey(new Date());
 
     return branchesList.map((branch) => {
       const branchTickets = salesTickets.filter((t) => t.branchId === branch.id);
       
       const todayTickets = branchTickets.filter((t) => {
-        const tDate = new Date(t.timestamp).toISOString().split('T')[0];
+        const tDate = safeDateIsoKey(t.timestamp);
         return tDate === todayStr;
       });
 
-      const todaySalesSum = todayTickets.reduce((sum, t) => sum + t.total, 0);
-      const monthlySalesSum = branchTickets.reduce((sum, t) => sum + t.total, 0);
+      const todaySalesSum = todayTickets.reduce((sum, t) => sum + (t.total || 0), 0);
+      const monthlySalesSum = branchTickets.reduce((sum, t) => sum + (t.total || 0), 0);
 
       const branchLowStockCount = products.filter((p) => {
         const stock = p.branchStock ? (p.branchStock[branch.id] ?? p.stock) : p.stock;
@@ -349,20 +349,20 @@ export default function ExecutiveModule({
 
     // Group tickets by date
     filteredTickets.forEach((t) => {
-      const dateKey = new Date(t.timestamp).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+      const dateKey = safeFormatDate(t.timestamp);
       if (!daysMap[dateKey]) {
         daysMap[dateKey] = { dateStr: dateKey, ventas: 0, gastos: 0, utilidad: 0 };
       }
-      daysMap[dateKey].ventas += t.total;
+      daysMap[dateKey].ventas += (t.total || 0);
     });
 
     // Group expenses by date
     filteredExpenses.forEach((e) => {
-      const dateKey = new Date(e.date || Date.now()).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+      const dateKey = safeFormatDate(e.timestamp || e.date);
       if (!daysMap[dateKey]) {
         daysMap[dateKey] = { dateStr: dateKey, ventas: 0, gastos: 0, utilidad: 0 };
       }
-      daysMap[dateKey].gastos += e.amount;
+      daysMap[dateKey].gastos += (e.amount || 0);
     });
 
     // Compute net utility per day
@@ -413,7 +413,8 @@ export default function ExecutiveModule({
       const branchObj = liveBranchesList.find((b) => b.id === t.branchId);
       const branchName = branchObj ? branchObj.name : 'Sucursal General';
 
-      t.items.forEach((item, idx) => {
+      const items = Array.isArray(t.items) ? t.items : [];
+      items.forEach((item, idx) => {
         const catKey = (item.product?.category || 'accesorio').toLowerCase();
         let type: AuditRow['type'] = 'venta';
         if (catKey === 'equipo' || catKey === 'equipo_credito') type = 'equipo';
@@ -421,32 +422,29 @@ export default function ExecutiveModule({
         else if (catKey === 'recarga') type = 'recarga';
         else if (catKey === 'reparacion' || catKey === 'servicio') type = 'reparacion';
 
-        const fullPrice = item.metadata?.fullPrice || item.totalPrice;
-        const downPayment = item.metadata?.downPayment || item.totalPrice;
+        const fullPrice = item.metadata?.fullPrice || item.totalPrice || 0;
+        const downPayment = item.metadata?.downPayment || item.totalPrice || 0;
         const remainingBalance = item.metadata?.remainingBalance ?? Math.max(0, fullPrice - downPayment);
+
+        const safeDate = parseSafeDate(t.timestamp);
+        const formattedDateStr = `${safeFormatDate(t.timestamp)} ${safeFormatTime(t.timestamp)}`;
 
         rows.push({
           id: `tck-${t.folio || t.id}-${idx}`,
-          folio: t.folio || t.id,
-          rawDate: new Date(t.timestamp),
-          dateFormatted: new Date(t.timestamp).toLocaleString('es-MX', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
+          folio: t.folio || t.id || `TCK-${idx}`,
+          rawDate: safeDate,
+          dateFormatted: formattedDateStr,
           branchName,
           operatorName: t.operatorName || 'Cajero',
           type,
           categoryLabel: item.product?.category || 'Venta General',
-          concept: item.product.name,
+          concept: item.product?.name || 'Artículo',
           clientName: item.metadata?.clientName || 'Cliente Mostrador',
           clientPhone: item.metadata?.clientPhone || item.metadata?.phoneNumber || 'S/N',
-          deviceModel: item.metadata?.deviceModel || (catKey === 'equipo' ? item.product.name : ''),
-          imei: item.metadata?.imei || (item.product.code || ''),
+          deviceModel: item.metadata?.deviceModel || (catKey === 'equipo' ? item.product?.name || '' : ''),
+          imei: item.metadata?.imei || (item.product?.code || ''),
           paymentMethod: item.metadata?.financingPlatform || t.paymentMethod || 'Efectivo',
-          totalPrice: item.totalPrice,
+          totalPrice: item.totalPrice || 0,
           downPayment,
           remainingBalance,
           fullPrice,
@@ -459,19 +457,14 @@ export default function ExecutiveModule({
     filteredExpenses.forEach((e) => {
       const branchObj = liveBranchesList.find((b) => b.id === e.branchId);
       const branchName = branchObj ? branchObj.name : 'Sucursal General';
-      const expDate = new Date(e.date || e.timestamp || Date.now());
+      const expDate = parseSafeDate(e.date || e.timestamp);
+      const formattedDateStr = `${safeFormatDate(e.date || e.timestamp)} ${safeFormatTime(e.date || e.timestamp)}`;
 
       rows.push({
         id: `exp-${e.id}`,
         folio: `EXP-${e.id.slice(-4)}`,
         rawDate: expDate,
-        dateFormatted: expDate.toLocaleString('es-MX', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
+        dateFormatted: formattedDateStr,
         branchName,
         operatorName: e.operatorName || 'Cajero',
         type: 'gasto',

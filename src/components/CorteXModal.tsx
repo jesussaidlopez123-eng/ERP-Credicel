@@ -43,6 +43,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
+import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -177,26 +178,28 @@ export default function CorteXModal({
     if (existingCorteRecord.ticketsSnapshot && existingCorteRecord.ticketsSnapshot.length > 0) {
       branchTickets = existingCorteRecord.ticketsSnapshot;
     } else {
-      branchTickets = tickets.filter((t) => 
+      const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
+      branchTickets = (tickets || []).filter((t) => 
         existingCorteRecord.ticketIds?.includes(t.id) || 
         (t.corteXId === existingCorteRecord.id) ||
-        (t.branchId === effectiveBranchId && t.timestamp.startsWith(existingCorteRecord.timestamp.split('T')[0]))
+        (t.branchId === effectiveBranchId && safeDateIsoKey(t.timestamp) === historicDateKey)
       );
     }
 
     if (existingCorteRecord.expensesSnapshot && existingCorteRecord.expensesSnapshot.length > 0) {
       branchExpenses = existingCorteRecord.expensesSnapshot;
     } else {
-      branchExpenses = expenses.filter((e) => 
+      const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
+      branchExpenses = (expenses || []).filter((e) => 
         existingCorteRecord.expenseIds?.includes(e.id) || 
         (e.corteXId === existingCorteRecord.id) ||
-        (e.branchId === effectiveBranchId && e.timestamp.startsWith(existingCorteRecord.timestamp.split('T')[0]))
+        (e.branchId === effectiveBranchId && safeDateIsoKey(e.timestamp || e.date) === historicDateKey)
       );
     }
   } else {
     // Active current shift: only unclosed tickets/expenses for current branch
-    branchTickets = tickets.filter((t) => t.branchId === currentBranch.id && !t.corteXId);
-    branchExpenses = expenses.filter((e) => e.branchId === currentBranch.id && !e.corteXId);
+    branchTickets = (tickets || []).filter((t) => t.branchId === currentBranch.id && !t.corteXId);
+    branchExpenses = (expenses || []).filter((e) => e.branchId === currentBranch.id && !e.corteXId);
   }
 
   // Payment totals
@@ -233,18 +236,19 @@ export default function CorteXModal({
   const allDetailedSoldItems: DetailedSoldItem[] = [];
 
   branchTickets.forEach((ticket) => {
-    if (ticket.paymentMethod === 'Efectivo') cashSalesTotal += ticket.total;
-    if (ticket.paymentMethod === 'Tarjeta') cardSalesTotal += ticket.total;
-    if (ticket.paymentMethod === 'Transferencia') transferSalesTotal += ticket.total;
+    if (ticket.paymentMethod === 'Efectivo') cashSalesTotal += (ticket.total || 0);
+    if (ticket.paymentMethod === 'Tarjeta') cardSalesTotal += (ticket.total || 0);
+    if (ticket.paymentMethod === 'Transferencia') transferSalesTotal += (ticket.total || 0);
 
-    ticket.items.forEach((item, itemIdx) => {
-      const pName = item.product.name;
+    const items = Array.isArray(ticket.items) ? ticket.items : [];
+    items.forEach((item, itemIdx) => {
+      const pName = item?.product?.name || 'Artículo';
       const pNameLower = pName.toLowerCase();
-      const cat = item.product.category;
-      const itemTotal = item.totalPrice;
-      const qty = item.quantity;
-      const unitPrice = item.unitPrice || (qty > 0 ? itemTotal / qty : itemTotal);
-      const timeStr = new Date(ticket.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+      const cat = item?.product?.category || 'accesorio';
+      const itemTotal = item?.totalPrice || 0;
+      const qty = item?.quantity || 1;
+      const unitPrice = item?.unitPrice || (qty > 0 ? itemTotal / qty : itemTotal);
+      const timeStr = safeFormatTime(ticket.timestamp);
 
       let catKey = 'accesorios';
       let categoryLabel = 'Accesorios y Productos';
@@ -260,7 +264,7 @@ export default function CorteXModal({
         countEnganches += qty;
         catKey = 'enganches';
         categoryLabel = 'Enganches de Celular';
-      } else if (pNameLower.includes('anticipo') || pNameLower.includes('liquidaci') || pNameLower.includes('saldo final') || cat === 'servicio' || item.metadata?.repairType) {
+      } else if (pNameLower.includes('anticipo') || pNameLower.includes('liquidaci') || pNameLower.includes('saldo final') || cat === 'servicio' || item?.metadata?.repairType) {
         totalReparaciones += itemTotal;
         countReparaciones += qty;
         catKey = 'reparaciones';
@@ -294,7 +298,7 @@ export default function CorteXModal({
         time: timeStr,
         qty,
         totalPrice: itemTotal,
-        metadata: item.metadata
+        metadata: item?.metadata
       };
 
       if (!categoryConceptMaps[catKey][conceptName]) {
@@ -312,7 +316,7 @@ export default function CorteXModal({
       categoryConceptMaps[catKey][conceptName].details.push(detailObj);
 
       allDetailedSoldItems.push({
-        id: `${ticket.id}_${itemIdx}_${item.product.id || itemIdx}`,
+        id: `${ticket.id}_${itemIdx}_${item?.product?.id || itemIdx}`,
         ticketId: ticket.id,
         ticketFolio: ticket.folio || ticket.id,
         time: timeStr,
@@ -323,7 +327,7 @@ export default function CorteXModal({
         unitPrice,
         totalPrice: itemTotal,
         paymentMethod: ticket.paymentMethod,
-        metadata: item.metadata
+        metadata: item?.metadata
       });
     });
   });
@@ -564,7 +568,7 @@ export default function CorteXModal({
         lines.push(`  (Sin gastos registrados o seleccionados)`);
       } else {
         targetExpenses.forEach((exp, idx) => {
-          const time = new Date(exp.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+          const time = safeFormatTime(exp.timestamp || exp.date);
           lines.push(`  ${idx + 1}. ${exp.concept} - Monto: -$${exp.amount.toFixed(2)} [${time} • Op: ${exp.operatorName || effectiveOperatorName}]`);
         });
       }
