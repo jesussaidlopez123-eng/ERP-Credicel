@@ -286,7 +286,62 @@ export default function InventoryModule({
     return { isDuplicate: false, conflictingProduct: undefined };
   };
 
-  // 2. Verificación de IMEI Único (tanto en el lote actual como en todo el inventario de todas las sucursales)
+  // 2. Validación estricta de formato y longitud de IMEI (Exactamente 15 dígitos numéricos)
+  const validateImeiDigits = (imeiStr: string) => {
+    const clean = (imeiStr || '').trim();
+    if (!clean) {
+      return {
+        isValid: false,
+        length: 0,
+        isNumeric: false,
+        errorType: 'empty' as const,
+        message: 'Campo pendiente. Ingrese o escanee el IMEI.'
+      };
+    }
+
+    const isNumeric = /^\d+$/.test(clean);
+    const length = clean.length;
+
+    if (!isNumeric) {
+      return {
+        isValid: false,
+        length,
+        isNumeric: false,
+        errorType: 'non_numeric' as const,
+        message: `El IMEI "${clean}" contiene caracteres no válidos. Solo debe contener números (0-9).`
+      };
+    }
+
+    if (length < 15) {
+      return {
+        isValid: false,
+        length,
+        isNumeric: true,
+        errorType: 'short' as const,
+        message: `Longitud menor a 15 dígitos (${length}/15). Faltan ${15 - length} dígitos (debe tener exactamente 15 dígitos).`
+      };
+    }
+
+    if (length > 15) {
+      return {
+        isValid: false,
+        length,
+        isNumeric: true,
+        errorType: 'long' as const,
+        message: `Longitud mayor a 15 dígitos (${length}/15). Sobran ${length - 15} dígitos (debe tener exactamente 15 dígitos).`
+      };
+    }
+
+    return {
+      isValid: true,
+      length: 15,
+      isNumeric: true,
+      errorType: null,
+      message: 'IMEI válido (15 dígitos numéricos)'
+    };
+  };
+
+  // 3. Verificación de IMEI Único (tanto en el lote actual como en todo el inventario de todas las sucursales)
   const checkDuplicateImei = (
     imeiToTest: string,
     batch: string[],
@@ -580,11 +635,13 @@ export default function InventoryModule({
       return;
     }
 
-    // 2. Validate format/length
-    const invalidImei = finalImeis.find(im => im.length < 8);
-    if (invalidImei) {
-      alert(`❌ IMEI INVÁLIDO: El IMEI "${invalidImei}" es demasiado corto (mínimo 8 a 15 dígitos numéricos).`);
-      return;
+    // 2. Validate format/length (Exact 15 digits numeric)
+    for (const im of finalImeis) {
+      const digitValidation = validateImeiDigits(im);
+      if (!digitValidation.isValid) {
+        alert(`❌ ERROR DE IMEI: ${digitValidation.message}`);
+        return;
+      }
     }
 
     // 3. Check internal duplicates in batch
@@ -2447,13 +2504,15 @@ export default function InventoryModule({
                   const dupCheck = cleanVal ? checkDuplicateImei(cleanVal, imeiInputs, idx) : null;
                   const hasBatchDup = dupCheck?.isDuplicateInBatch || false;
                   const hasSystemDup = dupCheck?.isDuplicateInSystem || false;
-                  const isValidAndUnique = cleanVal.length >= 8 && !hasBatchDup && !hasSystemDup;
+                  const digitValidation = cleanVal ? validateImeiDigits(cleanVal) : null;
+                  const isDigitError = digitValidation && !digitValidation.isValid;
+                  const isValidAndUnique = Boolean(digitValidation?.isValid && !hasBatchDup && !hasSystemDup);
 
                   return (
                     <div 
                       key={idx} 
                       className={`p-2.5 rounded-xl border transition-all ${
-                        hasBatchDup || hasSystemDup
+                        hasBatchDup || hasSystemDup || isDigitError
                           ? 'bg-rose-50/70 border-rose-300 ring-1 ring-rose-400'
                           : isValidAndUnique
                           ? 'bg-emerald-50/40 border-emerald-300'
@@ -2468,7 +2527,7 @@ export default function InventoryModule({
                           <input
                             id={`imei-input-${idx}`}
                             type="text"
-                            placeholder={`Escanee o escriba IMEI #${idx + 1}`}
+                            placeholder={`Escanee o escriba IMEI #${idx + 1} (15 dígitos)`}
                             value={imeiInputs[idx] || ''}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -2488,7 +2547,7 @@ export default function InventoryModule({
                               }
                             }}
                             className={`w-full px-3 py-2 border rounded-xl text-xs font-mono font-extrabold uppercase transition-all ${
-                              hasBatchDup || hasSystemDup
+                              hasBatchDup || hasSystemDup || isDigitError
                                 ? 'border-rose-500 bg-white text-rose-950 focus:ring-2 focus:ring-rose-500'
                                 : isValidAndUnique
                                 ? 'border-emerald-500 bg-white text-emerald-950 focus:ring-2 focus:ring-emerald-500'
@@ -2498,16 +2557,25 @@ export default function InventoryModule({
                           {isValidAndUnique && (
                             <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] font-extrabold text-emerald-600">
                               <Check className="w-3.5 h-3.5" />
-                              <span>Único</span>
+                              <span>15 dígitos (Válido)</span>
                             </div>
                           )}
-                          {(hasBatchDup || hasSystemDup) && (
+                          {(hasBatchDup || hasSystemDup || isDigitError) && (
                             <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] font-extrabold text-rose-600">
                               <AlertCircle className="w-3.5 h-3.5" />
+                              {cleanVal && <span>{cleanVal.length}/15</span>}
                             </div>
                           )}
                         </div>
                       </div>
+
+                      {/* Notificación de Error de Longitud o Formato de IMEI */}
+                      {isDigitError && digitValidation && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-800 bg-rose-100 p-1.5 rounded-lg border border-rose-300">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                          <span>❌ ERROR DE IMEI: {digitValidation.message}</span>
+                        </div>
+                      )}
 
                       {/* Notificaciones específicas de duplicado por renglón */}
                       {hasBatchDup && (
@@ -2534,26 +2602,34 @@ export default function InventoryModule({
               {(() => {
                 const filledCount = imeiInputs.filter((s) => s.trim()).length;
                 let hasAnyDuplicates = false;
+                let hasAnyDigitErrors = false;
 
                 imeiInputs.forEach((im, idx) => {
                   const clean = im.trim().toUpperCase();
                   if (clean) {
                     const chk = checkDuplicateImei(clean, imeiInputs, idx);
                     if (chk.isDuplicate) hasAnyDuplicates = true;
+                    const digitVal = validateImeiDigits(clean);
+                    if (!digitVal.isValid) hasAnyDigitErrors = true;
                   }
                 });
 
                 const isComplete = filledCount === pendingEquipmentData.qty;
-                const canSubmit = isComplete && !hasAnyDuplicates;
+                const canSubmit = isComplete && !hasAnyDuplicates && !hasAnyDigitErrors;
 
                 return (
                   <div className="flex items-center justify-between pt-2">
                     <div className="space-y-0.5">
                       <span className={`text-xs font-extrabold block ${
-                        isComplete && !hasAnyDuplicates ? 'text-emerald-700' : 'text-slate-500'
+                        isComplete && !hasAnyDuplicates && !hasAnyDigitErrors ? 'text-emerald-700' : 'text-slate-500'
                       }`}>
-                        {`${filledCount} / ${pendingEquipmentData.qty} campos completados`}
+                        {`${filledCount} / ${pendingEquipmentData.qty} campos completados (15 dígitos c/u)`}
                       </span>
+                      {hasAnyDigitErrors && (
+                        <span className="text-[10px] font-extrabold text-rose-600 block">
+                          Todos los IMEIs deben tener exactamente 15 dígitos numéricos
+                        </span>
+                      )}
                       {hasAnyDuplicates && (
                         <span className="text-[10px] font-extrabold text-rose-600 block">
                           Corrija los duplicados antes de guardar
