@@ -20,7 +20,7 @@ export default function Login({
   branches = ALL_BRANCHES 
 }: LoginProps) {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('o1');
-  const [password, setPassword] = useState<string>('123');
+  const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
@@ -48,8 +48,8 @@ export default function Login({
       return;
     }
 
-    if (!password) {
-      setError('Por favor, ingresa tu contraseña de acceso.');
+    if (!password || !password.trim()) {
+      setError('Por favor, ingresa tu contraseña de acceso para iniciar sesión.');
       return;
     }
 
@@ -126,10 +126,7 @@ export default function Login({
                   value={selectedOperatorId}
                   onChange={(e) => {
                     setSelectedOperatorId(e.target.value);
-                    const selected = safeOperators.find((op) => op.id === e.target.value);
-                    if (selected) {
-                      setPassword(selected.password !== undefined ? selected.password : '123');
-                    }
+                    setPassword('');
                     setError('');
                   }}
                   className="block w-full pl-10 pr-8 py-3 border border-slate-300 rounded-xl text-slate-900 font-bold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white cursor-pointer shadow-xs"
@@ -171,8 +168,9 @@ export default function Login({
             {/* Password Input */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="block text-xs font-black text-slate-800 uppercase tracking-wider">
-                  Contraseña de Acceso
+                <label className="block text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Contraseña de Acceso</span>
                 </label>
                 <button
                   type="button"
@@ -186,32 +184,26 @@ export default function Login({
 
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="h-4 w-4" />
+                  <KeyRound className="h-4 w-4" />
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
+                  autoFocus
                   onChange={(e) => {
                     setPassword(e.target.value);
                     setError('');
                   }}
-                  placeholder="••••••••"
-                  className="block w-full pl-10 pr-10 py-3 border border-slate-300 rounded-xl text-slate-900 font-black focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm tracking-wider bg-white transition-all shadow-xs"
+                  placeholder="Ingresa tu contraseña de operador"
+                  className="block w-full pl-10 pr-10 py-3 border border-slate-300 rounded-xl text-slate-900 font-black focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm tracking-wider bg-white transition-all shadow-xs placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400"
                 />
               </div>
               
               <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium px-1">
-                <span className="flex items-center gap-1">
-                  <KeyRound className="w-3 h-3 text-slate-400" />
-                  Contraseña por defecto: <strong className="text-slate-800">123</strong>
+                <span className="flex items-center gap-1 text-slate-500">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Acceso hermético protegido por contraseña
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setPassword('123')}
-                  className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer"
-                >
-                  Autocompletar 123
-                </button>
               </div>
             </div>
 

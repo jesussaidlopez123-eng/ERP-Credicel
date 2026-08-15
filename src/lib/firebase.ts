@@ -375,6 +375,9 @@ export interface CorteXRecord {
   branchName: string;
   operatorName: string;
   initialCashFund: number;
+  cashFundLeftForNextShift?: number;
+  cashWithdrawn?: number;
+  closingNotes?: string;
   cashSales: number;
   cardSales: number;
   transferSales: number;

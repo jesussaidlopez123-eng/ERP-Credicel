@@ -28,7 +28,19 @@ import {
   SlidersHorizontal,
   FileText,
   Smartphone,
-  Send
+  Send,
+  DollarSign,
+  Wallet,
+  AlertCircle,
+  Coins,
+  ShieldCheck,
+  CheckCircle2,
+  ArrowRight,
+  Lock,
+  Sparkles,
+  Download,
+  Eye,
+  FileSpreadsheet
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 
@@ -91,7 +103,8 @@ export default function CorteXModal({
 }: CorteXModalProps) {
 
   // Main navigation tab
-  const [activeTab, setActiveTab] = useState<'arqueo' | 'copiar_lista'>('arqueo');
+  const [activeTab, setActiveTab] = useState<'arqueo' | 'copiar_lista' | 'reporte_pdf'>('arqueo');
+  const [printMode, setPrintMode] = useState<'thermal' | 'pdf'>('pdf');
 
   // Accordion state in arqueo view
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
@@ -108,6 +121,11 @@ export default function CorteXModal({
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Shift Finalization & Fondo Left state
+  const [isClosingShiftDialog, setIsClosingShiftDialog] = useState(false);
+  const [nextCashFundInput, setNextCashFundInput] = useState<string>('');
+  const [shiftClosureNotes, setShiftClosureNotes] = useState<string>('');
 
   // Options for what to include when copying
   const [copySettings, setCopySettings] = useState({
@@ -134,7 +152,22 @@ export default function CorteXModal({
   const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : currentBranch.name;
   const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : currentBranch.id;
   const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : currentOperator.name;
-  const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : initialCashFund;
+  
+  // Stored branch initial cash fund (from previous shift's left fund, or default)
+  const storedBranchFund = useMemo(() => {
+    try {
+      const saved = localStorage.getItem(`erp_branch_fund_${effectiveBranchId}`);
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return initialCashFund !== undefined ? initialCashFund : 1000.00;
+  }, [effectiveBranchId, initialCashFund]);
+
+  const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : storedBranchFund;
 
   // Filter for effective branch / tickets
   let branchTickets: SaleTicket[] = [];
@@ -538,7 +571,7 @@ export default function CorteXModal({
       lines.push(``);
     }
 
-    // 6. BALANCE FINAL DE CAJÓN
+    // 6. BALANCE FINAL DE CAJÓN Y FONDO
     if (incDrawer) {
       lines.push(`💵 ARQUEO DE EFECTIVO EN CAJÓN:`);
       lines.push(`----------------------------------------`);
@@ -547,6 +580,14 @@ export default function CorteXModal({
       lines.push(`• (-) Gastos en Efectivo: -$${totalExpenses.toFixed(2)}`);
       lines.push(`----------------------------------------`);
       lines.push(`👉 EFECTIVO TOTAL EN CAJA: $${expectedCashInDrawer.toFixed(2)} MXN`);
+      
+      if (isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined) {
+        lines.push(`📌 FONDO DEJADO PARA SIG. TURNO: $${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}`);
+        lines.push(`💵 EFECTIVO RETIRADO / A RESGUARDAR: $${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}`);
+        if (existingCorteRecord.closingNotes) {
+          lines.push(`📝 NOTAS DE CIERRE: ${existingCorteRecord.closingNotes}`);
+        }
+      }
       lines.push(``);
     }
 
@@ -573,11 +614,35 @@ export default function CorteXModal({
     setQuickMenuOpen(false);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrintThermal = () => {
+    setPrintMode('thermal');
+    setTimeout(() => {
+      window.print();
+    }, 50);
   };
 
-  const handleFinalizeShift = (andLogout: boolean = false) => {
+  const handlePrintPDFReport = () => {
+    setPrintMode('pdf');
+    setTimeout(() => {
+      window.print();
+    }, 50);
+  };
+
+  const handlePrint = () => {
+    handlePrintThermal();
+  };
+
+  const handleOpenClosureDialog = () => {
+    // Default next shift fund to the same initial fund, bounded by expected drawer cash if lower
+    const defaultFund = Math.min(expectedCashInDrawer, effectiveInitialCash);
+    setNextCashFundInput(defaultFund.toString());
+    setShiftClosureNotes('');
+    setIsClosingShiftDialog(true);
+  };
+
+  const handleFinalizeShift = (nextFundVal: number, notesVal: string = '') => {
+    const cashWithdrawnVal = Math.max(0, expectedCashInDrawer - nextFundVal);
+
     // 1. Build official CorteXRecord snapshot
     const corteRecord: CorteXRecord = {
       id: corteFolio,
@@ -588,6 +653,9 @@ export default function CorteXModal({
       branchName: currentBranch.name,
       operatorName: currentOperator.name,
       initialCashFund: effectiveInitialCash,
+      cashFundLeftForNextShift: nextFundVal,
+      cashWithdrawn: cashWithdrawnVal,
+      closingNotes: notesVal.trim() || undefined,
       cashSales: cashSalesTotal,
       cardSales: cardSalesTotal,
       transferSales: transferSalesTotal,
@@ -613,6 +681,13 @@ export default function CorteXModal({
       }
     };
 
+    // Save the fund left for the next shift at this branch in localStorage
+    try {
+      localStorage.setItem(`erp_branch_fund_${currentBranch.id}`, nextFundVal.toString());
+    } catch (e) {
+      console.error('Error saving branch fund to localStorage', e);
+    }
+
     if (onFinalizeCorteX) {
       onFinalizeCorteX(corteRecord);
     }
@@ -620,9 +695,11 @@ export default function CorteXModal({
     // Trigger print
     window.print();
 
+    setIsClosingShiftDialog(false);
     onClose();
 
-    if (andLogout && onLogout) {
+    // Automatically close the session immediately after finalizing shift
+    if (onLogout) {
       setTimeout(() => {
         onLogout();
       }, 500);
@@ -632,25 +709,34 @@ export default function CorteXModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
       
-      {/* Thermal POS Print Styles */}
+      {/* Print Styles for both Thermal (80mm) and Executive PDF (Letter/A4) */}
       <style>{`
         @media print {
           body * {
             visibility: hidden !important;
           }
-          #thermal-corte-x-receipt, #thermal-corte-x-receipt * {
+          .corte-print-active, .corte-print-active * {
             visibility: visible !important;
           }
-          #thermal-corte-x-receipt {
+          .corte-print-active {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 80mm !important;
-            margin: 0 !important;
-            padding: 8px !important;
             background: white !important;
             color: black !important;
             display: block !important;
+          }
+          .corte-print-thermal {
+            width: 80mm !important;
+            margin: 0 !important;
+            padding: 8px !important;
+          }
+          .corte-print-pdf {
+            width: 100% !important;
+            max-width: 210mm !important;
+            margin: 0 auto !important;
+            padding: 24px !important;
+            box-sizing: border-box !important;
           }
           .no-print {
             display: none !important;
@@ -659,7 +745,10 @@ export default function CorteXModal({
       `}</style>
 
       {/* Hidden Thermal Receipt for POS Thermal Printer (80mm) */}
-      <div id="thermal-corte-x-receipt" className="hidden print:block text-black font-mono text-[11px] leading-tight space-y-2">
+      <div 
+        id="thermal-corte-x-receipt" 
+        className={`${printMode === 'thermal' ? 'corte-print-active corte-print-thermal' : 'hidden'} hidden print:block text-black font-mono text-[11px] leading-tight space-y-2`}
+      >
         <div className="text-center border-b border-black pb-2 mb-2">
           <h2 className="font-black text-sm uppercase">PUNTO DE VENTA ERP</h2>
           <p className="text-[10px] uppercase">{effectiveBranchName}</p>
@@ -763,7 +852,7 @@ export default function CorteXModal({
         {/* Balance Final y Dinero en Caja */}
         <div className="border-b-2 border-black pb-2 space-y-1 text-[11px]">
           <div className="flex justify-between text-[10px]">
-            <span>( + ) Fondo Inicial de Caja:</span>
+            <span>( + ) Fondo Inicial de Turno:</span>
             <span>${effectiveInitialCash.toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-[10px]">
@@ -775,10 +864,30 @@ export default function CorteXModal({
             <span>-${totalExpenses.toFixed(2)}</span>
           </div>
           <div className="border-t border-black pt-1 flex justify-between font-black text-[12px]">
-            <span>TOTAL EFECTIVO EN CAJA:</span>
+            <span>TOTAL EFECTIVO EN CAJÓN:</span>
             <span>${expectedCashInDrawer.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between font-bold text-[10px] text-gray-700">
+
+          {/* Si es histórico o al cerrarse, mostrar Fondo Dejado y Retiro */}
+          {isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined && (
+            <div className="border-t border-dashed border-black pt-1 mt-1 space-y-0.5 text-[10px]">
+              <div className="flex justify-between font-bold">
+                <span>📌 FONDO DEJADO SIG. TURNO:</span>
+                <span>${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                <span>💵 EFECTIVO RETIRADO/SOBRE:</span>
+                <span>${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}</span>
+              </div>
+              {existingCorteRecord.closingNotes && (
+                <div className="text-[9px] italic mt-0.5">
+                  Notas: {existingCorteRecord.closingNotes}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-between font-bold text-[10px] text-gray-700 pt-1">
             <span>Utilidad Neta del Turno:</span>
             <span>${netIncome.toFixed(2)}</span>
           </div>
@@ -797,6 +906,260 @@ export default function CorteXModal({
             </div>
           </div>
           <p>Reporte Oficial de Corte de Caja (Corte X)</p>
+        </div>
+      </div>
+
+      {/* Hidden Full-Page Executive Report for PDF / Letter / A4 Print */}
+      <div 
+        id="executive-corte-x-pdf"
+        className={`${printMode === 'pdf' ? 'corte-print-active corte-print-pdf' : 'hidden'} hidden print:block text-slate-900 font-sans text-xs bg-white space-y-5`}
+      >
+        {/* Banner Membretado */}
+        <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black tracking-tight text-slate-950 uppercase">
+              PUNTO DE VENTA ERP & SERVICIOS
+            </h1>
+            <p className="text-sm font-bold text-slate-700">
+              REPORTE OFICIAL DE ARQUEO Y CORTE DE CAJA (CORTE X)
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Control Interno de Sucursal • Documento de Arqueo y Cierre de Turno
+            </p>
+          </div>
+          <div className="text-right border-l-2 border-slate-300 pl-4">
+            <span className="text-[10px] font-extrabold uppercase text-slate-400 block">Folio de Corte</span>
+            <span className="text-base font-black font-mono text-blue-900">{corteFolio}</span>
+            <span className="text-[10px] font-bold text-slate-600 block mt-0.5">
+              {currentDateStr} • {currentTimeStr}
+            </span>
+          </div>
+        </div>
+
+        {/* Datos de Cabecera */}
+        <div className="grid grid-cols-3 gap-3 bg-slate-100 p-3 rounded-lg border border-slate-300 text-xs">
+          <div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">Sucursal:</span>
+            <span className="font-extrabold text-slate-900">{effectiveBranchName}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">Cajero(a) Responsable:</span>
+            <span className="font-extrabold text-slate-900">{effectiveOperatorName}</span>
+          </div>
+          <div>
+            <span className="text-[10px] font-bold text-slate-500 uppercase block">Resumen de Actividad:</span>
+            <span className="font-extrabold text-slate-900">{branchTickets.length} tickets • {branchExpenses.length} gastos</span>
+          </div>
+        </div>
+
+        {/* Tabla de Resumen por Categorías y Finanzas */}
+        <div className="space-y-1.5">
+          <h3 className="font-black text-xs uppercase tracking-wider text-slate-800 border-b border-slate-400 pb-1">
+            1. Desglose de Ventas por Categoría
+          </h3>
+          <table className="w-full text-xs border-collapse border border-slate-300">
+            <thead>
+              <tr className="bg-slate-200 text-slate-800 font-black">
+                <th className="border border-slate-300 p-1.5 text-left">Categoría de Venta</th>
+                <th className="border border-slate-300 p-1.5 text-center">Cantidad / Operaciones</th>
+                <th className="border border-slate-300 p-1.5 text-right">Importe Total ($ MXN)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-slate-300 p-1.5">Accesorios y Artículos de Tienda</td>
+                <td className="border border-slate-300 p-1.5 text-center font-bold">{countAccesoriosProductos} pzs</td>
+                <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">${totalAccesoriosProductos.toFixed(2)}</td>
+              </tr>
+              <tr className="bg-slate-50">
+                <td className="border border-slate-300 p-1.5">Abonos a Crédito (Pagos Recibidos)</td>
+                <td className="border border-slate-300 p-1.5 text-center font-bold">{countAbonos} ops</td>
+                <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">${totalAbonos.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 p-1.5">Enganches de Teléfonos Celulares</td>
+                <td className="border border-slate-300 p-1.5 text-center font-bold">{countEnganches} ops</td>
+                <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">${totalEnganches.toFixed(2)}</td>
+              </tr>
+              <tr className="bg-slate-50">
+                <td className="border border-slate-300 p-1.5">Taller / Reparaciones y Servicios</td>
+                <td className="border border-slate-300 p-1.5 text-center font-bold">{countReparaciones} ops</td>
+                <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">${totalReparaciones.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 p-1.5">Recargas de Tiempo Aire</td>
+                <td className="border border-slate-300 p-1.5 text-center font-bold">{countRecargas} ops</td>
+                <td className="border border-slate-300 p-1.5 text-right font-mono font-bold">${totalRecargas.toFixed(2)}</td>
+              </tr>
+              <tr className="bg-slate-200 font-black">
+                <td className="border border-slate-400 p-2 uppercase" colSpan={2}>TOTAL VENTAS BRUTAS DEL TURNO:</td>
+                <td className="border border-slate-400 p-2 text-right font-mono text-sm">${totalSalesAll.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 2 Columnas: Formas de Pago y Balance de Cajón */}
+        <div className="grid grid-cols-2 gap-4">
+          
+          {/* Formas de Pago */}
+          <div className="border border-slate-300 rounded-lg p-3 space-y-2 bg-slate-50">
+            <h4 className="font-black text-xs uppercase text-slate-800 border-b border-slate-300 pb-1">
+              2. Formas de Pago Recibidas
+            </h4>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span>( + ) Efectivo en Ventas:</span>
+                <span className="font-mono font-bold">${cashSalesTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>( + ) Tarjetas Débito / Crédito:</span>
+                <span className="font-mono font-bold">${cardSalesTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>( + ) Transferencias SPEI:</span>
+                <span className="font-mono font-bold">${transferSalesTotal.toFixed(2)}</span>
+              </div>
+              <div className="border-t border-slate-300 pt-1 flex justify-between font-black">
+                <span>Total Ingresos Turno:</span>
+                <span className="font-mono">${totalSalesAll.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Balance y Arqueo de Efectivo en Cajón */}
+          <div className="border-2 border-slate-800 rounded-lg p-3 space-y-2 bg-slate-100">
+            <h4 className="font-black text-xs uppercase text-slate-900 border-b border-slate-400 pb-1">
+              3. Arqueo y Balance de Efectivo Físico
+            </h4>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span>( + ) Fondo Inicial de Turno:</span>
+                <span className="font-mono font-bold">${effectiveInitialCash.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-emerald-800">
+                <span>( + ) Efectivo Ingresado por Ventas:</span>
+                <span className="font-mono font-bold">+${cashSalesTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-rose-800">
+                <span>( - ) Gastos Pagados en Efectivo:</span>
+                <span className="font-mono font-bold">-${totalExpenses.toFixed(2)}</span>
+              </div>
+              <div className="border-t-2 border-slate-800 pt-1 flex justify-between font-black text-sm">
+                <span>EFECTIVO TOTAL EN CAJÓN:</span>
+                <span className="font-mono text-emerald-900">${expectedCashInDrawer.toFixed(2)}</span>
+              </div>
+
+              {isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined && (
+                <div className="border-t border-dashed border-slate-400 pt-1 space-y-0.5 text-[11px] bg-white p-1.5 rounded">
+                  <div className="flex justify-between font-bold text-blue-900">
+                    <span>📌 Fondo Dejado Siguiente Turno:</span>
+                    <span className="font-mono">${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-amber-900">
+                    <span>💵 Efectivo Retirado (Sobre):</span>
+                    <span className="font-mono">${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}</span>
+                  </div>
+                  {existingCorteRecord.closingNotes && (
+                    <p className="text-[10px] italic text-slate-600">
+                      Observaciones: {existingCorteRecord.closingNotes}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Lista Detallada de Gastos (si los hay) */}
+        {branchExpenses.length > 0 && (
+          <div className="space-y-1.5">
+            <h3 className="font-black text-xs uppercase tracking-wider text-slate-800 border-b border-slate-400 pb-1">
+              4. Gastos y Retiros de Caja Registrados ({branchExpenses.length})
+            </h3>
+            <table className="w-full text-xs border-collapse border border-slate-300">
+              <thead>
+                <tr className="bg-slate-100 text-slate-700 font-bold">
+                  <th className="border border-slate-300 p-1 text-left">Concepto / Motivo</th>
+                  <th className="border border-slate-300 p-1 text-center">Hora</th>
+                  <th className="border border-slate-300 p-1 text-center">Cajero</th>
+                  <th className="border border-slate-300 p-1 text-right">Importe (-$ MXN)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchExpenses.map((g) => {
+                  const time = new Date(g.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <tr key={g.id}>
+                      <td className="border border-slate-300 p-1">{g.concept}</td>
+                      <td className="border border-slate-300 p-1 text-center">{time}</td>
+                      <td className="border border-slate-300 p-1 text-center">{g.operatorName || effectiveOperatorName}</td>
+                      <td className="border border-slate-300 p-1 text-right font-mono font-bold text-rose-800">
+                        -${g.amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Lista de Artículos Vendidos en el Turno */}
+        <div className="space-y-1.5">
+          <h3 className="font-black text-xs uppercase tracking-wider text-slate-800 border-b border-slate-400 pb-1">
+            5. Detalle de Artículos y Servicios Vendidos ({allDetailedSoldItems.length} registros)
+          </h3>
+          <table className="w-full text-[10px] border-collapse border border-slate-300">
+            <thead>
+              <tr className="bg-slate-200 text-slate-800 font-bold">
+                <th className="border border-slate-300 p-1 text-left">Folio</th>
+                <th className="border border-slate-300 p-1 text-left">Descripción / Producto</th>
+                <th className="border border-slate-300 p-1 text-center">Cat.</th>
+                <th className="border border-slate-300 p-1 text-center">Cant.</th>
+                <th className="border border-slate-300 p-1 text-right">P. Unit</th>
+                <th className="border border-slate-300 p-1 text-right">Total</th>
+                <th className="border border-slate-300 p-1 text-center">Pago</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allDetailedSoldItems.slice(0, 40).map((item) => (
+                <tr key={item.id}>
+                  <td className="border border-slate-300 p-1 font-mono">{item.ticketFolio}</td>
+                  <td className="border border-slate-300 p-1 font-medium">{item.productName}</td>
+                  <td className="border border-slate-300 p-1 text-center">{item.categoryLabel}</td>
+                  <td className="border border-slate-300 p-1 text-center font-bold">{item.quantity}</td>
+                  <td className="border border-slate-300 p-1 text-right font-mono">${item.unitPrice.toFixed(2)}</td>
+                  <td className="border border-slate-300 p-1 text-right font-mono font-bold">${item.totalPrice.toFixed(2)}</td>
+                  <td className="border border-slate-300 p-1 text-center">{item.paymentMethod}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {allDetailedSoldItems.length > 40 && (
+            <p className="text-[9px] text-slate-500 italic text-center">
+              (Mostrando primeros 40 de {allDetailedSoldItems.length} artículos. Lista completa respaldada en base de datos)
+            </p>
+          )}
+        </div>
+
+        {/* Firmas de Audit */}
+        <div className="pt-6 border-t-2 border-slate-800 grid grid-cols-2 gap-12 text-center text-xs">
+          <div>
+            <div className="border-b-2 border-slate-900 h-10 mb-1 mx-6"></div>
+            <p className="font-bold text-slate-900">Entregó: {effectiveOperatorName}</p>
+            <p className="text-[10px] text-slate-500">Cajero(a) en Turno</p>
+          </div>
+          <div>
+            <div className="border-b-2 border-slate-900 h-10 mb-1 mx-6"></div>
+            <p className="font-bold text-slate-900">Recibió / Validó:</p>
+            <p className="text-[10px] text-slate-500">Gerencia / Supervisor de Sucursal</p>
+          </div>
+        </div>
+
+        <div className="text-center text-[9px] text-slate-400 pt-2">
+          Reporte Oficial Generado Automáticamente por Sistema POS ERP • {currentDateStr} {currentTimeStr}
         </div>
       </div>
 
@@ -843,28 +1206,37 @@ export default function CorteXModal({
               
               {/* BOTÓN RÁPIDO: COPIAR CORTE X */}
               <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setQuickMenuOpen(!quickMenuOpen)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  title="Copiar reporte o lista detallada al portapapeles"
-                >
-                  <Copy className="w-4 h-4 text-emerald-200" />
-                  <span>Copiar Corte X</span>
-                  <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
-                </button>
+                <div className="flex items-center rounded-xl bg-emerald-600 hover:bg-emerald-500 shadow-xs transition-all">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyClipboard('full', '¡Corte X Completo Copiado al Portapapeles!')}
+                    className="flex items-center gap-1.5 px-3 py-2 text-white text-xs font-black cursor-pointer hover:bg-emerald-500 rounded-l-xl transition-colors"
+                    title="Copiar reporte completo para PDF o mensaje"
+                  >
+                    <Copy className="w-4 h-4 text-emerald-200" />
+                    <span>Copiar Corte</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickMenuOpen(!quickMenuOpen)}
+                    className="px-2 py-2 text-emerald-200 hover:text-white border-l border-emerald-500/60 cursor-pointer rounded-r-xl"
+                    title="Opciones de copiado y exportación"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </div>
 
                 {/* Dropdown Menu Rápido */}
                 {quickMenuOpen && (
-                  <div className="absolute right-0 mt-1.5 w-64 bg-slate-900 border border-slate-800 text-white rounded-2xl shadow-2xl p-1.5 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95">
+                  <div className="absolute right-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 text-white rounded-2xl shadow-2xl p-1.5 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95">
                     <button
-                      onClick={() => handleCopyClipboard('full', '¡Corte X Completo + Vendidos + Gastos Copiado!')}
+                      onClick={() => handleCopyClipboard('full', '¡Corte X Completo para Reporte / PDF Copiado!')}
                       className="w-full text-left p-2 hover:bg-slate-800 rounded-xl flex items-center gap-2 cursor-pointer transition-colors font-bold text-slate-200 hover:text-white"
                     >
-                      <ListChecks className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
                       <div>
-                        <p className="text-xs font-black">Copiar Todo al Portapapeles</p>
-                        <p className="text-[10px] text-slate-400">Corte + Lista de Vendidos + Gastos</p>
+                        <p className="text-xs font-black">Copiar Reporte Completo</p>
+                        <p className="text-[10px] text-slate-400">Formato listo para pegar en PDF / Reportes</p>
                       </div>
                     </button>
 
@@ -898,12 +1270,26 @@ export default function CorteXModal({
                         <Send className="w-4 h-4 text-emerald-400 shrink-0" />
                         <div>
                           <p className="text-xs font-black">Enviar por WhatsApp</p>
-                          <p className="text-[10px] text-emerald-400/80">Abre WhatsApp con el reporte listo</p>
+                          <p className="text-[10px] text-emerald-400/80">Abre WhatsApp con el reporte formateado</p>
                         </div>
                       </button>
                     </div>
 
                     <div className="pt-1 border-t border-slate-800">
+                      <button
+                        onClick={() => {
+                          setActiveTab('reporte_pdf');
+                          setQuickMenuOpen(false);
+                        }}
+                        className="w-full text-left p-2 hover:bg-purple-900/40 rounded-xl flex items-center gap-2 cursor-pointer transition-colors font-bold text-purple-300"
+                      >
+                        <Download className="w-4 h-4 text-purple-400 shrink-0" />
+                        <div>
+                          <p className="text-xs font-black">Ver y Descargar Reporte PDF</p>
+                          <p className="text-[10px] text-purple-400/80">Formato formal membretado listo para guardar</p>
+                        </div>
+                      </button>
+
                       <button
                         onClick={() => {
                           setActiveTab('copiar_lista');
@@ -913,8 +1299,8 @@ export default function CorteXModal({
                       >
                         <SlidersHorizontal className="w-4 h-4 text-blue-400 shrink-0" />
                         <div>
-                          <p className="text-xs font-black">Seleccionar y Personalizar...</p>
-                          <p className="text-[10px] text-blue-400/80">Elige artículos específicos a copiar</p>
+                          <p className="text-xs font-black">Seleccionar Artículos...</p>
+                          <p className="text-[10px] text-blue-400/80">Elige qué líneas y gastos copiar</p>
                         </div>
                       </button>
                     </div>
@@ -922,13 +1308,24 @@ export default function CorteXModal({
                 )}
               </div>
 
+              {/* Botón Descargar / Guardar PDF */}
+              <button
+                onClick={handlePrintPDFReport}
+                className="flex items-center gap-1.5 px-3 py-2 bg-purple-700 hover:bg-purple-600 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                title="Generar o guardar reporte en PDF (Hoja Ejecutiva)"
+              >
+                <Download className="w-4 h-4 text-purple-200" />
+                <span className="hidden sm:inline">Reporte</span> PDF
+              </button>
+
               {/* Botón Imprimir Ticket Térmico */}
               <button
-                onClick={handlePrint}
+                onClick={handlePrintThermal}
                 className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                title="Imprimir ticket térmico POS (80mm)"
               >
                 <Printer className="w-4 h-4 text-amber-300" />
-                <span className="hidden sm:inline">Imprimir</span> Ticket
+                <span className="hidden sm:inline">Ticket</span> POS
               </button>
 
               <button 
@@ -941,10 +1338,10 @@ export default function CorteXModal({
           </div>
 
           {/* TAB SELECTOR HEADER */}
-          <div className="flex items-center px-4 pt-2 gap-2 bg-slate-950/90 text-xs">
+          <div className="flex items-center px-4 pt-2 gap-2 bg-slate-950/90 text-xs overflow-x-auto">
             <button
               onClick={() => setActiveTab('arqueo')}
-              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 ${
+              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
                 activeTab === 'arqueo'
                   ? 'bg-white text-slate-900 border-blue-500 shadow-sm'
                   : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
@@ -956,17 +1353,29 @@ export default function CorteXModal({
 
             <button
               onClick={() => setActiveTab('copiar_lista')}
-              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 ${
+              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
                 activeTab === 'copiar_lista'
                   ? 'bg-white text-slate-900 border-emerald-500 shadow-sm'
                   : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
               }`}
             >
               <Copy className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Copiar y Seleccionar Lista de Vendidos & Gastos</span>
+              <span>Copiar y Seleccionar Lista</span>
               <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-black px-1.5 py-0.2 rounded-full border border-emerald-500/30">
                 {allDetailedSoldItems.length + branchExpenses.length}
               </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('reporte_pdf')}
+              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
+                activeTab === 'reporte_pdf'
+                  ? 'bg-white text-slate-900 border-purple-500 shadow-sm'
+                  : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-purple-600" />
+              <span>Reporte PDF & Exportar</span>
             </button>
           </div>
         </div>
@@ -1001,6 +1410,29 @@ export default function CorteXModal({
                 <span className="text-[10px] text-indigo-800 block mt-0.5">Terminal + SPEI</span>
               </div>
             </div>
+
+            {/* Histórico: Detalle de Fondo Dejado si existe */}
+            {isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined && (
+              <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-2xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                    <Coins className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-black text-blue-950 text-xs">Fondo Dejado para Siguiente Turno:</span>
+                      <span className="font-mono font-black text-blue-700 bg-white px-2 py-0.5 rounded-lg border border-blue-200 text-sm">
+                        ${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-blue-800 mt-0.5">
+                      Efectivo Retirado en Sobre: <strong className="font-mono font-bold">${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}</strong>
+                      {existingCorteRecord.closingNotes ? ` • Notas: "${existingCorteRecord.closingNotes}"` : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Banner para invitar a copiar o ver la lista */}
             <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-xs">
@@ -1309,7 +1741,7 @@ export default function CorteXModal({
             </div>
 
           </div>
-        ) : (
+        ) : activeTab === 'copiar_lista' ? (
           /* TAB 2: COPIAR Y SELECCIONAR LISTA DETALLADA DE VENDIDOS & GASTOS */
           <div className="p-4 space-y-4 overflow-y-auto flex-1 bg-slate-100/70 flex flex-col md:flex-row gap-4">
             
@@ -1631,6 +2063,286 @@ export default function CorteXModal({
             </div>
 
           </div>
+        ) : (
+          /* TAB 3: REPORTE PDF & EXPORTACIÓN EJECUTIVA */
+          <div className="p-4 space-y-4 overflow-y-auto flex-1 bg-slate-100/70">
+            
+            {/* Action Bar for PDF and Export */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-slate-900">
+                    Reporte Ejecutivo para PDF & Compartir
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Copia el reporte en texto o guárdalo directamente como archivo PDF membretado
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCopyClipboard('full', '¡Reporte Completo Copiado para PDF!')}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  title="Copiar texto estructurado listo para pegar"
+                >
+                  <Copy className="w-4 h-4 text-emerald-200" />
+                  <span>Copiar Reporte Completo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrintPDFReport}
+                  className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  title="Abre la ventana de impresión para Guardar como PDF"
+                >
+                  <Download className="w-4 h-4 text-purple-200" />
+                  <span>Guardar / Imprimir PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleShareWhatsApp('full')}
+                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Enviar por WhatsApp"
+                >
+                  <Send className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden sm:inline">WhatsApp</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Document Preview Card (Formatted as official Letter / A4 document) */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-300 shadow-md max-w-3xl mx-auto space-y-6 text-slate-800 font-sans">
+              
+              {/* Document Header */}
+              <div className="border-b-2 border-slate-900 pb-4 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-900 font-black text-[10px] uppercase">
+                      Punto de Venta ERP
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-semibold">Documento Oficial</span>
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-black text-slate-950 mt-1 uppercase">
+                    Reporte de Corte de Caja • Corte X
+                  </h2>
+                  <p className="text-xs text-slate-600">
+                    Sucursal: <strong>{effectiveBranchName}</strong> • Cajero: <strong>{effectiveOperatorName}</strong>
+                  </p>
+                </div>
+
+                <div className="text-right bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Folio Control</span>
+                  <span className="text-sm font-black font-mono text-blue-800">{corteFolio}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 block mt-0.5">
+                    {currentDateStr} • {currentTimeStr}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid: Totales y Formas de Pago */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                {/* Categorías */}
+                <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-2">
+                  <h5 className="font-black text-xs text-slate-900 uppercase tracking-wide border-b border-slate-200 pb-1 flex items-center justify-between">
+                    <span>1. Resumen por Conceptos</span>
+                    <span className="text-[10px] font-bold text-slate-500">{branchTickets.length} tickets</span>
+                  </h5>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Accesorios ({countAccesoriosProductos} pzs):</span>
+                      <span className="font-mono font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Abonos a Crédito ({countAbonos}):</span>
+                      <span className="font-mono font-bold">${totalAbonos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Enganches ({countEnganches}):</span>
+                      <span className="font-mono font-bold">${totalEnganches.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Reparaciones / Taller ({countReparaciones}):</span>
+                      <span className="font-mono font-bold">${totalReparaciones.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Recargas ({countRecargas}):</span>
+                      <span className="font-mono font-bold">${totalRecargas.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-slate-300 pt-1.5 flex justify-between font-black text-slate-900">
+                      <span>Total Ventas Brutas:</span>
+                      <span className="font-mono text-sm">${totalSalesAll.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Formas de Pago & Gastos */}
+                <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-2">
+                  <h5 className="font-black text-xs text-slate-900 uppercase tracking-wide border-b border-slate-200 pb-1">
+                    2. Formas de Pago Recibidas
+                  </h5>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">( + ) Efectivo en Ventas:</span>
+                      <span className="font-mono font-bold text-emerald-700">${cashSalesTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">( + ) Tarjetas Bancarias:</span>
+                      <span className="font-mono font-bold">${cardSalesTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">( + ) Transferencias SPEI:</span>
+                      <span className="font-mono font-bold">${transferSalesTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-rose-700">
+                      <span>( - ) Gastos Pagados ({branchExpenses.length}):</span>
+                      <span className="font-mono font-bold">-${totalExpenses.toFixed(2)}</span>
+                    </div>
+                    <div className="border-t border-slate-300 pt-1.5 flex justify-between font-black text-slate-900">
+                      <span>Ingreso Neto de Turno:</span>
+                      <span className="font-mono text-sm">${netIncome.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Balance de Caja Física */}
+              <div className="border-2 border-slate-800 rounded-xl p-4 bg-slate-50 space-y-2">
+                <h5 className="font-black text-xs text-slate-900 uppercase tracking-wide border-b border-slate-300 pb-1 flex items-center justify-between">
+                  <span>3. Arqueo y Balance en Cajón de Caja</span>
+                  <span className="text-[10px] font-mono font-black text-blue-900">Efectivo Físico</span>
+                </h5>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-bold block">Fondo Inicial</span>
+                    <span className="font-mono font-black text-slate-900">${effectiveInitialCash.toFixed(2)}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-emerald-600 font-bold block">(+) Efectivo Ventas</span>
+                    <span className="font-mono font-black text-emerald-700">+${cashSalesTotal.toFixed(2)}</span>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-rose-600 font-bold block">(-) Gastos Efectivo</span>
+                    <span className="font-mono font-black text-rose-700">-${totalExpenses.toFixed(2)}</span>
+                  </div>
+                  <div className="bg-emerald-50 p-2 rounded-lg border border-emerald-300">
+                    <span className="text-[10px] text-emerald-800 font-black block">Total en Cajón</span>
+                    <span className="font-mono font-black text-emerald-900 text-sm">${expectedCashInDrawer.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined && (
+                  <div className="mt-2 pt-2 border-t border-dashed border-slate-300 flex items-center justify-between text-xs bg-white p-2 rounded-lg">
+                    <div>
+                      <span className="font-bold text-slate-700">📌 Fondo Dejado Siguiente Turno:</span>{' '}
+                      <span className="font-mono font-black text-blue-800">${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-700">💵 Retirado (Sobre):</span>{' '}
+                      <span className="font-mono font-black text-amber-800">${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Lista Rápida de Gastos */}
+              {branchExpenses.length > 0 && (
+                <div className="space-y-1.5">
+                  <h5 className="font-black text-xs text-slate-900 uppercase">
+                    4. Gastos Registrados ({branchExpenses.length})
+                  </h5>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-bold text-[10px]">
+                        <tr>
+                          <th className="p-2">Concepto</th>
+                          <th className="p-2 text-center">Hora</th>
+                          <th className="p-2 text-right">Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {branchExpenses.map((exp) => (
+                          <tr key={exp.id}>
+                            <td className="p-2 font-medium">{exp.concept}</td>
+                            <td className="p-2 text-center text-slate-500 font-mono text-[10px]">
+                              {new Date(exp.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="p-2 text-right font-mono font-bold text-rose-600">
+                              -${exp.amount.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Lista Resumida de Vendidos */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-black text-xs text-slate-900 uppercase">
+                    5. Artículos Vendidos en el Turno ({allDetailedSoldItems.length})
+                  </h5>
+                  <span className="text-[10px] text-slate-500">
+                    Mostrando primeros {Math.min(15, allDetailedSoldItems.length)} registros
+                  </span>
+                </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-100 text-slate-600 font-bold text-[10px]">
+                      <tr>
+                        <th className="p-2">Folio</th>
+                        <th className="p-2">Descripción</th>
+                        <th className="p-2 text-center">Cant.</th>
+                        <th className="p-2 text-right">Total</th>
+                        <th className="p-2 text-center">Pago</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {allDetailedSoldItems.slice(0, 15).map((item) => (
+                        <tr key={item.id}>
+                          <td className="p-2 font-mono text-[10px] text-blue-700 font-bold">{item.ticketFolio}</td>
+                          <td className="p-2 font-medium truncate max-w-[200px]">{item.productName}</td>
+                          <td className="p-2 text-center font-bold">{item.quantity}</td>
+                          <td className="p-2 text-right font-mono font-bold">${item.totalPrice.toFixed(2)}</td>
+                          <td className="p-2 text-center text-slate-600 text-[10px]">{item.paymentMethod}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {allDetailedSoldItems.length > 15 && (
+                    <div className="p-2 bg-slate-50 text-center text-[10px] text-slate-500 font-semibold border-t border-slate-200">
+                      + {allDetailedSoldItems.length - 15} artículos adicionales registrados en este corte.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Firmas de Audit en Previsualización */}
+              <div className="pt-6 border-t border-slate-300 grid grid-cols-2 gap-8 text-center text-xs">
+                <div>
+                  <div className="border-b border-slate-400 h-8 mb-1 mx-4"></div>
+                  <p className="font-bold text-slate-900">{effectiveOperatorName}</p>
+                  <p className="text-[10px] text-slate-500">Cajero(a) Responsable</p>
+                </div>
+                <div>
+                  <div className="border-b border-slate-400 h-8 mb-1 mx-4"></div>
+                  <p className="font-bold text-slate-900">Gerencia / Auditoría</p>
+                  <p className="text-[10px] text-slate-500">Firma de Conformidad</p>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
         )}
 
         {/* Modal Footer */}
@@ -1639,17 +2351,19 @@ export default function CorteXModal({
             {!isHistoric ? (
               <>
                 <button
-                  onClick={() => handleFinalizeShift(false)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
-                  title="Guarda el corte oficial en la base de datos e imprime el ticket térmico"
+                  type="button"
+                  onClick={handleOpenClosureDialog}
+                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 flex items-center gap-2 transition-all cursor-pointer"
+                  title="Registra el fondo que se queda para el siguiente turno, guarda el corte y cierra sesión"
                 >
-                  <PackageCheck className="w-4 h-4 text-emerald-200" />
-                  <span>Imprimir y Guardar Corte Oficial</span>
+                  <Coins className="w-4 h-4 text-emerald-200" />
+                  <span>Finalizar Turno y Dejar Fondo</span>
                 </button>
 
                 <button
-                  onClick={() => handleFinalizeShift(true)}
-                  className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+                  type="button"
+                  onClick={handleOpenClosureDialog}
+                  className="px-3.5 py-2.5 bg-indigo-700 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
                   title="Guarda el corte oficial, imprime el ticket y cierra la sesión para cambio de turno"
                 >
                   <LogOut className="w-4 h-4 text-indigo-200" />
@@ -1659,12 +2373,20 @@ export default function CorteXModal({
             ) : (
               <div className="flex items-center gap-2">
                 <button
-                  onClick={handlePrint}
+                  onClick={handlePrintThermal}
                   className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                   title="Reimprimir el ticket térmico de este corte histórico"
                 >
                   <Printer className="w-3.5 h-3.5 text-yellow-300" />
                   <span>Reimprimir Ticket</span>
+                </button>
+                <button
+                  onClick={handlePrintPDFReport}
+                  className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Imprimir o exportar reporte en PDF"
+                >
+                  <Download className="w-3.5 h-3.5 text-purple-200" />
+                  <span>Guardar PDF</span>
                 </button>
                 <span className="text-[11px] text-slate-500 font-semibold">
                   Corte guardado el {currentDateStr} por {effectiveOperatorName}
@@ -1676,11 +2398,22 @@ export default function CorteXModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => handleCopyClipboard('full', '¡Corte X copiado con éxito!')}
+              onClick={() => handleCopyClipboard('full', '¡Corte X copiado con éxito para reporte/PDF!')}
               className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Copiar texto del reporte para compartir o guardar en PDF"
             >
               <Copy className="w-3.5 h-3.5 text-emerald-600" />
               <span>Copiar Corte</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintPDFReport}
+              className="px-3 py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Generar reporte para guardar como PDF"
+            >
+              <Download className="w-3.5 h-3.5 text-purple-600" />
+              <span>Reporte PDF</span>
             </button>
 
             <button
@@ -1693,6 +2426,234 @@ export default function CorteXModal({
         </div>
 
       </div>
+
+      {/* APARTADO DE FONDO DE CAJA Y CIERRE DE TURNO / SESIÓN HERMÉTICA */}
+      {isClosingShiftDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden flex flex-col my-auto animate-in zoom-in-95">
+            
+            {/* Header del Apartado */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 border-b border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400">
+                    <Coins className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm sm:text-base text-white flex items-center gap-1.5">
+                      <span>Cierre de Turno & Fondo de Caja</span>
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      {effectiveBranchName} • Cajero: {effectiveOperatorName}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsClosingShiftDialog(false)}
+                  className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Cuerpo del Apartado de Fondo */}
+            <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto bg-slate-50/60">
+              
+              {/* Aviso Hermético */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-2.5 text-xs text-blue-900">
+                <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-extrabold">Control de Seguridad y Arqueo Hermético</p>
+                  <p className="text-[11px] text-blue-800 mt-0.5">
+                    Indica el efectivo que se queda físicamente en el cajón como <strong>Fondo para el Siguiente Turno</strong>. Al confirmar, se guardará el arqueo oficial, se imprimirá el ticket y la sesión se cerrará de inmediato.
+                  </p>
+                </div>
+              </div>
+
+              {/* Resumen del Arqueo en Cajón */}
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>( + ) Fondo Inicial Recibido:</span>
+                  <span className="font-mono font-bold text-slate-700">${effectiveInitialCash.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>( + ) Efectivo por Ventas del Turno:</span>
+                  <span className="font-mono font-bold text-emerald-600">+${cashSalesTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>( - ) Gastos en Efectivo Registrados:</span>
+                  <span className="font-mono font-bold text-rose-600">-${totalExpenses.toFixed(2)}</span>
+                </div>
+                <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-900 uppercase">Efectivo Total en Cajón:</span>
+                  <span className="text-lg font-black text-emerald-700 font-mono">${expectedCashInDrawer.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* APARTADO PRINCIPAL: MONTO QUE SE DEJA DE FONDO */}
+              <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Coins className="w-4 h-4 text-emerald-600" />
+                    <span>Monto que se Deja de Fondo</span>
+                  </label>
+                  <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Para el Próximo Turno
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-700 font-black text-lg">
+                    $
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    autoFocus
+                    value={nextCashFundInput}
+                    onChange={(e) => setNextCashFundInput(e.target.value)}
+                    placeholder="0.00"
+                    className="block w-full pl-9 pr-4 py-3 border-2 border-emerald-400 rounded-2xl text-slate-900 font-mono font-black text-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-600 bg-emerald-50/30 transition-all"
+                  />
+                </div>
+
+                {/* Botones de Selección Rápida de Fondo */}
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Accesos rápidos sugeridos:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[500, 1000, 1500, 2000].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setNextCashFundInput(amt.toString())}
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+
+                    <button
+                      type="button"
+                      onClick={() => setNextCashFundInput(effectiveInitialCash.toString())}
+                      className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-lg text-xs font-black transition-all cursor-pointer"
+                      title="Dejar el mismo fondo con el que se abrió el turno"
+                    >
+                      Mismo Inicial (${effectiveInitialCash.toFixed(0)})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setNextCashFundInput(expectedCashInDrawer.toString())}
+                      className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      title="Dejar todo el dinero en el cajón"
+                    >
+                      Dejar Todo (${expectedCashInDrawer.toFixed(0)})
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setNextCashFundInput('0')}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                      title="Retirar todo el efectivo sin dejar fondo"
+                    >
+                      $0 (Retirar Todo)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cálculo en Vivo del Retiro / Sobre de Entrega */}
+              {(() => {
+                const parsedFund = parseFloat(nextCashFundInput) || 0;
+                const cashToWithdraw = Math.max(0, expectedCashInDrawer - parsedFund);
+                const isFundHigherThanDrawer = parsedFund > expectedCashInDrawer;
+
+                return (
+                  <div className="space-y-2">
+                    <div className="bg-slate-900 text-white p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-300">
+                        <span>Efectivo Total en Cajón:</span>
+                        <span className="font-mono font-bold">${expectedCashInDrawer.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-emerald-400">
+                        <span>( - ) Fondo que se Queda en Caja:</span>
+                        <span className="font-mono font-bold">-${parsedFund.toFixed(2)}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-black text-yellow-300 uppercase block">
+                            Efectivo a Retirar / Entregar:
+                          </span>
+                          <span className="text-[10px] text-slate-400">Sobre de depósito o resguardo</span>
+                        </div>
+                        <span className="text-xl font-black text-yellow-300 font-mono">
+                          ${cashToWithdraw.toFixed(2)} MXN
+                        </span>
+                      </div>
+                    </div>
+
+                    {isFundHigherThanDrawer && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>
+                          Nota: El fondo especificado (${parsedFund.toFixed(2)}) supera el dinero total disponible en caja (${expectedCashInDrawer.toFixed(2)}).
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Notas u Observaciones Opcionales */}
+              <div className="space-y-1">
+                <label className="block text-[11px] font-black text-slate-700 uppercase tracking-wider">
+                  Notas u Observaciones del Cierre (Opcional):
+                </label>
+                <input
+                  type="text"
+                  value={shiftClosureNotes}
+                  onChange={(e) => setShiftClosureNotes(e.target.value)}
+                  placeholder="Ej: Se dejaron 5 monedas de $10 y $500 en billetes para cambio"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                />
+              </div>
+
+            </div>
+
+            {/* Footer de Confirmación */}
+            <div className="p-3.5 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsClosingShiftDialog(false)}
+                className="px-4 py-2.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Regresar al Resumen
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const finalFund = parseFloat(nextCashFundInput);
+                  handleFinalizeShift(isNaN(finalFund) || finalFund < 0 ? 0 : finalFund, shiftClosureNotes);
+                }}
+                className="px-5 py-2.5 bg-gradient-to-r from-indigo-700 via-blue-700 to-indigo-800 hover:from-indigo-800 hover:to-blue-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-200 flex items-center gap-2 transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-300" />
+                <span>Confirmar Fondo, Finalizar y Cerrar Sesión</span>
+                <ArrowRight className="w-3.5 h-3.5 text-indigo-200" />
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

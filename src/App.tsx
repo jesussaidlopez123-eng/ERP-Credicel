@@ -39,18 +39,8 @@ export default function App() {
     return null;
   });
 
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return Boolean(parsed?.authenticated && parsed?.operator && parsed?.branch);
-      }
-    } catch {
-      // ignore
-    }
-    return false;
-  });
+  // Sistema hermético: Siempre solicitar contraseña al cargar o recargar la página
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
   useEffect(() => {
     const unsubscribe = subscribeToOperators((firestoreOps) => {
