@@ -175,31 +175,35 @@ export default function CorteXModal({
   let branchExpenses: Expense[] = [];
 
   if (isHistoric) {
-    if (existingCorteRecord.ticketsSnapshot && existingCorteRecord.ticketsSnapshot.length > 0) {
+    if (existingCorteRecord.ticketsSnapshot && Array.isArray(existingCorteRecord.ticketsSnapshot) && existingCorteRecord.ticketsSnapshot.length > 0) {
       branchTickets = existingCorteRecord.ticketsSnapshot;
     } else {
       const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
       branchTickets = (tickets || []).filter((t) => 
-        existingCorteRecord.ticketIds?.includes(t.id) || 
-        (t.corteXId === existingCorteRecord.id) ||
-        (t.branchId === effectiveBranchId && safeDateIsoKey(t.timestamp) === historicDateKey)
+        t && (
+          existingCorteRecord.ticketIds?.includes(t.id) || 
+          (t.corteXId === existingCorteRecord.id) ||
+          (t.branchId === effectiveBranchId && safeDateIsoKey(t.timestamp) === historicDateKey)
+        )
       );
     }
 
-    if (existingCorteRecord.expensesSnapshot && existingCorteRecord.expensesSnapshot.length > 0) {
+    if (existingCorteRecord.expensesSnapshot && Array.isArray(existingCorteRecord.expensesSnapshot) && existingCorteRecord.expensesSnapshot.length > 0) {
       branchExpenses = existingCorteRecord.expensesSnapshot;
     } else {
       const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
       branchExpenses = (expenses || []).filter((e) => 
-        existingCorteRecord.expenseIds?.includes(e.id) || 
-        (e.corteXId === existingCorteRecord.id) ||
-        (e.branchId === effectiveBranchId && safeDateIsoKey(e.timestamp || e.date) === historicDateKey)
+        e && (
+          existingCorteRecord.expenseIds?.includes(e.id) || 
+          (e.corteXId === existingCorteRecord.id) ||
+          (e.branchId === effectiveBranchId && safeDateIsoKey(e.timestamp || e.date) === historicDateKey)
+        )
       );
     }
   } else {
     // Active current shift: only unclosed tickets/expenses for current branch
-    branchTickets = (tickets || []).filter((t) => t.branchId === currentBranch.id && !t.corteXId);
-    branchExpenses = (expenses || []).filter((e) => e.branchId === currentBranch.id && !e.corteXId);
+    branchTickets = (tickets || []).filter((t) => t && t.branchId === effectiveBranchId && !t.corteXId);
+    branchExpenses = (expenses || []).filter((e) => e && e.branchId === effectiveBranchId && !e.corteXId);
   }
 
   // Payment totals
@@ -236,18 +240,24 @@ export default function CorteXModal({
   const allDetailedSoldItems: DetailedSoldItem[] = [];
 
   branchTickets.forEach((ticket) => {
-    if (ticket.paymentMethod === 'Efectivo') cashSalesTotal += (ticket.total || 0);
-    if (ticket.paymentMethod === 'Tarjeta') cardSalesTotal += (ticket.total || 0);
-    if (ticket.paymentMethod === 'Transferencia') transferSalesTotal += (ticket.total || 0);
+    if (!ticket) return;
+    const ticketTotal = typeof ticket.total === 'number' ? ticket.total : parseFloat((ticket.total as any) || '0') || 0;
+    const paymentMethod = ticket.paymentMethod || 'Efectivo';
+    if (paymentMethod === 'Efectivo') cashSalesTotal += ticketTotal;
+    if (paymentMethod === 'Tarjeta') cardSalesTotal += ticketTotal;
+    if (paymentMethod === 'Transferencia') transferSalesTotal += ticketTotal;
 
     const items = Array.isArray(ticket.items) ? ticket.items : [];
     items.forEach((item, itemIdx) => {
-      const pName = item?.product?.name || 'Artículo';
+      if (!item) return;
+      const pName = (item?.product?.name || item?.metadata?.repairType || (item?.metadata as any)?.planName || 'Artículo').toString();
       const pNameLower = pName.toLowerCase();
-      const cat = item?.product?.category || 'accesorio';
-      const itemTotal = item?.totalPrice || 0;
-      const qty = item?.quantity || 1;
-      const unitPrice = item?.unitPrice || (qty > 0 ? itemTotal / qty : itemTotal);
+      const cat = (item?.product?.category || 'accesorio').toString();
+      const qty = typeof item?.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
+      const itemTotal = typeof item?.totalPrice === 'number' 
+        ? item.totalPrice 
+        : (typeof item?.unitPrice === 'number' ? item.unitPrice * qty : parseFloat((item?.totalPrice as any) || '0') || 0);
+      const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : (qty > 0 ? itemTotal / qty : itemTotal);
       const timeStr = safeFormatTime(ticket.timestamp);
 
       let catKey = 'accesorios';
@@ -293,13 +303,17 @@ export default function CorteXModal({
       }
 
       const detailObj: ConceptDetail = {
-        ticketFolio: ticket.folio || ticket.id,
-        paymentMethod: ticket.paymentMethod,
+        ticketFolio: ticket.folio || ticket.id || 'S/F',
+        paymentMethod: paymentMethod,
         time: timeStr,
         qty,
         totalPrice: itemTotal,
         metadata: item?.metadata
       };
+
+      if (!categoryConceptMaps[catKey]) {
+        categoryConceptMaps[catKey] = {};
+      }
 
       if (!categoryConceptMaps[catKey][conceptName]) {
         categoryConceptMaps[catKey][conceptName] = {
@@ -316,9 +330,9 @@ export default function CorteXModal({
       categoryConceptMaps[catKey][conceptName].details.push(detailObj);
 
       allDetailedSoldItems.push({
-        id: `${ticket.id}_${itemIdx}_${item?.product?.id || itemIdx}`,
-        ticketId: ticket.id,
-        ticketFolio: ticket.folio || ticket.id,
+        id: `${ticket.id || 't'}_${itemIdx}_${item?.product?.id || itemIdx}`,
+        ticketId: ticket.id || '',
+        ticketFolio: ticket.folio || ticket.id || 'S/F',
         time: timeStr,
         productName: pName,
         category: catKey,
@@ -326,7 +340,7 @@ export default function CorteXModal({
         quantity: qty,
         unitPrice,
         totalPrice: itemTotal,
-        paymentMethod: ticket.paymentMethod,
+        paymentMethod: paymentMethod,
         metadata: item?.metadata
       });
     });
@@ -335,22 +349,24 @@ export default function CorteXModal({
   // Group Expenses by concept
   const expenseMap: Record<string, { concept: string; count: number; total: number }> = {};
   branchExpenses.forEach((exp) => {
-    const key = exp.concept.trim();
+    if (!exp) return;
+    const key = (exp.concept || 'Gasto general').toString().trim() || 'Gasto general';
+    const amount = typeof exp.amount === 'number' ? exp.amount : parseFloat((exp.amount as any) || '0') || 0;
     if (!expenseMap[key]) {
       expenseMap[key] = { concept: key, count: 0, total: 0 };
     }
     expenseMap[key].count += 1;
-    expenseMap[key].total += exp.amount;
+    expenseMap[key].total += amount;
   });
 
   const groupedExpenseList = Object.values(expenseMap).sort((a, b) => b.total - a.total);
 
   const categoryItems = {
-    accesorios: Object.values(categoryConceptMaps.accesorios).sort((a, b) => b.total - a.total),
-    abonos: Object.values(categoryConceptMaps.abonos).sort((a, b) => b.total - a.total),
-    enganches: Object.values(categoryConceptMaps.enganches).sort((a, b) => b.total - a.total),
-    reparaciones: Object.values(categoryConceptMaps.reparaciones).sort((a, b) => b.total - a.total),
-    recargas: Object.values(categoryConceptMaps.recargas).sort((a, b) => b.total - a.total),
+    accesorios: Object.values(categoryConceptMaps.accesorios || {}).sort((a, b) => b.total - a.total),
+    abonos: Object.values(categoryConceptMaps.abonos || {}).sort((a, b) => b.total - a.total),
+    enganches: Object.values(categoryConceptMaps.enganches || {}).sort((a, b) => b.total - a.total),
+    reparaciones: Object.values(categoryConceptMaps.reparaciones || {}).sort((a, b) => b.total - a.total),
+    recargas: Object.values(categoryConceptMaps.recargas || {}).sort((a, b) => b.total - a.total),
     gastos: groupedExpenseList,
   };
 
@@ -1093,14 +1109,15 @@ export default function CorteXModal({
               </thead>
               <tbody>
                 {branchExpenses.map((g) => {
-                  const time = new Date(g.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                  const time = safeFormatTime(g.timestamp || g.date);
+                  const amt = typeof g.amount === 'number' ? g.amount : parseFloat((g.amount as any) || '0') || 0;
                   return (
                     <tr key={g.id}>
-                      <td className="border border-slate-300 p-1">{g.concept}</td>
+                      <td className="border border-slate-300 p-1">{g.concept || 'Gasto'}</td>
                       <td className="border border-slate-300 p-1 text-center">{time}</td>
                       <td className="border border-slate-300 p-1 text-center">{g.operatorName || effectiveOperatorName}</td>
                       <td className="border border-slate-300 p-1 text-right font-mono font-bold text-rose-800">
-                        -${g.amount.toFixed(2)}
+                        -${amt.toFixed(2)}
                       </td>
                     </tr>
                   );
@@ -1903,7 +1920,8 @@ export default function CorteXModal({
 
                     {filteredExpenses.map((exp) => {
                       const isSelected = selectedExpenseIds.has(exp.id);
-                      const timeStr = new Date(exp.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                      const timeStr = safeFormatTime(exp.timestamp || exp.date);
+                      const amt = typeof exp.amount === 'number' ? exp.amount : parseFloat((exp.amount as any) || '0') || 0;
                       return (
                         <div
                           key={exp.id}
@@ -1923,7 +1941,7 @@ export default function CorteXModal({
                             />
                             <div className="min-w-0">
                               <p className="font-extrabold text-xs text-slate-900 truncate">
-                                {exp.concept}
+                                {exp.concept || 'Gasto'}
                               </p>
                               <p className="text-[10px] text-slate-500">
                                 {timeStr} • Registrado por: {exp.operatorName || effectiveOperatorName}
@@ -1933,7 +1951,7 @@ export default function CorteXModal({
 
                           <div className="text-right shrink-0">
                             <span className="font-mono font-black text-xs text-rose-600 block">
-                              -${exp.amount.toFixed(2)}
+                              -${amt.toFixed(2)}
                             </span>
                           </div>
                         </div>
@@ -2272,17 +2290,21 @@ export default function CorteXModal({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
-                        {branchExpenses.map((exp) => (
-                          <tr key={exp.id}>
-                            <td className="p-2 font-medium">{exp.concept}</td>
-                            <td className="p-2 text-center text-slate-500 font-mono text-[10px]">
-                              {new Date(exp.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="p-2 text-right font-mono font-bold text-rose-600">
-                              -${exp.amount.toFixed(2)}
-                            </td>
-                          </tr>
-                        ))}
+                        {branchExpenses.map((exp) => {
+                          const timeStr = safeFormatTime(exp.timestamp || exp.date);
+                          const amt = typeof exp.amount === 'number' ? exp.amount : parseFloat((exp.amount as any) || '0') || 0;
+                          return (
+                            <tr key={exp.id}>
+                              <td className="p-2 font-medium">{exp.concept || 'Gasto'}</td>
+                              <td className="p-2 text-center text-slate-500 font-mono text-[10px]">
+                                {timeStr}
+                              </td>
+                              <td className="p-2 text-right font-mono font-bold text-rose-600">
+                                -${amt.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
