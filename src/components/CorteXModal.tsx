@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Calculator, 
   CreditCard, 
@@ -143,30 +143,27 @@ export default function CorteXModal({
   // Track selected items and expenses for custom export
   const [selectedSoldItemIds, setSelectedSoldItemIds] = useState<Set<string>>(new Set());
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set());
-  const [hasInitializedSelection, setHasInitializedSelection] = useState(false);
-
-  if (!isOpen) return null;
 
   const isHistoric = !!existingCorteRecord;
 
   // Determine branch info
-  const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : currentBranch.name;
-  const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : currentBranch.id;
-  const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : currentOperator.name;
+  const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : (currentBranch?.name || 'Sucursal');
+  const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : (currentBranch?.id || 'main');
+  const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : (currentOperator?.name || 'Cajero');
   
   // Stored branch initial cash fund (from previous shift's left fund, or default)
-  const storedBranchFund = useMemo(() => {
-    try {
-      const saved = localStorage.getItem(`erp_branch_fund_${effectiveBranchId}`);
-      if (saved) {
-        const parsed = parseFloat(saved);
-        if (!isNaN(parsed) && parsed >= 0) return parsed;
+  let storedBranchFund = initialCashFund !== undefined ? initialCashFund : 1000.00;
+  try {
+    const saved = localStorage.getItem(`erp_branch_fund_${effectiveBranchId}`);
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0) {
+        storedBranchFund = parsed;
       }
-    } catch {
-      // ignore
     }
-    return initialCashFund !== undefined ? initialCashFund : 1000.00;
-  }, [effectiveBranchId, initialCashFund]);
+  } catch {
+    // ignore
+  }
 
   const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : storedBranchFund;
 
@@ -174,7 +171,7 @@ export default function CorteXModal({
   let branchTickets: SaleTicket[] = [];
   let branchExpenses: Expense[] = [];
 
-  if (isHistoric) {
+  if (isHistoric && existingCorteRecord) {
     if (existingCorteRecord.ticketsSnapshot && Array.isArray(existingCorteRecord.ticketsSnapshot) && existingCorteRecord.ticketsSnapshot.length > 0) {
       branchTickets = existingCorteRecord.ticketsSnapshot;
     } else {
@@ -399,32 +396,28 @@ export default function CorteXModal({
   const currentDateStr = isHistoric ? existingCorteRecord.dateStr : new Date().toLocaleDateString('es-MX');
   const currentTimeStr = isHistoric ? existingCorteRecord.timeStr : new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
-  // Initialize selected items if not yet set
-  if (!hasInitializedSelection && (allDetailedSoldItems.length > 0 || branchExpenses.length > 0)) {
-    setSelectedSoldItemIds(new Set(allDetailedSoldItems.map(i => i.id)));
-    setSelectedExpenseIds(new Set(branchExpenses.map(e => e.id)));
-    setHasInitializedSelection(true);
-  }
+  // Initialize selected items when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedSoldItemIds(new Set(allDetailedSoldItems.map(i => i.id)));
+      setSelectedExpenseIds(new Set(branchExpenses.map(e => e.id)));
+    }
+  }, [isOpen, effectiveBranchId]);
 
   // Filter items in custom selection view
-  const filteredSoldItems = useMemo(() => {
-    return allDetailedSoldItems.filter(item => {
-      const matchCat = categoryFilter === 'all' || item.category === categoryFilter;
-      const matchSearch = !searchFilter.trim() || 
-        item.productName.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        item.ticketFolio.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        (item.metadata?.clientName && item.metadata.clientName.toLowerCase().includes(searchFilter.toLowerCase())) ||
-        (item.metadata?.imei && item.metadata.imei.toLowerCase().includes(searchFilter.toLowerCase()));
-      return matchCat && matchSearch;
-    });
-  }, [allDetailedSoldItems, categoryFilter, searchFilter]);
+  const filteredSoldItems = allDetailedSoldItems.filter(item => {
+    const matchCat = categoryFilter === 'all' || item.category === categoryFilter;
+    const matchSearch = !searchFilter.trim() || 
+      item.productName.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      item.ticketFolio.toLowerCase().includes(searchFilter.toLowerCase()) ||
+      (item.metadata?.clientName && item.metadata.clientName.toLowerCase().includes(searchFilter.toLowerCase())) ||
+      (item.metadata?.imei && item.metadata.imei.toLowerCase().includes(searchFilter.toLowerCase()));
+    return matchCat && matchSearch;
+  });
 
-  const filteredExpenses = useMemo(() => {
-    if (categoryFilter !== 'all' && categoryFilter !== 'gastos') return [];
-    return branchExpenses.filter(e => {
-      return !searchFilter.trim() || e.concept.toLowerCase().includes(searchFilter.toLowerCase());
-    });
-  }, [branchExpenses, categoryFilter, searchFilter]);
+  const filteredExpenses = (categoryFilter !== 'all' && categoryFilter !== 'gastos') ? [] : branchExpenses.filter(e => {
+    return !searchFilter.trim() || e.concept.toLowerCase().includes(searchFilter.toLowerCase());
+  });
 
   // Selection helpers
   const handleToggleSoldItem = (id: string) => {
@@ -725,6 +718,8 @@ export default function CorteXModal({
       }, 500);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
