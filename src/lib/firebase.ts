@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, Branch, InventoryMovement } from '../types';
+import { safeDateIsoKey } from './dateUtils';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
@@ -438,14 +439,94 @@ export async function deleteCorteXFromFirestore(corteId: string) {
 }
 
 /**
+ * Auto-depuración y reconciliación de tickets y abonos huérfanos de días anteriores:
+ * Si existen tickets o abonos de días pasados (timestamp anterior a hoy) que no tengan corteXId,
+ * los asocia con el corte de su sucursal de ese día o los marca como cerrados de su fecha histórica,
+ * evitando que se filtren al corte del día nuevo.
+ */
+export async function autoReconcilePastTicketsAndExpenses(): Promise<number> {
+  try {
+    const todayIso = safeDateIsoKey(new Date());
+    const salesCol = collection(db, SALES_COLLECTION);
+    const expensesCol = collection(db, EXPENSES_COLLECTION);
+    const cortesCol = collection(db, CORTE_X_COLLECTION);
+
+    const [salesSnap, expensesSnap, cortesSnap] = await Promise.all([
+      getDocs(salesCol),
+      getDocs(expensesCol),
+      getDocs(cortesCol)
+    ]);
+
+    const cortesMap: Record<string, string> = {}; // branchId_dateIso -> corteId
+    cortesSnap.forEach((d) => {
+      const data = d.data() as CorteXRecord;
+      const dKey = safeDateIsoKey(data.timestamp) || data.dateStr || safeDateIsoKey(data.dateStr);
+      cortesMap[`${data.branchId}_${dKey}`] = data.id;
+    });
+
+    const batch = writeBatch(db);
+    let patchedCount = 0;
+
+    salesSnap.forEach((d) => {
+      const ticket = d.data() as SaleTicket;
+      const ticketDateIso = safeDateIsoKey(ticket.timestamp);
+      // Si el ticket/abono es de un día anterior a hoy y no tiene corteXId
+      if (ticketDateIso < todayIso && !ticket.corteXId) {
+        const assignedCorteId = cortesMap[`${ticket.branchId}_${ticketDateIso}`] || `CTX-HIST-${ticketDateIso}`;
+        batch.set(
+          d.ref,
+          {
+            corteXId: assignedCorteId,
+            corteXClosedAt: ticket.timestamp || new Date().toISOString()
+          },
+          { merge: true }
+        );
+        patchedCount++;
+      }
+    });
+
+    expensesSnap.forEach((d) => {
+      const exp = d.data() as Expense;
+      const expDateIso = safeDateIsoKey(exp.timestamp || exp.date);
+      // Si el gasto es de un día anterior a hoy y no tiene corteXId
+      if (expDateIso < todayIso && !exp.corteXId) {
+        const assignedCorteId = cortesMap[`${exp.branchId}_${expDateIso}`] || `CTX-HIST-${expDateIso}`;
+        batch.set(
+          d.ref,
+          {
+            corteXId: assignedCorteId,
+            corteXClosedAt: exp.timestamp || new Date().toISOString()
+          },
+          { merge: true }
+        );
+        patchedCount++;
+      }
+    });
+
+    if (patchedCount > 0) {
+      await batch.commit();
+      console.log(`[Firestore] 🛡️ Reconciliación: Se sellaron ${patchedCount} tickets/abonos/gastos huérfanos de días anteriores.`);
+    }
+
+    return patchedCount;
+  } catch (err) {
+    console.error('[Firestore] Error reconciliando tickets anteriores:', err);
+    return 0;
+  }
+}
+
+/**
  * Limpia y consolida automáticamente registros duplicados de cortes de caja en Firestore.
  * Asegura que por cada sucursal y por cada fecha (día) exista únicamente UN corte oficial registrado.
  */
-export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount: number; remainingCount: number }> {
+export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount: number; remainingCount: number; reconciledTicketsCount?: number }> {
   try {
+    // 1. Reconciliar tickets/abonos de días anteriores para que no contaminen el corte del día nuevo
+    const reconciledCount = await autoReconcilePastTicketsAndExpenses();
+
     const colRef = collection(db, CORTE_X_COLLECTION);
     const snapshot = await getDocs(colRef);
-    if (snapshot.empty) return { purgedCount: 0, remainingCount: 0 };
+    if (snapshot.empty) return { purgedCount: 0, remainingCount: 0, reconciledTicketsCount: reconciledCount };
 
     // Agrupar por branchId y dateStr (o ISO date key)
     const grouped: Record<string, any[]> = {};
@@ -489,7 +570,7 @@ export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount
       console.log(`[Firestore] 🛡️ Blindaje de Cortes: Se purgaron ${purgedCount} cortes duplicados en la base de datos.`);
     }
 
-    return { purgedCount, remainingCount };
+    return { purgedCount, remainingCount, reconciledTicketsCount: reconciledCount };
   } catch (err) {
     console.error('[Firestore] Error limpiando cortes duplicados:', err);
     return { purgedCount: 0, remainingCount: 0 };
@@ -508,22 +589,30 @@ export async function executeAndSaveCorteX(
     const corteRef = doc(db, CORTE_X_COLLECTION, corte.id);
     batch.set(corteRef, cleanForFirestore(corte));
 
-    // 2. Mark tickets with corteXId
+    // 2. Mark tickets with corteXId (using merge: true for resilience)
     ticketsToClose.forEach((t) => {
       const ticketRef = doc(db, SALES_COLLECTION, t.id);
-      batch.update(ticketRef, {
-        corteXId: corte.id,
-        corteXClosedAt: corte.timestamp
-      });
+      batch.set(
+        ticketRef,
+        {
+          corteXId: corte.id,
+          corteXClosedAt: corte.timestamp
+        },
+        { merge: true }
+      );
     });
 
-    // 3. Mark expenses with corteXId
+    // 3. Mark expenses with corteXId (using merge: true for resilience)
     expensesToClose.forEach((e) => {
       const expRef = doc(db, EXPENSES_COLLECTION, e.id);
-      batch.update(expRef, {
-        corteXId: corte.id,
-        corteXClosedAt: corte.timestamp
-      });
+      batch.set(
+        expRef,
+        {
+          corteXId: corte.id,
+          corteXClosedAt: corte.timestamp
+        },
+        { merge: true }
+      );
     });
 
     await batch.commit();

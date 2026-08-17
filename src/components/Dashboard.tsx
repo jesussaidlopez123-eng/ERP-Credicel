@@ -374,12 +374,33 @@ export default function Dashboard({
       return;
     }
 
-    const unclosedTickets = salesTickets.filter((t) => t.branchId === currentBranch.id && !t.corteXId);
-    const unclosedExpenses = expenses.filter((e) => e.branchId === currentBranch.id && !e.corteXId);
+    const unclosedTickets = salesTickets.filter((t) => 
+      t.branchId === currentBranch.id && (!t.corteXId || corteRecord.ticketIds?.includes(t.id))
+    );
+    const unclosedExpenses = expenses.filter((e) => 
+      e.branchId === currentBranch.id && (!e.corteXId || corteRecord.expenseIds?.includes(e.id))
+    );
 
     try {
       await executeAndSaveCorteX(corteRecord, unclosedTickets, unclosedExpenses);
       setCortesX((prev) => [corteRecord, ...prev.filter((c) => c.id !== corteRecord.id)]);
+
+      const closedTicketIds = new Set(unclosedTickets.map((t) => t.id));
+      const closedExpenseIds = new Set(unclosedExpenses.map((e) => e.id));
+      setSalesTickets((prev) =>
+        prev.map((t) =>
+          closedTicketIds.has(t.id)
+            ? { ...t, corteXId: corteRecord.id, corteXClosedAt: corteRecord.timestamp }
+            : t
+        )
+      );
+      setExpenses((prev) =>
+        prev.map((e) =>
+          closedExpenseIds.has(e.id)
+            ? { ...e, corteXId: corteRecord.id, corteXClosedAt: corteRecord.timestamp }
+            : e
+        )
+      );
     } catch (err) {
       console.error('Error finalizing Corte X in Firestore:', err);
     }

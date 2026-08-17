@@ -110,28 +110,39 @@ export default function CorteXModal({
   // Main navigation tab
   const [activeTab, setActiveTab] = useState<'arqueo' | 'copiar_lista' | 'reporte_pdf'>('arqueo');
   
-  // Format preference for printing: 'pdf' (Hoja Normal / Carta) or 'thermal' (Ticket 80mm)
+  // Thermal paper width preference: '58mm' (POS-5890A-L) or '80mm'
+  const [printerPaperSize, setPrinterPaperSize] = useState<'58mm' | '80mm'>(() => {
+    try {
+      const saved = localStorage.getItem('erp_pos_printer_size');
+      return saved === '80mm' ? '80mm' : '58mm';
+    } catch {
+      return '58mm';
+    }
+  });
+
+  // Format preference for printing: 'thermal' (Ticket POS 58mm/80mm) or 'pdf' (Hoja Normal / Carta)
   const [printMode, setPrintMode] = useState<'thermal' | 'pdf'>(() => {
     try {
       const saved = localStorage.getItem('erp_corte_print_format');
-      if (saved === 'thermal') return 'thermal';
       if (saved === 'pdf' || saved === 'letter' || saved === 'hoja_normal') return 'pdf';
+      if (saved === 'thermal') return 'thermal';
     } catch {
       // ignore
     }
-    return 'pdf'; // Default to Hoja Normal (Carta / PDF)
+    return 'thermal'; // Default to Thermal Ticket for POS-5890A-L
   });
 
   // Shift closure printing choice
   const [shiftClosurePrintOption, setShiftClosurePrintOption] = useState<'pdf' | 'thermal' | 'none'>(() => {
     try {
       const saved = localStorage.getItem('erp_corte_print_format');
-      if (saved === 'thermal') return 'thermal';
+      if (saved === 'pdf') return 'pdf';
       if (saved === 'none') return 'none';
+      if (saved === 'thermal') return 'thermal';
     } catch {
       // ignore
     }
-    return 'pdf'; // Default to Hoja Normal
+    return 'thermal'; // Default to Thermal Ticket for POS-5890A-L
   });
 
   // Accordion state in arqueo view
@@ -235,9 +246,14 @@ export default function CorteXModal({
       );
     }
   } else {
-    // Active current shift: only unclosed tickets/expenses for current branch
-    branchTickets = (tickets || []).filter((t) => t && t.branchId === effectiveBranchId && !t.corteXId);
-    branchExpenses = (expenses || []).filter((e) => e && e.branchId === effectiveBranchId && !e.corteXId);
+    // Active current shift: strictly unclosed tickets and expenses for current branch generated TODAY
+    const todayIso = safeDateIsoKey(new Date());
+    branchTickets = (tickets || []).filter((t) => 
+      t && t.branchId === effectiveBranchId && !t.corteXId && safeDateIsoKey(t.timestamp) === todayIso
+    );
+    branchExpenses = (expenses || []).filter((e) => 
+      e && e.branchId === effectiveBranchId && !e.corteXId && safeDateIsoKey(e.timestamp || e.date) === todayIso
+    );
   }
 
   // Payment totals
@@ -664,14 +680,21 @@ export default function CorteXModal({
     setQuickMenuOpen(false);
   };
 
-  const handlePrintThermal = () => {
+  const handlePrintThermal = (size?: '58mm' | '80mm') => {
+    const targetSize = size || printerPaperSize;
+    if (size && size !== printerPaperSize) {
+      setPrinterPaperSize(size);
+      try {
+        localStorage.setItem('erp_pos_printer_size', size);
+      } catch {}
+    }
     setPrintMode('thermal');
     try {
       localStorage.setItem('erp_corte_print_format', 'thermal');
     } catch {}
     setTimeout(() => {
       window.print();
-    }, 100);
+    }, 120);
   };
 
   const handlePrintPDFReport = () => {
@@ -681,7 +704,7 @@ export default function CorteXModal({
     } catch {}
     setTimeout(() => {
       window.print();
-    }, 100);
+    }, 120);
   };
 
   const handlePrint = () => {
@@ -691,6 +714,22 @@ export default function CorteXModal({
       handlePrintPDFReport();
     }
   };
+
+  // Keyboard shortcut listener: P or R to print corte
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handlePrint();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, printMode, printerPaperSize]);
 
   const handleOpenClosureDialog = () => {
     if (isAdmin) {
@@ -801,18 +840,19 @@ export default function CorteXModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 overflow-y-auto">
       
-      {/* Print Styles for both Thermal (80mm) and Executive PDF (Letter/A4) */}
+      {/* Print Styles for both Thermal (58mm POS-5890A-L / 80mm) and Executive PDF (Letter/A4) */}
       <style>{`
         @media print {
           @page {
-            size: ${printMode === 'thermal' ? '80mm auto' : 'letter portrait'};
-            margin: ${printMode === 'thermal' ? '0mm' : '10mm 14mm'};
+            size: ${printMode === 'thermal' ? (printerPaperSize === '58mm' ? '58mm auto' : '80mm auto') : 'letter portrait'};
+            margin: ${printMode === 'thermal' ? '0mm !important' : '10mm 14mm'};
           }
           html, body {
-            background: white !important;
-            color: black !important;
+            background: #ffffff !important;
+            color: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
           }
           body * {
             visibility: hidden !important;
@@ -824,16 +864,21 @@ export default function CorteXModal({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            background: white !important;
-            color: black !important;
+            background: #ffffff !important;
+            color: #000000 !important;
             display: block !important;
             width: 100% !important;
           }
           .corte-print-thermal {
-            width: 80mm !important;
-            max-width: 80mm !important;
+            width: ${printerPaperSize === '58mm' ? '56mm' : '80mm'} !important;
+            max-width: ${printerPaperSize === '58mm' ? '56mm' : '80mm'} !important;
             margin: 0 auto !important;
-            padding: 6px !important;
+            padding: ${printerPaperSize === '58mm' ? '2mm 1mm 12mm 1mm' : '6px 4px 18px 4px'} !important;
+            box-sizing: border-box !important;
+            font-family: monospace, 'Courier New', Courier !important;
+            font-size: ${printerPaperSize === '58mm' ? '10px' : '11px'} !important;
+            line-height: 1.25 !important;
+            color: #000000 !important;
           }
           .corte-print-pdf {
             width: 100% !important;
@@ -852,42 +897,42 @@ export default function CorteXModal({
         }
       `}</style>
 
-      {/* Hidden Thermal Receipt for POS Thermal Printer (80mm) */}
+      {/* Hidden Thermal Receipt for POS Thermal Printer (58mm POS-5890A-L & 80mm) */}
       <div 
         id="thermal-corte-x-receipt" 
-        className={`${printMode === 'thermal' ? 'corte-print-active corte-print-thermal' : 'hidden'} hidden print:block text-black font-mono text-[11px] leading-tight space-y-2`}
+        className={`${printMode === 'thermal' ? 'corte-print-active corte-print-thermal' : 'hidden'} hidden print:block text-black font-mono leading-tight space-y-2`}
       >
-        <div className="text-center border-b border-black pb-2 mb-2">
-          <h2 className="font-black text-sm uppercase">PUNTO DE VENTA ERP</h2>
-          <p className="text-[10px] uppercase">{effectiveBranchName}</p>
-          <p className="text-[12px] font-black my-1 uppercase">*** CORTE X / PARCIAL ***</p>
-          <p className="text-[10px]">DOCUMENTO DE CONTROL INTERNO</p>
-          <p className="font-bold">FOLIO: {corteFolio}</p>
+        {/* Cabecera Térmica */}
+        <div className="text-center border-b-2 border-black pb-1.5 mb-1.5">
+          <h2 className="font-black text-xs uppercase tracking-tight">CREDICEL POS & SERVICIOS</h2>
+          <p className="text-[10px] font-bold uppercase">{effectiveBranchName}</p>
+          <div className="my-1 py-0.5 bg-black text-white font-black text-[11px] uppercase tracking-wider">
+            *** CORTE X (PARCIAL) ***
+          </div>
+          <p className="text-[9px] uppercase font-semibold">CONTROL INTERNO DE CAJA</p>
+          <p className="font-black text-[11px] mt-0.5">FOLIO: {corteFolio}</p>
         </div>
 
-        <div className="space-y-0.5 text-[10px] border-b border-black pb-2">
+        {/* Datos de Control */}
+        <div className="space-y-0.5 text-[9.5px] border-b border-dashed border-black pb-1.5">
           <div className="flex justify-between">
             <span>Fecha y Hora:</span>
-            <span>{currentDateStr} {currentTimeStr}</span>
+            <span className="font-bold">{currentDateStr} {currentTimeStr}</span>
           </div>
           <div className="flex justify-between">
-            <span>Cajero / Operador:</span>
+            <span>Cajero en Turno:</span>
             <span className="font-bold">{effectiveOperatorName}</span>
           </div>
           <div className="flex justify-between">
-            <span>Tickets de Venta:</span>
-            <span>{branchTickets.length}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Gastos Registrados:</span>
-            <span>{branchExpenses.length}</span>
+            <span>Tickets / Movimientos:</span>
+            <span className="font-bold">{branchTickets.length} ventas • {branchExpenses.length} gastos</span>
           </div>
         </div>
 
-        {/* Desglose por Conceptos */}
-        <div className="border-b border-black pb-2 space-y-1">
-          <p className="font-bold uppercase text-[10px] border-b border-dashed border-black pb-0.5">
-            RESUMEN POR CATEGORÍAS
+        {/* Resumen por Departamentos / Conceptos */}
+        <div className="border-b border-dashed border-black pb-1.5 space-y-1 text-[9.5px]">
+          <p className="font-black uppercase text-[10px] border-b border-black pb-0.5">
+            DESGLOSE POR CONCEPTOS
           </p>
 
           <div className="flex justify-between">
@@ -895,125 +940,131 @@ export default function CorteXModal({
             <span className="font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Abonos a Crédito ({countAbonos}):</span>
+            <span>Abonos Crédito ({countAbonos} ops):</span>
             <span className="font-bold">${totalAbonos.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Enganches ({countEnganches}):</span>
+            <span>Enganches Cel ({countEnganches} ops):</span>
             <span className="font-bold">${totalEnganches.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Reparaciones / Taller ({countReparaciones}):</span>
+            <span>Taller / Reps ({countReparaciones} ops):</span>
             <span className="font-bold">${totalReparaciones.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Recargas Tiempo Aire ({countRecargas}):</span>
+            <span>Recargas TA ({countRecargas} ops):</span>
             <span className="font-bold">${totalRecargas.toFixed(2)}</span>
           </div>
 
-          <div className="border-t border-dashed border-black pt-1 flex justify-between font-bold text-[11px]">
+          <div className="border-t border-black pt-1 flex justify-between font-black text-[10.5px]">
             <span>TOTAL VENTAS BRUTAS:</span>
             <span>${totalSalesAll.toFixed(2)}</span>
           </div>
         </div>
 
         {/* Desglose Métodos de Pago */}
-        <div className="border-b border-black pb-2 space-y-0.5 text-[10px]">
-          <p className="font-bold uppercase border-b border-dashed border-black pb-0.5">
+        <div className="border-b border-dashed border-black pb-1.5 space-y-0.5 text-[9.5px]">
+          <p className="font-black uppercase border-b border-black pb-0.5">
             FORMAS DE PAGO RECIBIDAS
           </p>
           <div className="flex justify-between">
             <span>( + ) Efectivo en Ventas:</span>
-            <span>${cashSalesTotal.toFixed(2)}</span>
+            <span className="font-bold">${cashSalesTotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>( + ) Tarjeta Débito/Crédito:</span>
-            <span>${cardSalesTotal.toFixed(2)}</span>
+            <span>( + ) Tarjeta Déb / Créd:</span>
+            <span className="font-bold">${cardSalesTotal.toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
             <span>( + ) Transferencia SPEI:</span>
-            <span>${transferSalesTotal.toFixed(2)}</span>
+            <span className="font-bold">${transferSalesTotal.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Gastos y Retiros */}
-        <div className="border-b border-black pb-2 space-y-0.5 text-[10px]">
-          <p className="font-bold uppercase border-b border-dashed border-black pb-0.5">
+        {/* Gastos y Retiros de Caja */}
+        <div className="border-b border-dashed border-black pb-1.5 space-y-0.5 text-[9.5px]">
+          <p className="font-black uppercase border-b border-black pb-0.5">
             GASTOS Y RETIROS DE CAJA
           </p>
           {branchExpenses.length === 0 ? (
-            <p className="text-center italic text-[9px]">Sin gastos registrados en el turno</p>
+            <p className="text-center italic text-[9px] py-0.5">Sin gastos registrados en el turno</p>
           ) : (
             branchExpenses.map((g) => (
               <div key={g.id} className="flex justify-between">
-                <span className="truncate max-w-[150px]">{g.concept}:</span>
+                <span className="truncate max-w-[130px]">{g.concept}:</span>
                 <span className="font-bold">-${g.amount.toFixed(2)}</span>
               </div>
             ))
           )}
-          <div className="flex justify-between font-bold border-t border-dashed border-black pt-1">
+          <div className="flex justify-between font-black border-t border-black pt-1">
             <span>TOTAL GASTOS DE CAJA:</span>
             <span>-${totalExpenses.toFixed(2)}</span>
           </div>
         </div>
 
-        {/* Balance Final y Dinero en Caja */}
-        <div className="border-b-2 border-black pb-2 space-y-1 text-[11px]">
-          <div className="flex justify-between text-[10px]">
-            <span>( + ) Fondo Inicial de Turno:</span>
-            <span>${effectiveInitialCash.toFixed(2)}</span>
+        {/* Balance Final y Dinero en Cajón */}
+        <div className="border-b-2 border-black pb-2 space-y-1 text-[10px]">
+          <p className="font-black uppercase text-[10.5px] border-b border-black pb-0.5">
+            ARQUEO DE EFECTIVO EN CAJA
+          </p>
+          <div className="flex justify-between">
+            <span>( + ) Fondo Inicial Recibido:</span>
+            <span className="font-bold">${effectiveInitialCash.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[10px]">
+          <div className="flex justify-between">
             <span>( + ) Efectivo de Ventas:</span>
-            <span>${cashSalesTotal.toFixed(2)}</span>
+            <span className="font-bold">+${cashSalesTotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[10px]">
+          <div className="flex justify-between">
             <span>( - ) Gastos en Efectivo:</span>
-            <span>-${totalExpenses.toFixed(2)}</span>
+            <span className="font-bold">-${totalExpenses.toFixed(2)}</span>
           </div>
-          <div className="border-t border-black pt-1 flex justify-between font-black text-[12px]">
-            <span>TOTAL EFECTIVO EN CAJÓN:</span>
+          <div className="border-t-2 border-black pt-1 flex justify-between font-black text-[12px] bg-slate-100 p-0.5">
+            <span>TOTAL EN CAJÓN:</span>
             <span>${expectedCashInDrawer.toFixed(2)}</span>
           </div>
 
           {/* Si es histórico o al cerrarse, mostrar Fondo Dejado y Retiro */}
           {isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined && (
-            <div className="border-t border-dashed border-black pt-1 mt-1 space-y-0.5 text-[10px]">
-              <div className="flex justify-between font-bold">
-                <span>📌 FONDO DEJADO SIG. TURNO:</span>
+            <div className="border-t border-dashed border-black pt-1 mt-1 space-y-0.5 text-[9.5px]">
+              <div className="flex justify-between font-black">
+                <span>📌 FONDO SIG. TURNO:</span>
                 <span>${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold">
-                <span>💵 EFECTIVO RETIRADO/SOBRE:</span>
+              <div className="flex justify-between font-black">
+                <span>💵 RETIRO EN SOBRE:</span>
                 <span>${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}</span>
               </div>
               {existingCorteRecord.closingNotes && (
-                <div className="text-[9px] italic mt-0.5">
+                <div className="text-[8.5px] italic mt-0.5">
                   Notas: {existingCorteRecord.closingNotes}
                 </div>
               )}
             </div>
           )}
 
-          <div className="flex justify-between font-bold text-[10px] text-gray-700 pt-1">
-            <span>Utilidad Neta del Turno:</span>
+          <div className="flex justify-between font-bold text-[9px] text-gray-700 pt-0.5">
+            <span>Utilidad Neta de Turno:</span>
             <span>${netIncome.toFixed(2)}</span>
           </div>
         </div>
 
         {/* Firmas de Audit */}
-        <div className="pt-4 text-center space-y-4 text-[9px]">
+        <div className="pt-2 text-center space-y-4 text-[9px]">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="border-b border-black h-6 mb-1"></div>
-              <span>Firma Cajero</span>
+              <div className="border-b border-black h-7 mb-1"></div>
+              <span className="font-bold">Firma Cajero(a)</span>
+              <p className="text-[7.5px] text-gray-600 truncate">{effectiveOperatorName}</p>
             </div>
             <div>
-              <div className="border-b border-black h-6 mb-1"></div>
-              <span>Firma Supervisor</span>
+              <div className="border-b border-black h-7 mb-1"></div>
+              <span className="font-bold">Firma Supervisor</span>
+              <p className="text-[7.5px] text-gray-600">Recibió / Auditó</p>
             </div>
           </div>
-          <p>Reporte Oficial de Corte de Caja (Corte X)</p>
+          <p className="text-[8px] font-bold text-gray-600">*** COMPROBANTE OFICIAL DE CORTE X ***</p>
+          <div className="h-4"></div>
         </div>
       </div>
 
@@ -1317,10 +1368,35 @@ export default function CorteXModal({
               <div className="hidden sm:flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-xs">
                 <button
                   type="button"
-                  onClick={() => {
-                    setPrintMode('pdf');
-                    try { localStorage.setItem('erp_corte_print_format', 'pdf'); } catch {}
-                  }}
+                  onClick={() => handlePrintThermal('58mm')}
+                  className={`px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                    printMode === 'thermal' && printerPaperSize === '58mm'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Formato Ticket Térmico POS 58mm (Impresora POS-5890A-L)"
+                >
+                  <Printer className="w-3.5 h-3.5 text-cyan-300" />
+                  <span>Ticket 58mm (POS-5890A-L)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePrintThermal('80mm')}
+                  className={`px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
+                    printMode === 'thermal' && printerPaperSize === '80mm'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Formato Ticket Térmico 80mm"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Ticket 80mm</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePrintPDFReport}
                   className={`px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
                     printMode === 'pdf'
                       ? 'bg-purple-600 text-white shadow-xs'
@@ -1328,46 +1404,29 @@ export default function CorteXModal({
                   }`}
                   title="Formato Hoja Normal (Carta / A4 / PDF)"
                 >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Hoja Normal</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPrintMode('thermal');
-                    try { localStorage.setItem('erp_corte_print_format', 'thermal'); } catch {}
-                  }}
-                  className={`px-2.5 py-1 rounded-lg font-black transition-all flex items-center gap-1.5 cursor-pointer text-xs ${
-                    printMode === 'thermal'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Formato Ticket Térmico POS (80mm)"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Ticket 80mm</span>
+                  <FileText className="w-3.5 h-3.5 text-purple-300" />
+                  <span>Hoja Carta</span>
                 </button>
               </div>
+
+              {/* BOTÓN PRINCIPAL: IMPRIMIR TICKET TÉRMICO */}
+              <button
+                onClick={() => handlePrintThermal()}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-blue-600 via-cyan-600 to-blue-700 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-black rounded-xl shadow-md shadow-blue-900/40 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ring-1 ring-cyan-400/40"
+                title={`Imprimir Corte X en Ticket Térmico (${printerPaperSize === '58mm' ? 'POS-5890A-L 58mm' : '80mm'}) [Atajo: P]`}
+              >
+                <Printer className="w-4 h-4 text-cyan-200" />
+                <span>Imprimir Ticket {printerPaperSize === '58mm' ? 'POS 58mm' : '80mm'}</span>
+              </button>
 
               {/* BOTÓN IMPRIMIR EN HOJA NORMAL (CARTA / PDF) */}
               <button
                 onClick={handlePrintPDFReport}
-                className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-purple-800/80 border border-slate-700 hover:border-purple-600 text-slate-200 hover:text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                 title="Imprimir o guardar reporte en Hoja Normal (Carta / PDF)"
               >
-                <Printer className="w-4 h-4 text-purple-200" />
-                <span>Imprimir Hoja Normal</span>
-              </button>
-
-              {/* BOTÓN IMPRIMIR TICKET TÉRMICO */}
-              <button
-                onClick={handlePrintThermal}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                title="Imprimir ticket térmico POS (80mm)"
-              >
-                <Printer className="w-4 h-4 text-amber-300" />
-                <span className="hidden sm:inline">Ticket</span> 80mm
+                <FileText className="w-3.5 h-3.5 text-purple-300" />
+                <span className="hidden md:inline">Hoja Normal</span>
               </button>
 
               {/* BOTÓN RÁPIDO: COPIAR CORTE X */}
@@ -2582,22 +2641,23 @@ export default function CorteXModal({
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <button
+                  onClick={() => handlePrintThermal()}
+                  className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Reimprimir el ticket térmico (POS-5890A-L 58mm / 80mm)"
+                >
+                  <Printer className="w-3.5 h-3.5 text-cyan-200" />
+                  <span>Reimprimir Ticket {printerPaperSize === '58mm' ? '58mm' : '80mm'}</span>
+                </button>
+
+                <button
                   onClick={handlePrintPDFReport}
                   className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                   title="Imprimir o exportar reporte en Hoja Normal (Carta / PDF)"
                 >
-                  <Printer className="w-3.5 h-3.5 text-purple-200" />
-                  <span>Imprimir Hoja Normal</span>
+                  <FileText className="w-3.5 h-3.5 text-purple-200" />
+                  <span>Hoja Carta</span>
                 </button>
-
-                <button
-                  onClick={handlePrintThermal}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Reimprimir el ticket térmico de 80mm"
-                >
-                  <Printer className="w-3.5 h-3.5 text-yellow-300" />
-                  <span>Reimprimir Ticket 80mm</span>
-                </button>
+                
                 <span className="text-[11px] text-slate-500 font-semibold hidden md:inline">
                   Corte guardado el {currentDateStr} por {effectiveOperatorName}
                 </span>
@@ -2620,22 +2680,32 @@ export default function CorteXModal({
               <>
                 <button
                   type="button"
+                  onClick={() => handlePrintThermal('58mm')}
+                  className="px-3 py-2 bg-cyan-50 hover:bg-cyan-100 border border-cyan-300 text-cyan-900 rounded-xl text-xs font-black transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Imprimir ticket térmico POS 58mm (POS-5890A-L)"
+                >
+                  <Printer className="w-3.5 h-3.5 text-cyan-700" />
+                  <span>Ticket 58mm</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePrintThermal('80mm')}
+                  className="px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Imprimir ticket térmico POS 80mm"
+                >
+                  <Printer className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Ticket 80mm</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handlePrintPDFReport}
                   className="px-3 py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
                   title="Imprimir en formato Hoja Normal (Carta / PDF)"
                 >
                   <FileText className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Hoja Normal</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePrintThermal}
-                  className="px-3 py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
-                  title="Imprimir ticket térmico POS (80mm)"
-                >
-                  <Printer className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Ticket 80mm</span>
+                  <span>Hoja Carta</span>
                 </button>
               </>
             )}
@@ -2844,6 +2914,25 @@ export default function CorteXModal({
                   <button
                     type="button"
                     onClick={() => {
+                      setShiftClosurePrintOption('thermal');
+                      try { localStorage.setItem('erp_corte_print_format', 'thermal'); } catch {}
+                    }}
+                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
+                      shiftClosurePrintOption === 'thermal'
+                        ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-400 text-blue-950 font-black shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Printer className={`w-3.5 h-3.5 ${shiftClosurePrintOption === 'thermal' ? 'text-blue-600' : 'text-slate-400'}`} />
+                      <span className="text-xs font-black">Ticket POS</span>
+                    </div>
+                    <span className="text-[10px] text-blue-700 font-semibold">{printerPaperSize === '58mm' ? 'POS-5890A-L (58mm)' : 'Térmico 80mm'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setShiftClosurePrintOption('pdf');
                       try { localStorage.setItem('erp_corte_print_format', 'pdf'); } catch {}
                     }}
@@ -2862,25 +2951,6 @@ export default function CorteXModal({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setShiftClosurePrintOption('thermal');
-                      try { localStorage.setItem('erp_corte_print_format', 'thermal'); } catch {}
-                    }}
-                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
-                      shiftClosurePrintOption === 'thermal'
-                        ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-400 text-blue-950 font-black shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <Printer className={`w-3.5 h-3.5 ${shiftClosurePrintOption === 'thermal' ? 'text-blue-600' : 'text-slate-400'}`} />
-                      <span className="text-xs font-black">Ticket POS</span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-normal">Térmico 80mm</span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => setShiftClosurePrintOption('none')}
                     className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
                       shiftClosurePrintOption === 'none'
@@ -2889,10 +2959,10 @@ export default function CorteXModal({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 mb-1">
-                      <X className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="text-xs font-black">No Imprimir</span>
+                      <X className="w-3.5 h-3.5 text-slate-500" />
+                      <span className="text-xs font-black text-slate-700">No Imprimir</span>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-normal">Solo guardar y salir</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Solo guardar datos</span>
                   </button>
                 </div>
               </div>
