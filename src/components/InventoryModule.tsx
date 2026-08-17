@@ -1300,147 +1300,155 @@ export default function InventoryModule({
   return (
     <div className="h-full flex flex-col p-3 bg-slate-100 overflow-y-auto space-y-3">
       
-      {/* BARRA SUPERIOR OPTIMIZADA */}
-      <div className="bg-white p-2.5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3 shrink-0">
+      {/* BARRA SUPERIOR ORGANIZADA EN 2 NIVELES CON DISEÑO RESPONSIVO */}
+      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-2.5 shrink-0">
         
-        {/* IZQUIERDA: 1. ACCESORIOS y 2. EQUIPOS */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <button
-            onClick={() => setActiveInventoryTab('accesorio')}
-            className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeInventoryTab === 'accesorio'
-                ? 'bg-slate-900 text-white shadow-md ring-2 ring-slate-900'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Headphones className="w-4 h-4 text-blue-400" />
-            1. ACCESORIOS
-          </button>
-
-          <button
-            onClick={() => setActiveInventoryTab('equipo')}
-            className={`flex-1 md:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeInventoryTab === 'equipo'
-                ? 'bg-blue-700 text-white shadow-md ring-2 ring-blue-700'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Smartphone className="w-4 h-4 text-amber-300" />
-            2. EQUIPOS
-          </button>
-
-          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-[11px] font-extrabold shadow-2xs">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Anti-Duplicados Activo</span>
-          </div>
-        </div>
-
-        {/* DERECHA: BÚSQUEDA + BOTONES INGRESAR, TRANSFERIR Y AJUSTAR */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        {/* FILA 1: PESTAÑAS PRINCIPALES (ACCESORIOS / EQUIPOS) + BÚSQUEDA RÁPIDA */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
           
-          {/* Búsqueda */}
-          <div className="relative flex-1 md:w-48">
+          {/* Pestañas 1. ACCESORIOS y 2. EQUIPOS */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveInventoryTab('accesorio')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                activeInventoryTab === 'accesorio'
+                  ? 'bg-slate-900 text-white shadow-md ring-2 ring-slate-900'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Headphones className="w-4 h-4 text-blue-400" />
+              <span>1. ACCESORIOS</span>
+            </button>
+
+            <button
+              onClick={() => setActiveInventoryTab('equipo')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                activeInventoryTab === 'equipo'
+                  ? 'bg-blue-700 text-white shadow-md ring-2 ring-blue-700'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Smartphone className="w-4 h-4 text-amber-300" />
+              <span>2. EQUIPOS</span>
+            </button>
+
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-extrabold shadow-2xs">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>Anti-Duplicados</span>
+            </div>
+          </div>
+
+          {/* Búsqueda en Vivo */}
+          <div className="relative flex-1 sm:max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar..."
+              placeholder="Buscar por nombre, código o IMEI..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
             />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* FILA 2: BOTONERA DE ACCIONES Y OPERACIONES (RESPONSIVA CON FLEX-WRAP) */}
+        <div className="flex flex-wrap items-center justify-start sm:justify-between gap-1.5 pt-2 border-t border-slate-100">
+          
+          {/* Grupo 1: Operaciones de Stock */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Botón INGRESAR */}
+            <button
+              onClick={handleOpenIngresar}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Ingresar nuevas existencias de producto"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Ingresar</span>
+            </button>
+
+            {/* Botón TRANSFERIR */}
+            <button
+              onClick={handleOpenTransfer}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Transferir existencias entre sucursales o bodega"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" />
+              <span>Transferir</span>
+            </button>
+
+            {/* Botón AJUSTAR */}
+            <button
+              onClick={handleOpenAjustar}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Ajustar mermas o corregir stock"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Ajustar</span>
+            </button>
+
+            {/* Botón CAMBIAR PRECIOS ($) */}
+            <button
+              onClick={handleOpenPriceModal}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Cambiar Precio Inicial (Compra) y Precio Final (Venta)"
+            >
+              <DollarSign className="w-3.5 h-3.5" />
+              <span>Precios</span>
+            </button>
           </div>
 
-          {/* Botón INGRESAR */}
-          <button
-            onClick={handleOpenIngresar}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            Ingresar
-          </button>
+          {/* Grupo 2: Impresiones y Auditoría */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Botón IMPRIMIR ETIQUETAS (CÓDIGO DE BARRAS, PRECIO, NOMBRE) */}
+            <button
+              onClick={() => {
+                setLabelSelectedProduct(null);
+                setIsLabelsModalOpen(true);
+              }}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-amber-600"
+              title="Imprimir etiquetas con código de barras, precio y nombre para etiquetar producto"
+            >
+              <Tag className="w-3.5 h-3.5" />
+              <span>Etiquetas</span>
+            </button>
 
-          {/* Botón TRANSFERIR */}
-          <button
-            onClick={handleOpenTransfer}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-          >
-            <ArrowRightLeft className="w-4 h-4" />
-            Transferir
-          </button>
+            {/* Botón IMPRIMIR REPORTE INVENTARIO */}
+            <button
+              onClick={() => setIsPrintModalOpen(true)}
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
+                activeInventoryTab === 'equipo' 
+                  ? 'bg-blue-800 hover:bg-blue-900' 
+                  : 'bg-purple-800 hover:bg-purple-900'
+              }`}
+              title={`Generar e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos' : 'Accesorios'}`}
+            >
+              <Printer className="w-3.5 h-3.5 text-amber-300" />
+              <span>{activeInventoryTab === 'equipo' ? 'Reporte Equipos' : 'Reporte Accesorios'}</span>
+            </button>
 
-          {/* Botón AJUSTAR (NUEVO - MERMAS Y CORRECCIONES) */}
-          <button
-            onClick={handleOpenAjustar}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Ajustar
-          </button>
-
-          {/* Botón EDITAR / MODIFICAR REGISTRO */}
-          <button
-            onClick={() => {
-              const first = filteredProducts[0] || tabProducts[0] || null;
-              setEditingProduct(first);
-            }}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-            title="Modificar registro de teléfonos o artículos (proveedor, precios, modelo, etc.)"
-          >
-            <Pencil className="w-4 h-4" />
-            Editar
-          </button>
-
-          {/* Botón CAMBIAR PRECIOS ($) */}
-          <button
-            onClick={handleOpenPriceModal}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
-            title="Cambiar Precio Inicial (Compra) y Precio Final (Venta)"
-          >
-            <DollarSign className="w-4 h-4" />
-            Precios
-          </button>
-
-          {/* Botón IMPRIMIR ETIQUETAS (CÓDIGO DE BARRAS, PRECIO, NOMBRE) */}
-          <button
-            onClick={() => {
-              setLabelSelectedProduct(null);
-              setIsLabelsModalOpen(true);
-            }}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 border border-amber-400"
-            title="Imprimir etiquetas adhesivas con código de barras, precio y nombre para etiquetar productos"
-          >
-            <Tag className="w-4 h-4 text-slate-950" />
-            <span>Imprimir Etiquetas</span>
-          </button>
-
-          {/* Botón IMPRIMIR INVENTARIO (SELECCIÓN DINÁMICA POR TAB: EQUIPOS O ACCESORIOS) */}
-          <button
-            onClick={() => setIsPrintModalOpen(true)}
-            className={`flex items-center justify-center gap-1.5 px-3.5 py-2 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 ${
-              activeInventoryTab === 'equipo' 
-                ? 'bg-blue-700 hover:bg-blue-800' 
-                : 'bg-purple-700 hover:bg-purple-800'
-            }`}
-            title={`Generar archivo e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos Celulares' : 'Accesorios'}`}
-          >
-            <Printer className="w-4 h-4 text-amber-300" />
-            <span>{activeInventoryTab === 'equipo' ? 'Imprimir Equipos' : 'Imprimir Accesorios'}</span>
-          </button>
-
-          {/* Botón HISTORIAL DE MOVIMIENTOS (15 DÍAS) */}
-          <button
-            onClick={() => setIsMovementsModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 border border-slate-700"
-            title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
-          >
-            <History className="w-4 h-4 text-purple-300" />
-            <span>Historial (15 Días)</span>
-            {inventoryMovements && inventoryMovements.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-black bg-purple-500 text-white rounded-full">
-                {inventoryMovements.length}
-              </span>
-            )}
-          </button>
+            {/* Botón HISTORIAL DE MOVIMIENTOS */}
+            <button
+              onClick={() => setIsMovementsModalOpen(true)}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-slate-700"
+              title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
+            >
+              <History className="w-3.5 h-3.5 text-purple-300" />
+              <span>Historial</span>
+              {inventoryMovements && inventoryMovements.length > 0 && (
+                <span className="px-1.5 py-0.2 text-[10px] font-black bg-purple-500 text-white rounded-full">
+                  {inventoryMovements.length}
+                </span>
+              )}
+            </button>
+          </div>
 
         </div>
 
