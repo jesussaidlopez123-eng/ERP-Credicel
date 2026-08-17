@@ -17,7 +17,10 @@ import {
   AlertCircle,
   HelpCircle,
   Settings,
-  RefreshCw
+  RefreshCw,
+  Printer,
+  Zap,
+  Check
 } from 'lucide-react';
 import { Operator, Branch } from '../types';
 
@@ -63,6 +66,47 @@ export default function SettingsModule({
 
   // Reveal password state in table
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+
+  // Thermal Printer Configuration States
+  const [printerPaperSize, setPrinterPaperSize] = useState<'58mm' | '80mm'>(() => {
+    try {
+      const saved = localStorage.getItem('erp_pos_printer_size');
+      return saved === '80mm' ? '80mm' : '58mm';
+    } catch {
+      return '58mm';
+    }
+  });
+
+  const [autoPrintSales, setAutoPrintSales] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('erp_pos_autoprint');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [testPrintFeedback, setTestPrintFeedback] = useState<string | null>(null);
+
+  const handleUpdatePrinterSize = (size: '58mm' | '80mm') => {
+    setPrinterPaperSize(size);
+    try {
+      localStorage.setItem('erp_pos_printer_size', size);
+    } catch {}
+  };
+
+  const handleToggleAutoPrintSales = (val: boolean) => {
+    setAutoPrintSales(val);
+    try {
+      localStorage.setItem('erp_pos_autoprint', String(val));
+    } catch {}
+  };
+
+  const handleTriggerTestPrint = () => {
+    window.print();
+    setTestPrintFeedback(`Enviando ticket de prueba a ticketera (${printerPaperSize})...`);
+    setTimeout(() => setTestPrintFeedback(null), 4000);
+  };
 
   // Check if logged-in user is the Main Admin (Admin Principal)
   const isMainAdmin = currentOperator.isMainAdmin || currentOperator.id === 'o1' || (currentOperator.role === 'admin' && currentOperator.username === 'admin');
@@ -501,6 +545,159 @@ export default function SettingsModule({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* THERMAL PRINTER & TICKETS CONFIGURATION SECTION (POS-5890A-L) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl border border-emerald-200">
+              <Printer className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900">
+                Configuración de Impresora Térmica de Tickets (POS-5890A-L)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Ajuste el comportamiento de auto-impresión de ventas, ancho de rollo (58mm / 80mm) y modo kiosco directo.
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg">
+            Impresora Activa: {printerPaperSize === '58mm' ? 'POS-5890A-L (58mm)' : '80mm Estándar'}
+          </span>
+        </div>
+
+        <div className="p-5 space-y-5">
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            {/* Auto-print toggle option */}
+            <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-tight">
+                    Impresión Automática de Tickets
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Al cobrar y confirmar cada venta en el POS, el ticket se manda a imprimir de inmediato.
+                  </p>
+                </div>
+                
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoPrintSales}
+                    onChange={(e) => handleToggleAutoPrintSales(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                <span className="text-slate-600 font-medium">Estado del Auto-print:</span>
+                <span className={`font-black px-2 py-0.5 rounded-md text-[11px] ${
+                  autoPrintSales ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {autoPrintSales ? '✓ HABILITADO (Recomendado)' : '✕ DESACTIVADO (Manual)'}
+                </span>
+              </div>
+            </div>
+
+            {/* Paper Size / Format selector */}
+            <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3">
+              <div>
+                <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-tight">
+                  Modelo y Tamaño de Rollo Térmico
+                </h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Seleccione el ancho exacto del papel térmico de su ticketera para evitar que el texto se corte.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleUpdatePrinterSize('58mm')}
+                  className={`p-2.5 rounded-xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                    printerPaperSize === '58mm'
+                      ? 'bg-emerald-50 border-emerald-600 text-emerald-950 shadow-xs ring-2 ring-emerald-200'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="text-sm">🖨️ 58mm (POS-5890A-L)</span>
+                  <span className="text-[10px] font-normal text-emerald-800">Recomendado para su equipo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleUpdatePrinterSize('80mm')}
+                  className={`p-2.5 rounded-xl border-2 text-xs font-black transition-all flex flex-col items-center justify-center gap-1 cursor-pointer ${
+                    printerPaperSize === '80mm'
+                      ? 'bg-emerald-50 border-emerald-600 text-emerald-950 shadow-xs ring-2 ring-emerald-200'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="text-sm">📄 80mm Estándar</span>
+                  <span className="text-[10px] font-normal text-slate-500">Ticketeras grandes (Epson/Bixolon)</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          {/* KIOSK SILENT DIRECT PRINT GUIDE BANNER */}
+          <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl space-y-2">
+            <div className="flex items-center gap-2 text-blue-950 font-black text-xs sm:text-sm">
+              <Zap className="w-4 h-4 text-blue-600" />
+              <span>Cómo habilitar Impresión Ultra-Rápida Directa en Windows (Modo Kiosco POS)</span>
+            </div>
+            
+            <p className="text-xs text-blue-900 leading-relaxed">
+              Para que los tickets salgan <strong>físicamente de su impresora POS-5890A-L en 0.1 segundos sin mostrar ninguna ventana emergente</strong> de confirmación en el navegador:
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-200/70">
+                <strong className="text-blue-950 block mb-0.5">1. Impresora Predeterminada</strong>
+                <span className="text-slate-600">En Panel de Control de Windows, seleccione la <strong>POS-5890A-L</strong> como impresora predeterminada con tamaño 58mm.</span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-200/70">
+                <strong className="text-blue-950 block mb-0.5">2. Parámetro de Chrome / Edge</strong>
+                <span className="text-slate-600">En las propiedades del acceso directo del navegador agregue al final del destino: <code className="bg-blue-100 font-mono text-blue-950 px-1 py-0.2 rounded font-bold">--kiosk-printing</code></span>
+              </div>
+              <div className="bg-white/80 p-2.5 rounded-xl border border-blue-200/70">
+                <strong className="text-blue-950 block mb-0.5">3. ¡Cobro 100% Automático!</strong>
+                <span className="text-slate-600">Cada cobro ejecutado en el punto de venta imprimirá el ticket de inmediato y cortará el recibo listo para entregar al cliente.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Test print button & Feedback */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100">
+            <div className="text-xs text-slate-500 font-medium">
+              Pruebe la comunicación directa con su impresora POS-5890A-L para verificar márgenes y alineación.
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTriggerTestPrint}
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-xs flex items-center gap-2 cursor-pointer transition-all active:scale-95"
+            >
+              <Printer className="w-4 h-4 text-emerald-400" />
+              <span>Imprimir Ticket de Prueba ({printerPaperSize})</span>
+            </button>
+          </div>
+
+          {testPrintFeedback && (
+            <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{testPrintFeedback}</span>
+            </div>
+          )}
+
         </div>
       </div>
 
