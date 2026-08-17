@@ -30,10 +30,12 @@ import {
   deleteNotificationFromFirestore,
   subscribeToCortesX,
   executeAndSaveCorteX,
+  cleanDuplicateCortesFromFirestore,
   subscribeToInventoryMovements,
   saveInventoryMovementToFirestore,
   saveInventoryMovementsBatchToFirestore
 } from '../lib/firebase';
+import { safeDateIsoKey, safeFormatDate } from '../lib/dateUtils';
 
 const ALL_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
@@ -151,6 +153,9 @@ export default function Dashboard({
     const unsubMovements = subscribeToInventoryMovements((movs) => {
       setInventoryMovements(movs);
     });
+
+    // Purgar y consolidar duplicados históricos de cortes de caja en Firestore
+    cleanDuplicateCortesFromFirestore().catch((e) => console.error('Error limpiando duplicados:', e));
 
     return () => {
       unsubProducts();
@@ -350,12 +355,31 @@ export default function Dashboard({
 
   // Finalize Corte X Handler (Saves snapshot and flags shift tickets/expenses as closed)
   const handleFinalizeCorteX = async (corteRecord: CorteXRecord) => {
+    // 1. Bloqueo para Administrador (solo operadores generan cortes de caja)
+    if (currentOperator.role === 'admin') {
+      console.warn('[CorteX] Los administradores no pueden generar cortes de caja.');
+      return;
+    }
+
+    // 2. Bloqueo de duplicados: 1 corte por sucursal por día
+    const todayIso = safeDateIsoKey(new Date());
+    const todayFmt = safeFormatDate(new Date());
+    const alreadyHasCorteToday = cortesX.some(
+      (c) => c.branchId === currentBranch.id && 
+      (safeDateIsoKey(c.timestamp) === todayIso || c.dateStr === todayFmt || safeDateIsoKey(c.dateStr) === todayIso)
+    );
+
+    if (alreadyHasCorteToday) {
+      console.warn(`[CorteX] Ya existe un corte registrado el día de hoy para la sucursal ${currentBranch.name}.`);
+      return;
+    }
+
     const unclosedTickets = salesTickets.filter((t) => t.branchId === currentBranch.id && !t.corteXId);
     const unclosedExpenses = expenses.filter((e) => e.branchId === currentBranch.id && !e.corteXId);
 
     try {
       await executeAndSaveCorteX(corteRecord, unclosedTickets, unclosedExpenses);
-      setCortesX((prev) => [corteRecord, ...prev]);
+      setCortesX((prev) => [corteRecord, ...prev.filter((c) => c.id !== corteRecord.id)]);
     } catch (err) {
       console.error('Error finalizing Corte X in Firestore:', err);
     }
@@ -442,6 +466,7 @@ export default function Dashboard({
             onDeleteRepairPrice={handleDeleteRepairPrice}
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
+            cortesX={cortesX}
             onFinalizeCorteX={handleFinalizeCorteX}
             onLogout={onLogout}
           />

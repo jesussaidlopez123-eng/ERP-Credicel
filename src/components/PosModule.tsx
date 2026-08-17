@@ -61,6 +61,7 @@ interface PosModuleProps {
   setIsRepairPriceCatalogOpen?: (open: boolean) => void;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onLogout?: () => void;
+  cortesX?: CorteXRecord[];
 }
 
 
@@ -85,7 +86,8 @@ export default function PosModule({
   isRepairPriceCatalogOpen = false,
   setIsRepairPriceCatalogOpen = () => {},
   onFinalizeCorteX,
-  onLogout
+  onLogout,
+  cortesX = []
 }: PosModuleProps) {
 
   // Cart state
@@ -1112,6 +1114,7 @@ export default function PosModule({
         expenses={expenses}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        cortesX={cortesX}
         onFinalizeCorteX={onFinalizeCorteX}
         onLogout={onLogout}
       />

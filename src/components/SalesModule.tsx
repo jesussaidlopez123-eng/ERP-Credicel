@@ -23,10 +23,15 @@ import {
   Building2,
   TrendingUp,
   Wallet,
-  Sparkles
+  Sparkles,
+  ShieldCheck,
+  Check,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { cleanDuplicateCortesFromFirestore } from '../lib/firebase';
 import CorteXModal from './CorteXModal';
 
 interface SalesModuleProps {
@@ -51,6 +56,8 @@ export default function SalesModule({
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isCleaning, setIsCleaning] = useState<boolean>(false);
+  const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
   
   // Modal state for viewing a Corte X
   const [selectedCorte, setSelectedCorte] = useState<CorteXRecord | null>(null);
@@ -70,18 +77,60 @@ export default function SalesModule({
     return found ? found.name : branchId;
   };
 
-  // Build synthetic or aggregated Cortes X if there are unarchived tickets or demo data
-  const aggregatedCortesList = useMemo(() => {
-    // 1. First, take all officially saved Cortes X from Firestore
-    const savedList = [...cortesX];
+  const handleCleanDuplicates = async () => {
+    setIsCleaning(true);
+    setCleanFeedback(null);
+    try {
+      const result = await cleanDuplicateCortesFromFirestore();
+      setCleanFeedback(
+        result.purgedCount > 0
+          ? `¡Depuración exitosa! Se eliminaron y consolidaron ${result.purgedCount} corte(s) duplicados.`
+          : 'La base de datos ya está óptima. No se encontraron cortes duplicados.'
+      );
+    } catch (err) {
+      console.error('Error limpiando duplicados:', err);
+      setCleanFeedback('Ocurrió un error al depurar los duplicados.');
+    } finally {
+      setIsCleaning(false);
+      setTimeout(() => setCleanFeedback(null), 6000);
+    }
+  };
 
-    // 2. Also calculate any date+branch groupings for tickets that don't have a saved corte record yet
+  // Build strictly 1 Corte X per Branch per Day + Open Shift indicator
+  const aggregatedCortesList = useMemo(() => {
+    // 1. Group saved official Cortes X from Firestore by (branchId + date)
+    const savedGrouped: Record<string, CorteXRecord> = {};
+
+    cortesX.forEach((corte) => {
+      const dateKey = safeDateIsoKey(corte.timestamp) || corte.dateStr || safeDateIsoKey(corte.dateStr);
+      const groupKey = `${corte.branchId || 'general'}_${dateKey}`;
+
+      if (!savedGrouped[groupKey]) {
+        savedGrouped[groupKey] = corte;
+      } else {
+        // Keep the most comprehensive or latest record
+        const existing = savedGrouped[groupKey];
+        const existingCount = (existing.ticketIds?.length || 0) + (existing.ticketsSnapshot?.length || 0);
+        const incomingCount = (corte.ticketIds?.length || 0) + (corte.ticketsSnapshot?.length || 0);
+
+        if (incomingCount > existingCount) {
+          savedGrouped[groupKey] = corte;
+        } else if (incomingCount === existingCount && (corte.timestamp || '') > (existing.timestamp || '')) {
+          savedGrouped[groupKey] = corte;
+        }
+      }
+    });
+
+    const dedupedSavedList = Object.values(savedGrouped);
+
+    // 2. Identify active, open shifts (tickets/expenses from TODAY that have no corteXId and no saved corte for that branch today)
+    const todayIso = safeDateIsoKey(new Date());
     const safeTickets = Array.isArray(salesTickets) ? salesTickets : [];
     const safeExpenses = Array.isArray(expenses) ? expenses : [];
     const unassignedTickets = safeTickets.filter(t => !t.corteXId);
     const unassignedExpenses = safeExpenses.filter(e => !e.corteXId);
 
-    const groupedUnassigned: Record<string, {
+    const openShiftsGrouped: Record<string, {
       dateIsoKey: string;
       dateStr: string;
       timeStr: string;
@@ -93,46 +142,58 @@ export default function SalesModule({
 
     unassignedTickets.forEach(ticket => {
       const dateIsoKey = safeDateIsoKey(ticket.timestamp);
+      // Only consider open shift for today
+      if (dateIsoKey !== todayIso) return;
+
       const dateStr = safeFormatDate(ticket.timestamp);
       const timeStr = safeFormatTime(ticket.timestamp);
-      const key = `${dateIsoKey}_${ticket.branchId || 'general'}`;
+      const branchId = ticket.branchId || 'general';
+      const groupKey = `${branchId}_${dateIsoKey}`;
 
-      if (!groupedUnassigned[key]) {
-        groupedUnassigned[key] = {
+      // If a saved official corte ALREADY exists for this branch today, don't synthesize another cut
+      if (savedGrouped[groupKey]) return;
+
+      if (!openShiftsGrouped[groupKey]) {
+        openShiftsGrouped[groupKey] = {
           dateIsoKey,
           dateStr,
           timeStr,
-          branchId: ticket.branchId || 'general',
-          branchName: getBranchName(ticket.branchId),
+          branchId,
+          branchName: getBranchName(branchId),
           tickets: [],
           expenses: []
         };
       }
-      groupedUnassigned[key].tickets.push(ticket);
+      openShiftsGrouped[groupKey].tickets.push(ticket);
     });
 
     unassignedExpenses.forEach(exp => {
       const dateIsoKey = safeDateIsoKey(exp.timestamp || exp.date);
+      if (dateIsoKey !== todayIso) return;
+
       const dateStr = safeFormatDate(exp.timestamp || exp.date);
       const timeStr = safeFormatTime(exp.timestamp || exp.date);
-      const key = `${dateIsoKey}_${exp.branchId || 'general'}`;
+      const branchId = exp.branchId || 'general';
+      const groupKey = `${branchId}_${dateIsoKey}`;
 
-      if (!groupedUnassigned[key]) {
-        groupedUnassigned[key] = {
+      if (savedGrouped[groupKey]) return;
+
+      if (!openShiftsGrouped[groupKey]) {
+        openShiftsGrouped[groupKey] = {
           dateIsoKey,
           dateStr,
           timeStr,
-          branchId: exp.branchId || 'general',
-          branchName: getBranchName(exp.branchId),
+          branchId,
+          branchName: getBranchName(branchId),
           tickets: [],
           expenses: []
         };
       }
-      groupedUnassigned[key].expenses.push(exp);
+      openShiftsGrouped[groupKey].expenses.push(exp);
     });
 
-    // Convert unassigned groupings to provisional CorteXRecords for display
-    const provisionalList: CorteXRecord[] = Object.entries(groupedUnassigned).map(([key, group]) => {
+    // Convert open shift groupings to provisional records
+    const openShiftsList: CorteXRecord[] = Object.entries(openShiftsGrouped).map(([key, group]) => {
       let cash = 0;
       let card = 0;
       let transfer = 0;
@@ -189,7 +250,7 @@ export default function SalesModule({
         timeStr: group.timeStr,
         branchId: group.branchId,
         branchName: group.branchName,
-        operatorName: group.tickets[0]?.operatorName || 'Turno Abierto',
+        operatorName: group.tickets[0]?.operatorName || 'Turno Abierto (En Curso)',
         initialCashFund: initialFund,
         cashSales: cash,
         cardSales: card,
@@ -217,8 +278,8 @@ export default function SalesModule({
       };
     });
 
-    // Merge: saved official first, then provisional/open shifts
-    const all = [...savedList, ...provisionalList];
+    // Merge: saved official first, then active open shifts
+    const all = [...dedupedSavedList, ...openShiftsList];
     
     // Sort descending by timestamp / date
     return all.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
@@ -278,6 +339,8 @@ export default function SalesModule({
     setIsLiveCorteModalOpen(true);
   };
 
+  const isAdmin = currentOperator.role === 'admin';
+
   return (
     <div className="space-y-4 pb-12">
       
@@ -294,16 +357,29 @@ export default function SalesModule({
                   Reportes de Cortes de Caja (Cortes X)
                 </h1>
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Auditoría y Arqueos
+                  1 Corte por Sucursal / Día
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Consulta el historial de cortes por sucursal, fecha y monto con desglose interactivo detallado
+                Historial blindado de cortes por sucursal con un único registro consolidado por día y modo de solo lectura para gerencia
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleCleanDuplicates}
+                disabled={isCleaning}
+                className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 hover:text-white border border-slate-600 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                title="Consolida y elimina cortes duplicados en la base de datos de Firestore"
+              >
+                <RefreshCw className={`w-4 h-4 text-emerald-400 ${isCleaning ? 'animate-spin' : ''}`} />
+                <span>{isCleaning ? 'Depurando...' : 'Depurar Duplicados'}</span>
+              </button>
+            )}
+
             <button
               onClick={handleOpenLiveCurrentCorte}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
@@ -314,12 +390,19 @@ export default function SalesModule({
           </div>
         </div>
 
+        {cleanFeedback && (
+          <div className="mt-3 p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-200 text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{cleanFeedback}</span>
+          </div>
+        )}
+
         {/* Global KPI Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-700/80 text-xs">
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Cortes en Lista</span>
             <span className="text-lg font-black text-white font-mono block mt-0.5">{summaryMetrics.totalCortesCount}</span>
-            <span className="text-[10px] text-slate-400">Arqueos registrados</span>
+            <span className="text-[10px] text-slate-400">Arqueos oficiales únicos</span>
           </div>
 
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
@@ -387,7 +470,7 @@ export default function SalesModule({
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-blue-600" />
             <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Listado de Cortes X Realizados
+              Listado de Cortes X Realizados (1 por día por sucursal)
             </h2>
             <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">
               {filteredCortes.length} registros
@@ -444,8 +527,9 @@ export default function SalesModule({
                             Turno en Curso
                           </span>
                         ) : (
-                          <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full">
-                            Corte Guardado
+                          <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Check className="w-3 h-3 text-emerald-700" />
+                            Corte Oficial Único
                           </span>
                         )}
                       </div>
@@ -556,6 +640,7 @@ export default function SalesModule({
           expenses={expenses}
           currentBranch={currentBranch}
           currentOperator={currentOperator}
+          cortesX={cortesX}
           existingCorteRecord={selectedCorte}
           onFinalizeCorteX={onFinalizeCorteX}
         />
@@ -569,6 +654,7 @@ export default function SalesModule({
         expenses={expenses}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        cortesX={cortesX}
         onFinalizeCorteX={onFinalizeCorteX}
       />
 

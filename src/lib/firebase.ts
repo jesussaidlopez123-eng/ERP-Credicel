@@ -427,6 +427,75 @@ export function subscribeToCortesX(
   );
 }
 
+export async function deleteCorteXFromFirestore(corteId: string) {
+  try {
+    const docRef = doc(db, CORTE_X_COLLECTION, corteId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.error('[Firestore] Error deleting Corte X:', err);
+    throw err;
+  }
+}
+
+/**
+ * Limpia y consolida automáticamente registros duplicados de cortes de caja en Firestore.
+ * Asegura que por cada sucursal y por cada fecha (día) exista únicamente UN corte oficial registrado.
+ */
+export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount: number; remainingCount: number }> {
+  try {
+    const colRef = collection(db, CORTE_X_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    if (snapshot.empty) return { purgedCount: 0, remainingCount: 0 };
+
+    // Agrupar por branchId y dateStr (o ISO date key)
+    const grouped: Record<string, any[]> = {};
+    snapshot.forEach((d) => {
+      const data = d.data() as CorteXRecord;
+      const dateKey = data.dateStr || (data.timestamp ? data.timestamp.split('T')[0] : 'sin-fecha');
+      const groupKey = `${data.branchId || 'general'}_${dateKey}`;
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = [];
+      }
+      grouped[groupKey].push({ id: d.id, ref: d.ref, data });
+    });
+
+    const batch = writeBatch(db);
+    let purgedCount = 0;
+    let remainingCount = 0;
+
+    for (const [key, items] of Object.entries(grouped)) {
+      remainingCount++;
+      if (items.length > 1) {
+        // Ordenar para conservar el corte más completo o más reciente
+        items.sort((a, b) => {
+          const ticketsA = a.data?.ticketIds?.length || 0;
+          const ticketsB = b.data?.ticketIds?.length || 0;
+          if (ticketsB !== ticketsA) return ticketsB - ticketsA;
+          const tA = a.data?.timestamp || '';
+          const tB = b.data?.timestamp || '';
+          return tB.localeCompare(tA);
+        });
+
+        // Conservar el primero (items[0]) y eliminar los duplicados restantes
+        for (let i = 1; i < items.length; i++) {
+          batch.delete(items[i].ref);
+          purgedCount++;
+        }
+      }
+    }
+
+    if (purgedCount > 0) {
+      await batch.commit();
+      console.log(`[Firestore] 🛡️ Blindaje de Cortes: Se purgaron ${purgedCount} cortes duplicados en la base de datos.`);
+    }
+
+    return { purgedCount, remainingCount };
+  } catch (err) {
+    console.error('[Firestore] Error limpiando cortes duplicados:', err);
+    return { purgedCount: 0, remainingCount: 0 };
+  }
+}
+
 export async function executeAndSaveCorteX(
   corte: CorteXRecord,
   ticketsToClose: SaleTicket[],

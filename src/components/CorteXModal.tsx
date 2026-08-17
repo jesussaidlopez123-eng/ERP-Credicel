@@ -56,6 +56,8 @@ interface CorteXModalProps {
   existingCorteRecord?: CorteXRecord | null;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onLogout?: () => void;
+  cortesX?: CorteXRecord[];
+  onSelectExistingCorte?: (corteRecord: CorteXRecord) => void;
 }
 
 interface ConceptDetail {
@@ -100,7 +102,9 @@ export default function CorteXModal({
   initialCashFund = 1000.00,
   existingCorteRecord,
   onFinalizeCorteX,
-  onLogout
+  onLogout,
+  cortesX = [],
+  onSelectExistingCorte
 }: CorteXModalProps) {
 
   // Main navigation tab
@@ -174,6 +178,16 @@ export default function CorteXModal({
   const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : (currentBranch?.id || 'main');
   const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : (currentOperator?.name || 'Cajero');
   
+  // Role and Daily Cut Single Policy
+  const isAdmin = currentOperator?.role === 'admin';
+  const todayDateIsoKey = safeDateIsoKey(new Date());
+  const todayFormatted = safeFormatDate(new Date());
+  const todaySavedCorte = !isHistoric ? (cortesX || []).find((c) => 
+    c && c.branchId === effectiveBranchId && 
+    (safeDateIsoKey(c.timestamp) === todayDateIsoKey || c.dateStr === todayFormatted || safeDateIsoKey(c.dateStr) === todayDateIsoKey)
+  ) : null;
+  const isCorteAlreadyDoneToday = !isHistoric && !!todaySavedCorte;
+
   // Stored branch initial cash fund (from previous shift's left fund, or default)
   let storedBranchFund = initialCashFund !== undefined ? initialCashFund : 1000.00;
   try {
@@ -679,6 +693,16 @@ export default function CorteXModal({
   };
 
   const handleOpenClosureDialog = () => {
+    if (isAdmin) {
+      setCopiedNotification('🛡️ Como Administrador solo tiene acceso de consulta y auditoría.');
+      setTimeout(() => setCopiedNotification(null), 4000);
+      return;
+    }
+    if (isCorteAlreadyDoneToday) {
+      setCopiedNotification('🔒 Ya existe un corte registrado el día de hoy para esta sucursal.');
+      setTimeout(() => setCopiedNotification(null), 4000);
+      return;
+    }
     // Default next shift fund to the same initial fund, bounded by expected drawer cash if lower
     const defaultFund = Math.min(expectedCashInDrawer, effectiveInitialCash);
     setNextCashFundInput(defaultFund.toString());
@@ -1505,6 +1529,50 @@ export default function CorteXModal({
         {/* MAIN BODY: TAB 1 (ARQUEO RESUMEN) OR TAB 2 (COPIAR LISTA SELECCIONABLE) */}
         {activeTab === 'arqueo' ? (
           <div className="p-4 space-y-4 overflow-y-auto flex-1 bg-slate-50/50">
+
+            {/* AVISO DE AUDITORÍA PARA ADMINISTRADOR */}
+            {isAdmin && !isHistoric && (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3 text-xs shadow-2xs">
+                <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-black text-amber-950 text-xs flex items-center gap-1.5">
+                    <span>MODO SUPERVISIÓN Y AUDITORÍA (ADMINISTRADOR • SOLO LECTURA)</span>
+                  </p>
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    Como Administrador tiene acceso completo a supervisar arqueos, desgloses, tickets y exportación de reportes. 
+                    <strong> Los cierres de turno y guardado de cortes oficiales son generados exclusivamente por los operadores y cajeros en sucursal</strong> para garantizar la rendición de cuentas operativa.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* AVISO DE CORTE DIARIO YA REGISTRADO */}
+            {!isAdmin && isCorteAlreadyDoneToday && (
+              <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs animate-in fade-in">
+                <div className="flex items-start gap-3">
+                  <Lock className="w-5 h-5 text-rose-700 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-black text-rose-950 text-xs">
+                      🔒 BLINDAJE DE SEGURIDAD: CORTE DEL DÍA YA REGISTRADO
+                    </p>
+                    <p className="text-[11px] text-rose-900 leading-relaxed">
+                      La sucursal <strong>{effectiveBranchName}</strong> ya registró su corte oficial de caja hoy ({todaySavedCorte?.dateStr} a las {todaySavedCorte?.timeStr} por el cajero <strong>{todaySavedCorte?.operatorName}</strong>).
+                      Para blindar el sistema y evitar duplicidad de registros, <strong>solo se permite un corte oficial por sucursal al día</strong>.
+                    </p>
+                  </div>
+                </div>
+
+                {todaySavedCorte && onSelectExistingCorte && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectExistingCorte(todaySavedCorte)}
+                    className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-black shadow-xs shrink-0 cursor-pointer transition-colors"
+                  >
+                    Ver Corte Guardado Hoy
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Quick Metrics Strip */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -2477,25 +2545,39 @@ export default function CorteXModal({
           <div className="flex flex-wrap items-center gap-2">
             {!isHistoric ? (
               <>
-                <button
-                  type="button"
-                  onClick={handleOpenClosureDialog}
-                  className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 flex items-center gap-2 transition-all cursor-pointer"
-                  title="Registra el fondo que se queda para el siguiente turno, guarda el corte y cierra sesión"
-                >
-                  <Coins className="w-4 h-4 text-emerald-200" />
-                  <span>Finalizar Turno y Dejar Fondo</span>
-                </button>
+                {isAdmin ? (
+                  <div className="flex items-center gap-2 px-3.5 py-2 bg-amber-100/90 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold shadow-2xs">
+                    <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Modo Auditoría: El cierre de turno es exclusivo de operadores en caja</span>
+                  </div>
+                ) : isCorteAlreadyDoneToday ? (
+                  <div className="flex items-center gap-2 px-3.5 py-2 bg-rose-100/90 text-rose-900 border border-rose-300 rounded-xl text-xs font-bold shadow-2xs">
+                    <Lock className="w-4 h-4 text-rose-700 shrink-0" />
+                    <span>Corte de caja del día ya registrado para {effectiveBranchName}</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleOpenClosureDialog}
+                      className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 flex items-center gap-2 transition-all cursor-pointer"
+                      title="Registra el fondo que se queda para el siguiente turno, guarda el corte y cierra sesión"
+                    >
+                      <Coins className="w-4 h-4 text-emerald-200" />
+                      <span>Finalizar Turno y Dejar Fondo</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={handleOpenClosureDialog}
-                  className="px-3.5 py-2.5 bg-indigo-700 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
-                  title="Guarda el corte oficial, imprime el reporte y cierra la sesión para cambio de turno"
-                >
-                  <LogOut className="w-4 h-4 text-indigo-200" />
-                  <span>Guardar Corte y Cerrar Sesión</span>
-                </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenClosureDialog}
+                      className="px-3.5 py-2.5 bg-indigo-700 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 transition-all cursor-pointer"
+                      title="Guarda el corte oficial, imprime el reporte y cierra la sesión para cambio de turno"
+                    >
+                      <LogOut className="w-4 h-4 text-indigo-200" />
+                      <span>Guardar Corte y Cerrar Sesión</span>
+                    </button>
+                  </>
+                )}
               </>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
