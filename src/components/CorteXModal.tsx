@@ -574,6 +574,7 @@ export default function CorteXModal({
           }
           #corte-thermal-receipt-container, #corte-thermal-receipt-container * {
             visibility: visible !important;
+            display: block !important;
           }
           #corte-thermal-receipt-container {
             position: absolute !important;
@@ -589,6 +590,12 @@ export default function CorteXModal({
             font-size: 10px !important;
             line-height: 1.25 !important;
             word-break: break-word !important;
+          }
+          #corte-thermal-receipt-container .flex {
+            display: flex !important;
+          }
+          #corte-thermal-receipt-container .inline-block {
+            display: inline-block !important;
           }
           .no-print {
             display: none !important;
@@ -1097,7 +1104,8 @@ export default function CorteXModal({
       {/* =================================================================================== */}
       <div 
         id="corte-thermal-receipt-container" 
-        className="font-mono text-black bg-white w-[270px] p-2 text-[10px] hidden"
+        className="font-mono text-black bg-white w-[270px] p-2 text-[10px]"
+        style={{ display: 'none' }}
       >
         {/* Header */}
         <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-black">
@@ -1159,6 +1167,51 @@ export default function CorteXModal({
             <span>${netIncome.toFixed(2)}</span>
           </div>
         </div>
+
+        {/* Detalle de Productos y Ventas Realizadas */}
+        <div className="py-2 border-b border-dashed border-black space-y-1">
+          <div className="font-black text-[9.5px] uppercase border-b border-black pb-0.5 flex justify-between">
+            <span>DETALLE DE ARTÍCULOS VENDIDOS</span>
+            <span>({allDetailedSoldItems.length} PZS)</span>
+          </div>
+
+          {allDetailedSoldItems.length === 0 ? (
+            <div className="text-[9px] italic text-center py-1">Sin ventas registradas</div>
+          ) : (
+            <div className="space-y-1">
+              {allDetailedSoldItems.map((item, idx) => (
+                <div key={item.id || idx} className="text-[9px] leading-tight">
+                  <div className="flex justify-between font-bold">
+                    <span className="truncate pr-1">{item.quantity}x {item.productName}</span>
+                    <span className="shrink-0">${item.totalPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-[8px] text-slate-800">
+                    <span>Folio: {item.ticketFolio}</span>
+                    <span>{item.paymentMethod.toUpperCase()} • {item.time}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Detalle de Gastos de Caja */}
+        {branchExpenses.length > 0 && (
+          <div className="py-2 border-b border-dashed border-black space-y-1">
+            <div className="font-black text-[9.5px] uppercase border-b border-black pb-0.5 flex justify-between">
+              <span>SALIDAS / GASTOS DE CAJA</span>
+              <span>({branchExpenses.length})</span>
+            </div>
+            <div className="space-y-0.5">
+              {branchExpenses.map((exp, idx) => (
+                <div key={exp.id || idx} className="flex justify-between text-[9px]">
+                  <span className="truncate pr-1">• {exp.concept}</span>
+                  <span className="font-bold shrink-0">-${exp.amount.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Payment Methods */}
         <div className="py-2 border-b border-dashed border-black space-y-0.5">
