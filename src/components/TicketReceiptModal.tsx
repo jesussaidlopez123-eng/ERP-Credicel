@@ -1,5 +1,5 @@
-import React from 'react';
-import { CheckCircle2, Printer, X, Store, User, Clock, Smartphone, Phone, FileText, QrCode, Barcode } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { CheckCircle2, Printer, X, Store, User, Clock, Smartphone, Phone, FileText, QrCode, Barcode, ArrowRight } from 'lucide-react';
 import { SaleTicket, Branch } from '../types';
 
 interface TicketReceiptModalProps {
@@ -15,36 +15,116 @@ export default function TicketReceiptModal({
   ticket,
   currentBranch
 }: TicketReceiptModalProps) {
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('erp_pos_autoprint');
+      return saved !== null ? saved === 'true' : true; // Enabled by default
+    } catch {
+      return true;
+    }
+  });
+
+  const [hasPrinted, setHasPrinted] = useState(false);
+
+  // Trigger automatic thermal print when modal opens with a valid ticket
+  useEffect(() => {
+    if (isOpen && ticket) {
+      setHasPrinted(false);
+      if (autoPrintEnabled) {
+        const timer = setTimeout(() => {
+          window.print();
+          setHasPrinted(true);
+        }, 250);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isOpen, ticket?.id, autoPrintEnabled]);
+
   if (!isOpen || !ticket) return null;
 
   const handlePrint = () => {
     window.print();
+    setHasPrinted(true);
   };
+
+  const handleNextSale = (shouldPrint: boolean = false) => {
+    if (shouldPrint) {
+      window.print();
+      setHasPrinted(true);
+      setTimeout(() => {
+        onClose();
+      }, 300);
+    } else {
+      onClose();
+    }
+  };
+
+  const toggleAutoPrint = (val: boolean) => {
+    setAutoPrintEnabled(val);
+    try {
+      localStorage.setItem('erp_pos_autoprint', String(val));
+    } catch {}
+  };
+
+  // Human readable date formatting
+  const formattedDate = (() => {
+    if (!ticket.timestamp) return '';
+    try {
+      const d = new Date(ticket.timestamp);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('es-MX', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        });
+      }
+    } catch {}
+    return ticket.timestamp;
+  })();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4 overflow-y-auto">
       {/* Print Styles for 80mm POS Thermal Receipt Printers */}
       <style>{`
         @media print {
+          @page {
+            size: 80mm auto;
+            margin: 0mm !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            width: 80mm !important;
+          }
           body * {
-            visibility: hidden;
+            visibility: hidden !important;
           }
           #thermal-receipt-container, #thermal-receipt-container * {
-            visibility: visible;
+            visibility: visible !important;
           }
           #thermal-receipt-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 80mm;
-            padding: 4mm;
-            margin: 0;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 78mm !important;
+            max-width: 80mm !important;
+            padding: 2mm 4mm !important;
+            margin: 0 auto !important;
             background: white !important;
             color: black !important;
             box-shadow: none !important;
             border: none !important;
             font-family: 'Courier New', Courier, monospace !important;
             font-size: 11px !important;
+            line-height: 1.25 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .no-print {
             display: none !important;
@@ -64,12 +144,29 @@ export default function TicketReceiptModal({
             </div>
           </div>
           <button 
-            onClick={onClose}
+            onClick={() => handleNextSale(false)}
             className="text-emerald-200 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
-            title="Cerrar"
+            title="Cerrar y Siguiente Venta"
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Auto-print status banner - Screen Only */}
+        <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-100 flex items-center justify-between no-print">
+          <div className="flex items-center gap-1.5 text-xs text-emerald-900 font-bold">
+            <Printer className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{hasPrinted ? 'Ticket enviado a la ticketera' : 'Preparado para ticketera POS'}</span>
+          </div>
+          <label className="flex items-center gap-1.5 text-[11px] text-emerald-800 font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoPrintEnabled}
+              onChange={(e) => toggleAutoPrint(e.target.checked)}
+              className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+            />
+            <span>Auto-imprimir ticket</span>
+          </label>
         </div>
 
         {/* RECEIPT CONTENT (Printable Area) */}
@@ -80,7 +177,7 @@ export default function TicketReceiptModal({
             <h2 className="text-xl font-black tracking-tight text-slate-900 uppercase">CrediCel POS</h2>
             <p className="text-xs text-slate-700 font-bold font-sans">Sucursal: {currentBranch.name}</p>
             <p className="text-[11px] text-slate-600 font-sans">Atendió: {ticket.operatorName}</p>
-            <p className="text-[11px] text-slate-500 font-sans">{ticket.timestamp}</p>
+            <p className="text-[11px] text-slate-500 font-sans">{formattedDate}</p>
             <div className="inline-block mt-1 px-2.5 py-0.5 bg-slate-200 text-slate-900 font-extrabold font-mono text-xs rounded border border-slate-300">
               TICKET: {ticket.id}
             </div>
@@ -207,20 +304,23 @@ export default function TicketReceiptModal({
         </div>
 
         {/* Buttons - Screen Only */}
-        <div className="p-4 bg-white flex items-center justify-between gap-3 no-print">
+        <div className="p-4 bg-white flex flex-wrap items-center justify-between gap-3 no-print">
           <button
             onClick={handlePrint}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
+            title="Volver a enviar a la impresora de tickets"
           >
             <Printer className="w-4 h-4 text-yellow-400" />
-            Imprimir Ticket Thermal
+            <span>Reimprimir Ticket</span>
           </button>
 
           <button
-            onClick={onClose}
-            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl shadow-sm transition-all cursor-pointer"
+            onClick={() => handleNextSale(false)}
+            className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs font-extrabold rounded-xl shadow-sm transition-all cursor-pointer"
+            title="Concluir y abrir nuevo cobro en el POS"
           >
-            Siguiente Venta
+            <span>Siguiente Venta</span>
+            <ArrowRight className="w-4 h-4 text-white" />
           </button>
         </div>
 
@@ -228,4 +328,5 @@ export default function TicketReceiptModal({
     </div>
   );
 }
+
 
