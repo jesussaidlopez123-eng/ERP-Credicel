@@ -23,12 +23,14 @@ import {
   Ban,
   Fingerprint,
   Printer,
-  Pencil
+  Pencil,
+  Tag
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement } from '../types';
 import { InventoryMovementsModal } from './InventoryMovementsModal';
 import InventoryPrintModal from './InventoryPrintModal';
 import EditProductModal from './EditProductModal';
+import ProductLabelsModal from './ProductLabelsModal';
 
 interface InventoryModuleProps {
   products: Product[];
@@ -64,6 +66,10 @@ export default function InventoryModule({
 
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Modal Impresión de Etiquetas y Códigos de Barras
+  const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
+  const [labelSelectedProduct, setLabelSelectedProduct] = useState<Product | null>(null);
 
   // Modal Impresión y Auditoría de Inventario
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -1394,6 +1400,19 @@ export default function InventoryModule({
             Precios
           </button>
 
+          {/* Botón IMPRIMIR ETIQUETAS (CÓDIGO DE BARRAS, PRECIO, NOMBRE) */}
+          <button
+            onClick={() => {
+              setLabelSelectedProduct(null);
+              setIsLabelsModalOpen(true);
+            }}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-sm transition-all cursor-pointer shrink-0 border border-amber-400"
+            title="Imprimir etiquetas adhesivas con código de barras, precio y nombre para etiquetar productos"
+          >
+            <Tag className="w-4 h-4 text-slate-950" />
+            <span>Imprimir Etiquetas</span>
+          </button>
+
           {/* Botón IMPRIMIR INVENTARIO (SELECCIÓN DINÁMICA POR TAB: EQUIPOS O ACCESORIOS) */}
           <button
             onClick={() => setIsPrintModalOpen(true)}
@@ -1567,9 +1586,21 @@ export default function InventoryModule({
                           </span>
                         </td>
 
-                        {/* Acciones: Modificar y Ver Información */}
+                        {/* Acciones: Etiqueta, Modificar y Ver Información */}
                         <td className="p-3 text-center">
                           <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLabelSelectedProduct(p);
+                                setIsLabelsModalOpen(true);
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-950 hover:text-white transition-all cursor-pointer border border-amber-300 font-extrabold text-[11px] shadow-2xs"
+                              title={`Imprimir etiqueta con código de barras para ${p.name}`}
+                            >
+                              <Tag className="w-3.5 h-3.5" />
+                              <span>Etiqueta</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => setEditingProduct(p)}
@@ -3199,6 +3230,19 @@ export default function InventoryModule({
         currentOperator={currentOperator}
         allBranches={allBranches}
         initialCategory={activeInventoryTab}
+      />
+
+      {/* MODAL DE IMPRESIÓN DE ETIQUETAS CON CÓDIGO DE BARRAS */}
+      <ProductLabelsModal
+        isOpen={isLabelsModalOpen}
+        onClose={() => {
+          setIsLabelsModalOpen(false);
+          setLabelSelectedProduct(null);
+        }}
+        products={products}
+        currentBranch={currentBranch}
+        allBranches={allBranches}
+        initialSelectedProduct={labelSelectedProduct}
       />
 
       {/* MODAL DE MODIFICACIÓN / EDICIÓN DE REGISTRO (TELÉFONOS Y ARTÍCULOS) */}
