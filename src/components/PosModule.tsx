@@ -1111,6 +1111,10 @@ export default function PosModule({
         onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        onEmitDirectTicket={(ticket) => {
+          setCompletedTicket(ticket);
+          setIsTicketReceiptOpen(true);
+        }}
       />
 
       <ExpenseModal
