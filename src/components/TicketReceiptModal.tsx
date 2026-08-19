@@ -367,32 +367,29 @@ export default function TicketReceiptModal({
                     <div className="text-[9.5px] bg-slate-100 p-1.5 rounded border border-slate-400 text-black space-y-1 mt-1 font-sans">
                       <div className="font-black text-[10px] uppercase text-center border-b border-dashed border-slate-400 pb-0.5">
                         {item.metadata.repairType === 'saldo_final'
-                          ? '🔧 ENTREGA DE EQUIPO / LIQUIDACIÓN'
+                          ? '🔧 ENTREGA Y LIQUIDACIÓN'
                           : '🔧 RECEPCIÓN DE EQUIPO A TALLER'}
                       </div>
 
                       <div className="space-y-0.5">
                         <div className="flex justify-between">
-                          <span>Folio de Taller:</span>
+                          <span>Folio Taller:</span>
                           <strong className="font-mono font-black text-amber-950">{item.metadata.repairId}</strong>
                         </div>
                         {item.metadata.clientName && (
                           <div>👤 <strong>Cliente:</strong> {item.metadata.clientName}</div>
                         )}
-                        {item.metadata.clientPhone && (
-                          <div>📞 <strong>Teléfono:</strong> {item.metadata.clientPhone}</div>
-                        )}
                         {item.metadata.deviceModel && (
                           <div>📱 <strong>Equipo:</strong> {item.metadata.deviceModel}</div>
                         )}
-                        {item.metadata.issueDescription && (
+                        {item.metadata.repairType !== 'saldo_final' && item.metadata.issueDescription && (
                           <div className="text-[8.5px] bg-white p-1 rounded border border-slate-300 italic text-slate-800">
-                            <strong>Falla/Servicio:</strong> {item.metadata.issueDescription}
+                            <strong>Falla:</strong> {item.metadata.issueDescription}
                           </div>
                         )}
-                        {item.metadata.passcodePattern && item.metadata.passcodePattern !== 'Sin contraseña / Desbloqueado' && (
+                        {item.metadata.repairType !== 'saldo_final' && item.metadata.passcodePattern && item.metadata.passcodePattern !== 'Sin contraseña / Desbloqueado' && (
                           <div className="text-[8.5px] text-slate-700">
-                            🔒 <strong>Patrón/PIN:</strong> {item.metadata.passcodePattern}
+                            🔒 <strong>PIN:</strong> {item.metadata.passcodePattern}
                           </div>
                         )}
                       </div>
@@ -400,37 +397,40 @@ export default function TicketReceiptModal({
                       {/* Desglose de costos de reparación */}
                       {item.metadata.totalRepairCost !== undefined && (
                         <div className="pt-1 mt-1 border-t border-dashed border-slate-400 text-[9px] font-mono space-y-0.5">
-                          <div className="flex justify-between">
-                            <span>Costo Total Servicio:</span>
-                            <strong>${item.metadata.totalRepairCost.toFixed(2)}</strong>
-                          </div>
-
                           {item.metadata.repairType === 'saldo_final' ? (
                             <>
-                              <div className="flex justify-between text-slate-600">
-                                <span>Anticipo Previo Pagado:</span>
+                              <div className="flex justify-between text-slate-700">
+                                <span>Total Servicio:</span>
+                                <strong>${item.metadata.totalRepairCost.toFixed(2)}</strong>
+                              </div>
+                              <div className="flex justify-between text-slate-700">
+                                <span>Anticipo:</span>
                                 <strong>${(item.metadata.advancePayment || 0).toFixed(2)}</strong>
                               </div>
-                              <div className="flex justify-between font-black text-emerald-950 border-t border-dotted border-slate-300 pt-0.5">
-                                <span>Saldo Liquidado Hoy:</span>
+                              <div className="flex justify-between font-black text-emerald-950 border-t border-dotted border-slate-300 pt-0.5 text-[10px]">
+                                <span>Pagado Hoy:</span>
                                 <strong>${item.totalPrice.toFixed(2)}</strong>
                               </div>
                               <div className="text-center font-bold text-[8.5px] text-emerald-800 pt-0.5">
-                                ★ EQUIPO ENTREGADO Y PAGADO AL 100% ★
+                                ✓ EQUIPO ENTREGADO Y PAGADO
                               </div>
                             </>
                           ) : (
                             <>
+                              <div className="flex justify-between">
+                                <span>Costo Total:</span>
+                                <strong>${item.metadata.totalRepairCost.toFixed(2)}</strong>
+                              </div>
                               <div className="flex justify-between font-black text-emerald-950">
-                                <span>Anticipo Abonado Hoy:</span>
+                                <span>Anticipo Hoy:</span>
                                 <strong>${(item.metadata.advancePayment ?? item.totalPrice).toFixed(2)}</strong>
                               </div>
                               <div className="flex justify-between font-black text-amber-950 border-t border-dotted border-slate-300 pt-0.5">
-                                <span>Saldo Pendiente al Entregar:</span>
+                                <span>Resta al Entregar:</span>
                                 <strong>${(item.metadata.pendingBalance ?? Math.max(0, item.metadata.totalRepairCost - (item.metadata.advancePayment ?? item.totalPrice))).toFixed(2)}</strong>
                               </div>
                               <div className="text-[8px] text-slate-600 italic text-center pt-0.5">
-                                * Conserva este comprobante para recoger tu equipo.
+                                * Conserva este ticket para recoger.
                               </div>
                             </>
                           )}
