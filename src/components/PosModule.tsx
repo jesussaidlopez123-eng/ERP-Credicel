@@ -129,7 +129,25 @@ export default function PosModule({
   const [isCreditDeviceModalOpen, setIsCreditDeviceModalOpen] = useState(false);
   const [selectedCreditProduct, setSelectedCreditProduct] = useState<Product | null>(null);
 
-  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
+  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(`erp_repair_records_${currentBranch.id}`);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Error loading repair records', e);
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`erp_repair_records_${currentBranch.id}`, JSON.stringify(repairRecords));
+    } catch (e) {
+      console.error('Error saving repair records', e);
+    }
+  }, [repairRecords, currentBranch.id]);
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
   const [internalExpenseOpen, setInternalExpenseOpen] = useState(false);
   const [internalCorteXOpen, setInternalCorteXOpen] = useState(false);
