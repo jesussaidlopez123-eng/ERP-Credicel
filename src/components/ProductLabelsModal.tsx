@@ -20,7 +20,11 @@ import {
   Headphones,
   Eye,
   CheckCircle2,
-  Trash2
+  Trash2,
+  HelpCircle,
+  AlertCircle,
+  Wrench,
+  ExternalLink
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import { Product, Branch } from '../types';
@@ -97,6 +101,7 @@ export default function ProductLabelsModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'accesorio' | 'equipo'>('all');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(currentBranch?.id || 'all');
+  const [isPrinterGuideOpen, setIsPrinterGuideOpen] = useState<boolean>(false);
 
   // Label Customization Options (50x30mm as standard default)
   const [printFormat, setPrintFormat] = useState<'thermal_58mm' | 'grid_sheet' | 'sticker_50x30'>(defaultFormat);
@@ -279,6 +284,12 @@ export default function ProductLabelsModal({
       
       {/* Dynamic Print Stylesheet based on chosen format */}
       <style>{`
+        @media screen {
+          #print-labels-container {
+            display: none !important;
+          }
+        }
+
         @media print {
           @page {
             ${
@@ -286,7 +297,7 @@ export default function ProductLabelsModal({
                 ? 'size: 58mm auto; margin: 0mm !important;'
                 : printFormat === 'sticker_50x30'
                 ? 'size: 50mm 30mm; margin: 0mm !important;'
-                : 'size: letter portrait; margin: 10mm !important;'
+                : 'size: letter portrait; margin: 8mm !important;'
             }
           }
           html, body {
@@ -294,6 +305,8 @@ export default function ProductLabelsModal({
             padding: 0 !important;
             background: #ffffff !important;
             color: #000000 !important;
+            width: 100% !important;
+            height: auto !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
@@ -302,8 +315,10 @@ export default function ProductLabelsModal({
           }
           #print-labels-container, #print-labels-container * {
             visibility: visible !important;
+            display: block !important;
           }
           #print-labels-container {
+            display: block !important;
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -311,16 +326,19 @@ export default function ProductLabelsModal({
             margin: 0 !important;
             padding: 0 !important;
             background: #ffffff !important;
+            z-index: 999999 !important;
           }
 
           /* 1. THERMAL 58mm CONTINUOUS ROLL STYLES */
           .thermal-58mm-wrapper {
+            display: block !important;
             width: 56mm !important;
             max-width: 58mm !important;
             margin: 0 auto !important;
             padding: 1mm 0 6mm 0 !important;
           }
           .thermal-58mm-label {
+            display: block !important;
             width: 54mm !important;
             margin: 0 auto 5mm auto !important;
             padding: 2mm 1.5mm !important;
@@ -334,22 +352,30 @@ export default function ProductLabelsModal({
 
           /* 2. 50x30mm THERMAL STICKER STYLES */
           .sticker-50x30-wrapper {
+            display: block !important;
             width: 50mm !important;
             margin: 0 auto !important;
             padding: 0 !important;
           }
           .sticker-50x30-label {
-            width: 48mm !important;
-            height: 28mm !important;
+            width: 50mm !important;
+            max-width: 50mm !important;
+            height: 30mm !important;
+            max-height: 30mm !important;
             margin: 0 auto !important;
-            padding: 1mm !important;
+            padding: 1mm 1.5mm !important;
             text-align: center !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
             box-sizing: border-box !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
+            align-items: center !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
           }
 
           /* 3. LETTER / A4 GRID STYLES */
@@ -400,6 +426,16 @@ export default function ProductLabelsModal({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPrinterGuideOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 hover:border-amber-400/40 transition-colors cursor-pointer"
+              title="Guía de Conexión de Impresora y Configuración de Etiquetas"
+            >
+              <HelpCircle className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Guía Impresora</span>
+            </button>
+
             <button
               type="button"
               onClick={handlePrint}
@@ -807,7 +843,7 @@ export default function ProductLabelsModal({
         {/* ---------------------------------------------------- */}
         {/* PRINTABLE CONTAINER (Rendered exclusively for window.print()) */}
         {/* ---------------------------------------------------- */}
-        <div id="print-labels-container" className="hidden">
+        <div id="print-labels-container">
           
           {/* FORMAT 1: CONTINUOUS 58mm THERMAL ROLL */}
           {printFormat === 'thermal_58mm' && (
@@ -849,16 +885,16 @@ export default function ProductLabelsModal({
               {flattenedLabels.map((item, idx) => (
                 <div key={`print_sticker_${item.product.id}_${item.stickerIndex}_${idx}`} className="sticker-50x30-label">
                   {showStoreName && (
-                    <div style={{ fontSize: '8.5px', fontWeight: '900', textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: '8.5px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {customFooterText}
                     </div>
                   )}
 
-                  <div style={{ fontSize: '9px', fontWeight: 'bold', lineHeight: '1.1', maxHeight: '18px', overflow: 'hidden' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 'bold', lineHeight: '1.1', maxHeight: '18px', overflow: 'hidden', textAlign: 'center' }}>
                     {item.product.name}
                   </div>
 
-                  <div style={{ margin: '0.5mm 0' }}>
+                  <div style={{ margin: '0.5mm 0', display: 'flex', justifyContent: 'center', width: '100%' }}>
                     <BarcodeSvgItem 
                       value={item.product.code || '000000'} 
                       width={1.1} 
@@ -868,7 +904,7 @@ export default function ProductLabelsModal({
                   </div>
 
                   {showPrice && (
-                    <div style={{ fontSize: '11px', fontWeight: '900' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '900', letterSpacing: '-0.2px' }}>
                       {currencyPrefix} {item.product.price.toFixed(2)} MXN
                     </div>
                   )}
@@ -888,22 +924,22 @@ export default function ProductLabelsModal({
                     </div>
                   )}
 
-                  <div style={{ fontSize: '10px', fontWeight: 'bold', lineHeight: '1.2', margin: '1mm 0' }}>
+                  <div style={{ fontSize: '9px', fontWeight: 'bold', lineHeight: '1.15', margin: '0.5mm 0' }}>
                     {item.product.name}
                   </div>
 
-                  <div style={{ margin: '1mm 0' }}>
+                  <div style={{ margin: '0.5mm 0' }}>
                     <BarcodeSvgItem 
                       value={item.product.code || '000000'} 
-                      width={1.3} 
-                      height={26} 
-                      fontSize={9} 
+                      width={1.05} 
+                      height={18} 
+                      fontSize={8} 
                     />
                   </div>
 
                   {showPrice && (
-                    <div style={{ fontSize: '13px', fontWeight: '900', borderTop: '1px dashed #ccc', paddingTop: '1mm', marginTop: '1mm' }}>
-                      PRECIO: {currencyPrefix} {item.product.price.toFixed(2)} MXN
+                    <div style={{ fontSize: '11px', fontWeight: '900', borderTop: '1px dashed #ccc', paddingTop: '0.5mm', marginTop: '0.5mm' }}>
+                      {currencyPrefix} {item.product.price.toFixed(2)} MXN
                     </div>
                   )}
                 </div>
@@ -914,6 +950,103 @@ export default function ProductLabelsModal({
         </div>
 
       </div>
+
+      {/* MODAL DE GUÍA: SOLUCIÓN A VISTA PREVIA EN BLANCO Y CONEXIÓN DE IMPRESORA */}
+      {isPrinterGuideOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-400/20 text-amber-300 flex items-center justify-center">
+                  <Wrench className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm sm:text-base">Guía de Conexión y Solución de Vista Previa en Blanco</h4>
+                  <p className="text-xs text-blue-200">Impresoras Térmicas de Etiquetas (50x30mm) y Recibos (58mm)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsPrinterGuideOpen(false)}
+                className="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs text-slate-700 leading-relaxed">
+              {/* 1. Vista previa en blanco */}
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-extrabold text-xs">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>¿Por qué salía en blanco la vista previa o cómo resolverlo?</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-slate-700 pl-1">
+                  <li><strong>Contenedor corregido:</strong> Hemos actualizado las reglas de impresión para forzar la visibilidad del código de barras y texto en el navegador.</li>
+                  <li><strong>Asegura seleccionar al menos 1 producto:</strong> Verifica que en la columna izquierda algún producto tenga cantidad &gt; 0 (el botón verde inferior muestra el total de etiquetas).</li>
+                  <li><strong>Margen en el diálogo de impresión:</strong> En el cuadro de diálogo de Chrome/Edge, en <em>Márgenes</em> selecciona <strong>"Ninguno"</strong> (None) o <strong>"Mínimo"</strong>.</li>
+                  <li><strong>Gráficos de fondo:</strong> Marca la casilla <strong>"Gráficos en segundo plano"</strong> en la ventana de impresión para asegurar que los bordes y fondos se impriman nítidos.</li>
+                </ul>
+              </div>
+
+              {/* 2. Cómo conectar la impresora térmica */}
+              <div className="space-y-3">
+                <h5 className="font-extrabold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                  <Printer className="w-4 h-4 text-blue-600" />
+                  Pasos para conectar y configurar tu Impresora de Etiquetas
+                </h5>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="font-extrabold text-blue-900 block mb-1">1. Conexión USB / Bluetooth</span>
+                    <p className="text-slate-600">
+                      Conecta el cable USB a la computadora o empareja por Bluetooth en la configuración de Windows/Mac. Enciende la impresora con el rollo de 50x30mm colocado correctamente (con la cara térmica hacia arriba).
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="font-extrabold text-blue-900 block mb-1">2. Instalar el Driver del Fabricante</span>
+                    <p className="text-slate-600">
+                      Instala el driver oficial de tu modelo (ej. Xprinter, Rongta, POS-58, Zebra, Dymo o genérico POS). En Windows aparecerá en <em>Impresoras y Escáneres</em>.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="font-extrabold text-blue-900 block mb-1">3. Calibrar el tamaño 50x30mm</span>
+                    <p className="text-slate-600">
+                      En <em>Propiedades del Servidor de Impresión / Preferencias de Impresión</em>, crea o selecciona el tamaño de papel de <strong>50mm de ancho × 30mm de alto</strong> (Sticker / Die-cut Label).
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <span className="font-extrabold text-blue-900 block mb-1">4. Calibración del Sensor (Gap)</span>
+                    <p className="text-slate-600">
+                      Mantén presionado el botón FEED de tu impresora 3-5 segundos hasta que emita un pitido; la impresora expulsará 1 o 2 etiquetas para detectar la separación automáticamente.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Atajo Kiosk Mode */}
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-950 space-y-1">
+                <span className="font-extrabold block text-xs">💡 Impresión Directa sin Diálogo (Modo Quiosco)</span>
+                <p className="text-slate-600 text-[11px]">
+                  Si utilizas Google Chrome, puedes iniciar tu navegador con el parámetro <code className="bg-white px-1 py-0.5 border border-emerald-300 rounded font-mono text-[10px]">--kiosk-printing</code> para que cada vez que des clic en Imprimir o uses la tecla <strong>P</strong>, la etiqueta salga inmediatamente sin abrir ventanas intermedias.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPrinterGuideOpen(false)}
+                className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+              >
+                Entendido, cerrar guía
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

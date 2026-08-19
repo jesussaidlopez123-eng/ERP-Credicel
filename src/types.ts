@@ -135,9 +135,13 @@ export interface CartItemMetadata {
   // For Repair Services
   repairId?: string;
   issueDescription?: string;
-  repairType?: 'anticipo' | 'saldo_final' | 'pago_total';
+  repairType?: 'anticipo' | 'saldo_final' | 'pago_total' | 'recepcion_directa';
   advancePayment?: number;
   totalRepairCost?: number;
+  pendingBalance?: number;
+  passcodePattern?: string;
+  receivedAt?: string;
+  deliveredAt?: string;
 
   // For Phone Cases (Fundas)
   caseModel?: string; // e.g. iPhone 13 Pro Max, Samsung A54, Redmi Note 12, etc.

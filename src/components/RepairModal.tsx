@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Wrench, User, Phone, Smartphone, DollarSign, FileText, CheckCircle2, Search, X, Lock, Clock, PackageCheck, AlertCircle } from 'lucide-react';
-import { RepairRecord, Product, CartItemMetadata, Branch, Operator } from '../types';
+import { Wrench, User, Phone, Smartphone, DollarSign, FileText, CheckCircle2, Search, X, Lock, Clock, PackageCheck, AlertCircle, Printer } from 'lucide-react';
+import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket } from '../types';
 
 interface RepairModalProps {
   isOpen: boolean;
@@ -11,6 +11,7 @@ interface RepairModalProps {
   onAddToCart: (product: Product, amount: number, metadata?: CartItemMetadata) => void;
   currentBranch: Branch;
   currentOperator: Operator;
+  onEmitDirectTicket?: (ticket: SaleTicket) => void;
 }
 
 export default function RepairModal({
@@ -21,7 +22,8 @@ export default function RepairModal({
   onUpdateRepairRecord,
   onAddToCart,
   currentBranch,
-  currentOperator
+  currentOperator,
+  onEmitDirectTicket
 }: RepairModalProps) {
   // Active Tab: 'recepcion' (Dejar Celular) or 'entrega' (Entregar Celular)
   const [activeTab, setActiveTab] = useState<'recepcion' | 'entrega'>('recepcion');
@@ -96,12 +98,12 @@ export default function RepairModal({
 
     onAddRepairRecord(newRepair);
 
-    // If an advance payment was made, add it to POS cart
+    // If an advance payment was made, add it to POS cart so it charges and prints via standard checkout flow
     if (numAdvance > 0) {
       const repairProduct: Product = {
         id: `prod-rep-${Date.now()}`,
         code: folioId,
-        name: `Anticipo Reparación (${folioId}) - ${deviceModel.trim()}`,
+        name: `Recepción Taller (${folioId}) - ${deviceModel.trim()}`,
         category: 'servicio',
         price: numAdvance,
         stock: 1
@@ -113,13 +115,56 @@ export default function RepairModal({
         clientPhone: clientPhone.trim(),
         deviceModel: deviceModel.trim(),
         issueDescription: issueDescription.trim(),
+        passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
         repairType: 'anticipo',
         advancePayment: numAdvance,
-        totalRepairCost: numTotal
+        totalRepairCost: numTotal,
+        pendingBalance: pendingBalance,
+        receivedAt: newRepair.receivedAt
       });
-      alert(`✅ Equipo recibido con éxito (Folio ${folioId}). Se agregó el anticipo de $${numAdvance} MXN al ticket del POS.`);
     } else {
-      alert(`✅ Equipo recibido con éxito (Folio ${folioId}) sin anticipo. Se guardó el registro en taller.`);
+      // Recepción sin anticipo: Emitir directamente el ticket de recepción para el cliente
+      if (onEmitDirectTicket) {
+        const receptionTicket: SaleTicket = {
+          id: `TCK-REC-${folioId.replace('REP-', '')}`,
+          folio: `REC-${folioId.replace('REP-', '')}`,
+          timestamp: new Date().toISOString(),
+          branchId: currentBranch.id,
+          operatorName: currentOperator.name,
+          items: [{
+            cartItemId: `item-rep-rec-${Date.now()}`,
+            product: {
+              id: `prod-rep-${Date.now()}`,
+              code: folioId,
+              name: `Recepción a Taller (${folioId}) - ${deviceModel.trim()}`,
+              category: 'servicio',
+              price: 0,
+              stock: 1
+            },
+            quantity: 1,
+            unitPrice: 0,
+            totalPrice: 0,
+            metadata: {
+              repairId: folioId,
+              clientName: clientName.trim(),
+              clientPhone: clientPhone.trim(),
+              deviceModel: deviceModel.trim(),
+              issueDescription: issueDescription.trim(),
+              passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
+              repairType: 'anticipo',
+              advancePayment: 0,
+              totalRepairCost: numTotal,
+              pendingBalance: numTotal,
+              receivedAt: newRepair.receivedAt
+            }
+          }],
+          total: 0,
+          paymentMethod: 'Efectivo',
+          cashReceived: 0,
+          change: 0
+        };
+        onEmitDirectTicket(receptionTicket);
+      }
     }
 
     // Reset Form
@@ -138,15 +183,64 @@ export default function RepairModal({
     const amountToCharge = record.pendingBalance;
 
     if (amountToCharge <= 0) {
-      // Mark as delivered without charging
+      // Mark as delivered without charging balance (ya pagado previamente o sin costo)
       const updatedRecord: RepairRecord = {
         ...record,
         status: 'entregado',
         pendingBalance: 0,
-        deliveredAt: new Date().toLocaleString()
+        deliveredAt: new Date().toLocaleDateString('es-MX', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
       };
       onUpdateRepairRecord(updatedRecord);
-      alert(`✅ El equipo ${record.deviceModel} (Folio ${record.id}) ha sido marcado como Entregado.`);
+
+      // Emitir ticket de comprobante de entrega
+      if (onEmitDirectTicket) {
+        const deliveryTicket: SaleTicket = {
+          id: `TCK-ENT-${record.id.replace('REP-', '')}`,
+          folio: `ENT-${record.id.replace('REP-', '')}`,
+          timestamp: new Date().toISOString(),
+          branchId: currentBranch.id,
+          operatorName: currentOperator.name,
+          items: [{
+            cartItemId: `item-rep-deliv-${Date.now()}`,
+            product: {
+              id: `prod-rep-deliv-${Date.now()}`,
+              code: record.id,
+              name: `Entrega de Equipo (${record.id}) - ${record.deviceModel}`,
+              category: 'servicio',
+              price: 0,
+              stock: 1
+            },
+            quantity: 1,
+            unitPrice: 0,
+            totalPrice: 0,
+            metadata: {
+              repairId: record.id,
+              clientName: record.clientName,
+              clientPhone: record.clientPhone,
+              deviceModel: record.deviceModel,
+              issueDescription: record.issueDescription,
+              passcodePattern: record.passcodePattern,
+              repairType: 'saldo_final',
+              advancePayment: record.advancePayment,
+              totalRepairCost: record.totalCost,
+              pendingBalance: 0,
+              deliveredAt: updatedRecord.deliveredAt
+            }
+          }],
+          total: 0,
+          paymentMethod: 'Efectivo',
+          cashReceived: 0,
+          change: 0
+        };
+        onEmitDirectTicket(deliveryTicket);
+      }
+      onClose();
       return;
     }
 
@@ -154,7 +248,7 @@ export default function RepairModal({
     const repairProduct: Product = {
       id: `prod-rep-deliv-${Date.now()}`,
       code: record.id,
-      name: `Saldo Final Reparación (${record.id}) - ${record.deviceModel}`,
+      name: `Saldo Liquidación (${record.id}) - ${record.deviceModel}`,
       category: 'servicio',
       price: amountToCharge,
       stock: 1
@@ -166,9 +260,11 @@ export default function RepairModal({
       clientPhone: record.clientPhone,
       deviceModel: record.deviceModel,
       issueDescription: record.issueDescription,
+      passcodePattern: record.passcodePattern,
       repairType: 'saldo_final',
       advancePayment: record.advancePayment,
-      totalRepairCost: record.totalCost
+      totalRepairCost: record.totalCost,
+      pendingBalance: 0
     });
 
     // Update record status
@@ -185,8 +281,6 @@ export default function RepairModal({
       })
     };
     onUpdateRepairRecord(updatedRecord);
-
-    alert(`✅ Se agregó el saldo pendiente de $${amountToCharge} MXN al ticket del POS y el equipo fue marcado como Entregado.`);
     onClose();
   };
 

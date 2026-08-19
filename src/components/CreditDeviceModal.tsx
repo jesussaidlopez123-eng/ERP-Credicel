@@ -14,7 +14,8 @@ import {
   Banknote,
   ShieldCheck,
   Zap,
-  Building2
+  Building2,
+  Printer
 } from 'lucide-react';
 import { Product, CartItemMetadata, Branch } from '../types';
 
@@ -595,25 +596,32 @@ export default function CreditDeviceModal({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className={`flex items-center gap-2 px-6 py-2.5 text-white rounded-xl text-xs font-black shadow-md cursor-pointer transition-all ${
-                saleMode === 'contado'
-                  ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
-                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
-              }`}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {saleMode === 'contado' ? 'Cobrar Celular de Contado' : 'Registrar Enganche de Crédito'}
-            </button>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+              <Printer className="w-4 h-4 text-emerald-600" />
+              <span>Emisión de ticket térmico con desglose completo y garantía</span>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className={`flex items-center gap-2 px-6 py-2.5 text-white rounded-xl text-xs font-black shadow-md cursor-pointer transition-all ${
+                  saleMode === 'contado'
+                    ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {saleMode === 'contado' ? 'Cobrar Celular de Contado' : 'Registrar Enganche de Crédito'}
+              </button>
+            </div>
           </div>
 
         </form>
