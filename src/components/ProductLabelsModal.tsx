@@ -32,6 +32,8 @@ interface ProductLabelsModalProps {
   currentBranch?: Branch;
   allBranches?: Branch[];
   initialSelectedProduct?: Product | null;
+  initialQuantities?: Record<string, number>;
+  defaultFormat?: 'sticker_50x30' | 'thermal_58mm' | 'grid_sheet';
 }
 
 // Individual SVG Barcode Component
@@ -83,7 +85,9 @@ export default function ProductLabelsModal({
   products = [],
   currentBranch,
   allBranches = [],
-  initialSelectedProduct = null
+  initialSelectedProduct = null,
+  initialQuantities = undefined,
+  defaultFormat = 'sticker_50x30'
 }: ProductLabelsModalProps) {
 
   // Map of productId -> quantity of labels to print
@@ -94,8 +98,8 @@ export default function ProductLabelsModal({
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'accesorio' | 'equipo'>('all');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(currentBranch?.id || 'all');
 
-  // Label Customization Options
-  const [printFormat, setPrintFormat] = useState<'thermal_58mm' | 'grid_sheet' | 'sticker_50x30'>('thermal_58mm');
+  // Label Customization Options (50x30mm as standard default)
+  const [printFormat, setPrintFormat] = useState<'thermal_58mm' | 'grid_sheet' | 'sticker_50x30'>(defaultFormat);
   const [showStoreName, setShowStoreName] = useState<boolean>(true);
   const [showProductCode, setShowProductCode] = useState<boolean>(true);
   const [showPrice, setShowPrice] = useState<boolean>(true);
@@ -105,15 +109,20 @@ export default function ProductLabelsModal({
   // Initialize selected product when modal opens
   useEffect(() => {
     if (isOpen) {
-      if (initialSelectedProduct) {
+      if (initialQuantities && Object.keys(initialQuantities).length > 0) {
+        setLabelQuantities({ ...initialQuantities });
+      } else if (initialSelectedProduct) {
         setLabelQuantities({ [initialSelectedProduct.id]: 1 });
       } else {
         // If none pre-selected, initialize empty
         setLabelQuantities({});
       }
+      if (defaultFormat) {
+        setPrintFormat(defaultFormat);
+      }
       setSearchQuery('');
     }
-  }, [isOpen, initialSelectedProduct?.id]);
+  }, [isOpen, initialSelectedProduct?.id, initialQuantities, defaultFormat]);
 
   // Keyboard shortcut (Escape to close, P to print)
   useEffect(() => {

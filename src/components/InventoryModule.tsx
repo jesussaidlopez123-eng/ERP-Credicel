@@ -70,6 +70,7 @@ export default function InventoryModule({
   // Modal Impresión de Etiquetas y Códigos de Barras
   const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
   const [labelSelectedProduct, setLabelSelectedProduct] = useState<Product | null>(null);
+  const [labelInitialQuantities, setLabelInitialQuantities] = useState<Record<string, number> | undefined>(undefined);
 
   // Modal Impresión y Auditoría de Inventario
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -90,6 +91,7 @@ export default function InventoryModule({
   const [ingresarSelectedProdId, setIngresarSelectedProdId] = useState<string>('');
   const [ingresarBranchId, setIngresarBranchId] = useState<string>('b-bodega');
   const [ingresarQuantity, setIngresarQuantity] = useState<string>('1');
+  const [autoPrintLabelsOnIngreso, setAutoPrintLabelsOnIngreso] = useState<boolean>(true);
   // Form fields for new product / equipo
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -562,6 +564,13 @@ export default function InventoryModule({
 
         onUpdateProduct(updated);
         setIsIngresarModalOpen(false);
+
+        // Si la opción de imprimir etiquetas está activa, abrir modal con la cantidad exacta ingresada
+        if (autoPrintLabelsOnIngreso) {
+          setLabelSelectedProduct(updated);
+          setLabelInitialQuantities({ [updated.id]: qty });
+          setIsLabelsModalOpen(true);
+        }
       } else {
         // Crear nuevo accesorio e ingresar
         if (!newCode.trim()) {
@@ -627,6 +636,13 @@ export default function InventoryModule({
 
         onAddProduct(newProd);
         setIsIngresarModalOpen(false);
+
+        // Si la opción de imprimir etiquetas está activa, abrir modal con la cantidad exacta ingresada
+        if (autoPrintLabelsOnIngreso) {
+          setLabelSelectedProduct(newProd);
+          setLabelInitialQuantities({ [newProd.id]: qty });
+          setIsLabelsModalOpen(true);
+        }
       }
     }
   };
@@ -737,6 +753,12 @@ export default function InventoryModule({
       });
 
       onUpdateProduct(updated);
+
+      if (autoPrintLabelsOnIngreso) {
+        setLabelSelectedProduct(updated);
+        setLabelInitialQuantities({ [updated.id]: qty });
+        setIsLabelsModalOpen(true);
+      }
     } else {
       // New equipment model
       const newBranchStock = {
@@ -788,6 +810,12 @@ export default function InventoryModule({
       });
 
       onAddProduct(newProd);
+
+      if (autoPrintLabelsOnIngreso) {
+        setLabelSelectedProduct(newProd);
+        setLabelInitialQuantities({ [newProd.id]: qty });
+        setIsLabelsModalOpen(true);
+      }
     }
 
     setIsImeiCaptureModalOpen(false);
@@ -1979,6 +2007,30 @@ export default function InventoryModule({
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-emerald-600"
                   />
                 </div>
+              </div>
+
+              {/* Opción habilitada para imprimir etiquetas del producto ingresado (ej. 10 micas = 10 etiquetas de 50x30mm) */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center justify-between gap-3">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoPrintLabelsOnIngreso}
+                    onChange={(e) => setAutoPrintLabelsOnIngreso(e.target.checked)}
+                    className="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Imprimir etiquetas de código de barras al confirmar</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-medium">
+                      Formato estándar 50x30mm adhesivo ({parseInt(ingresarQuantity) || 1} {parseInt(ingresarQuantity) === 1 ? 'etiqueta' : 'etiquetas'})
+                    </div>
+                  </div>
+                </label>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-900 border border-amber-300 shrink-0 font-mono">
+                  {parseInt(ingresarQuantity) || 1} ETIQ
+                </span>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
