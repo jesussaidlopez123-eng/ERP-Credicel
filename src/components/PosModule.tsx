@@ -1130,6 +1130,7 @@ export default function PosModule({
         currentBranch={currentBranch}
         currentOperator={currentOperator}
         onEmitDirectTicket={(ticket) => {
+          onCompleteSale(ticket);
           setCompletedTicket(ticket);
           setIsTicketReceiptOpen(true);
         }}
