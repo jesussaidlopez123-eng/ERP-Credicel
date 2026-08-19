@@ -1522,7 +1522,7 @@ export default function InventoryModule({
                     </div>
                   </th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
-                  <th className="p-3 text-center w-28">ACCIONES</th>
+                  <th className="p-3 text-center w-24">ACCIONES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -1645,35 +1645,33 @@ export default function InventoryModule({
                           </span>
                         </td>
 
-                        {/* Acciones: Etiqueta, Modificar y Ver Información */}
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                        {/* Acciones: Solo iconos compactos para ganar espacio en la tabla */}
+                        <td className="p-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               type="button"
                               onClick={() => {
                                 setLabelSelectedProduct(p);
                                 setIsLabelsModalOpen(true);
                               }}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-950 hover:text-white transition-all cursor-pointer border border-amber-300 font-extrabold text-[11px] shadow-2xs"
-                              title={`Imprimir etiqueta con código de barras para ${p.name}`}
+                              className="p-1.5 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-950 hover:text-white transition-all cursor-pointer border border-amber-300 shadow-2xs"
+                              title={`Imprimir etiqueta de código de barras para ${p.name}`}
                             >
                               <Tag className="w-3.5 h-3.5" />
-                              <span>Etiqueta</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingProduct(p)}
-                              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-300 font-extrabold text-[11px] shadow-2xs"
-                              title={`Modificar datos de ${isTypeEquipo ? 'este teléfono' : 'este artículo'} (precios, proveedor, modelo, etc.)`}
+                              className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-300 shadow-2xs"
+                              title={`Modificar datos de ${isTypeEquipo ? 'este teléfono' : 'este artículo'}`}
                             >
                               <Pencil className="w-3.5 h-3.5" />
-                              <span>Editar</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setInfoProduct(p)}
                               className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all cursor-pointer border border-blue-200 shadow-2xs"
-                              title="Ver Información Detallada del Artículo / Proveedor"
+                              title="Ver información detallada del artículo y proveedor"
                             >
                               <Info className="w-3.5 h-3.5" />
                             </button>
