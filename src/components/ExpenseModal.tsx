@@ -70,28 +70,30 @@ export default function ExpenseModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
       
-      {/* Print Styles for 80mm POS Thermal Printers */}
+      {/* Print Styles for 58mm POS Thermal Printers */}
       <style>{`
         @media print {
           body * {
-            visibility: hidden;
+            visibility: hidden !important;
           }
           #thermal-expense-receipt, #thermal-expense-receipt * {
-            visibility: visible;
+            visibility: visible !important;
           }
           #thermal-expense-receipt {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 80mm;
-            padding: 4mm;
-            margin: 0;
-            background: white !important;
-            color: black !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 56mm !important;
+            max-width: 58mm !important;
+            padding: 2mm 2mm 12mm 2mm !important;
+            margin: 0 auto !important;
+            background: #ffffff !important;
+            color: #000000 !important;
             box-shadow: none !important;
             border: none !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 11px !important;
+            font-size: 10px !important;
+            line-height: 1.22 !important;
           }
           .no-print {
             display: none !important;
@@ -156,18 +158,9 @@ export default function ExpenseModal({
                 </div>
               </div>
 
-              {/* Signatures */}
-              <div className="pt-4 pb-2 space-y-6 text-center text-[10px] text-slate-600 font-sans">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="border-b border-slate-400 mb-1 w-full h-8"></div>
-                    <span className="font-bold block">Firma Cajero</span>
-                  </div>
-                  <div>
-                    <div className="border-b border-slate-400 mb-1 w-full h-8"></div>
-                    <span className="font-bold block">Firma Autoriza</span>
-                  </div>
-                </div>
+              {/* Status Note (Sin firmas según solicitud de blindaje) */}
+              <div className="py-1 text-center font-bold text-[9.5px] text-slate-600">
+                *** SALIDA DE EFECTIVO AUTORIZADA ***
               </div>
 
               {/* Footer */}

@@ -34,6 +34,7 @@ interface InventoryPrintModalProps {
   currentOperator?: Operator;
   allBranches?: Branch[];
   initialCategory?: 'accesorio' | 'equipo' | 'all';
+  initialBranchId?: string;
 }
 
 export default function InventoryPrintModal({
@@ -47,11 +48,12 @@ export default function InventoryPrintModal({
     { id: 'b-navojoa', name: 'Navojoa' },
     { id: 'b-huatabampo', name: 'Huatabampo' }
   ],
-  initialCategory = 'all'
+  initialCategory = 'all',
+  initialBranchId = 'all'
 }: InventoryPrintModalProps) {
 
   // 1. FILTER STATES (Declared unconditionally at top level)
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(initialBranchId);
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'equipo' | 'accesorio'>(initialCategory);
   const [searchQuery, setSearchQuery] = useState<string>('');
   
@@ -66,12 +68,15 @@ export default function InventoryPrintModal({
   const [isCopiedExcel, setIsCopiedExcel] = useState<boolean>(false);
   const [isCopiedText, setIsCopiedText] = useState<boolean>(false);
 
-  // Sync category when opening modal according to the active tab in inventory
+  // Sync category and branch when opening modal according to the active tab/branch in inventory
   useEffect(() => {
     if (isOpen) {
       setSelectedCategory(initialCategory);
+      if (initialBranchId) {
+        setSelectedBranchId(initialBranchId);
+      }
     }
-  }, [isOpen, initialCategory]);
+  }, [isOpen, initialCategory, initialBranchId]);
 
   // Helper functions
   const getBranchName = (branchId: string): string => {

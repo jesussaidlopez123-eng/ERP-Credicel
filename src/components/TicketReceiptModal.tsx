@@ -295,6 +295,19 @@ export default function TicketReceiptModal({
                     <span>Cód: {item.product.code}</span>
                   </div>
 
+                  {/* Specific metadata for Credit Abonos */}
+                  {item.product.code.startsWith('ABO-') && (
+                    <div className="text-[9px] bg-slate-100 p-1 rounded border border-slate-300 text-black space-y-0.5 mt-0.5 font-sans">
+                      <div className="font-black text-[9px] text-indigo-900">
+                        💳 ABONO DE CRÉDITO
+                      </div>
+                      {item.metadata?.issueDescription && (
+                        <div>📝 Concepto: {item.metadata.issueDescription}</div>
+                      )}
+                      <div>💵 Monto Abonado: <strong className="font-mono">${item.totalPrice.toFixed(2)}</strong></div>
+                    </div>
+                  )}
+
                   {/* Specific metadata for Airtime Recharges */}
                   {item.metadata?.phoneNumber && (
                     <div className="text-[9px] text-black bg-slate-100 p-1 rounded border border-slate-300 font-mono space-y-0.5 mt-0.5">
@@ -304,7 +317,7 @@ export default function TicketReceiptModal({
                   )}
 
                   {/* Specific metadata for Equipment / Cell Phone Sales */}
-                  {item.metadata?.deviceModel && (
+                  {item.metadata?.deviceModel && !item.product.code.startsWith('ABO-') && (
                     <div className="text-[9px] bg-slate-100 p-1 rounded border border-slate-300 text-black space-y-0.5 mt-0.5 font-sans">
                       <div className="font-black text-[9px]">
                         {item.metadata.saleType === 'contado' || item.metadata.financingPlatform === 'Contado'

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Printer, Check } from 'lucide-react';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { Branch, Operator } from './types';
@@ -9,6 +10,10 @@ import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirest
 const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
 
 export default function App() {
+  // Printing notification state (discreet overlay toast)
+  const [isPrintingNotification, setIsPrintingNotification] = useState<boolean>(false);
+  const [printFinishedNotification, setPrintFinishedNotification] = useState<boolean>(false);
+
   // Persistent Operators State with Firestore Sync
   const [operators, setOperators] = useState<Operator[]>(() => getStoredOperators());
 
@@ -71,6 +76,51 @@ export default function App() {
     });
     return () => unsubscribe();
   }, [currentOperator]);
+
+  // Listen for browser print events (window.print, kiosk printing, or shortcut Ctrl+P)
+  useEffect(() => {
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    let finishedTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleBeforePrint = () => {
+      if (hideTimer) clearTimeout(hideTimer);
+      if (finishedTimer) clearTimeout(finishedTimer);
+      setPrintFinishedNotification(false);
+      setIsPrintingNotification(true);
+    };
+
+    const handleAfterPrint = () => {
+      setIsPrintingNotification(false);
+      setPrintFinishedNotification(true);
+      finishedTimer = setTimeout(() => {
+        setPrintFinishedNotification(false);
+      }, 2500);
+    };
+
+    // Custom app-level trigger listener
+    const handleCustomPrintTrigger = () => {
+      handleBeforePrint();
+      hideTimer = setTimeout(() => {
+        setIsPrintingNotification(false);
+        setPrintFinishedNotification(true);
+        finishedTimer = setTimeout(() => {
+          setPrintFinishedNotification(false);
+        }, 2500);
+      }, 1600);
+    };
+
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('afterprint', handleAfterPrint);
+    window.addEventListener('app-printing-started', handleCustomPrintTrigger);
+
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      window.removeEventListener('app-printing-started', handleCustomPrintTrigger);
+      if (hideTimer) clearTimeout(hideTimer);
+      if (finishedTimer) clearTimeout(finishedTimer);
+    };
+  }, []);
 
   const handleUpdateOperators = async (newOperators: Operator[]) => {
     // Detect removed operators by comparing old and new operator IDs
@@ -154,12 +204,45 @@ export default function App() {
   }
 
   return (
-    <Dashboard 
-      currentBranch={currentBranch}
-      currentOperator={currentOperator}
-      operators={operators}
-      onUpdateOperators={handleUpdateOperators}
-      onLogout={handleLogout}
-    />
+    <>
+      <Dashboard 
+        currentBranch={currentBranch}
+        currentOperator={currentOperator}
+        operators={operators}
+        onUpdateOperators={handleUpdateOperators}
+        onLogout={handleLogout}
+      />
+
+      {/* Discrete Printing Status Indicator (No-Print) */}
+      {(isPrintingNotification || printFinishedNotification) && (
+        <div 
+          className="fixed bottom-4 right-4 z-9999 no-print pointer-events-none transition-all duration-300 transform translate-y-0"
+          role="status"
+          aria-live="polite"
+        >
+          <div className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl shadow-xl border backdrop-blur-md text-xs font-black select-none animate-in fade-in slide-in-from-bottom-2 duration-200 ${
+            isPrintingNotification
+              ? 'bg-slate-950/90 text-amber-300 border-amber-400/40 ring-2 ring-amber-400/20'
+              : 'bg-slate-950/90 text-emerald-300 border-emerald-400/40 ring-2 ring-emerald-400/20'
+          }`}>
+            {isPrintingNotification ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <Printer className="w-4 h-4 text-amber-300 animate-pulse" />
+                <span className="tracking-wide">Imprimiendo ticket...</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4 text-emerald-400" />
+                <span className="tracking-wide text-slate-200">Ticket enviado a impresora</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

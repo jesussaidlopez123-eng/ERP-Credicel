@@ -1267,14 +1267,11 @@ export default function CorteXModal({
           )}
         </div>
 
-        {/* Signature lines */}
-        <div className="pt-6 pb-2 text-center space-y-4">
-          <div className="border-t border-black pt-1 w-3/4 mx-auto text-[9px]">
-            Firma Cajero(a)
-          </div>
-          <div className="border-t border-black pt-1 w-3/4 mx-auto text-[9px]">
-            Firma Supervisor / Admin
-          </div>
+        {/* Footer */}
+        <div className="pt-3 pb-2 text-center space-y-1">
+          <p className="text-[8.5px] font-bold text-black">
+            *** FIN DEL REPORTE DE CORTE ***
+          </p>
           <p className="text-[8px] text-black">
             CrediCel ERP • Sistema Punto de Venta
           </p>

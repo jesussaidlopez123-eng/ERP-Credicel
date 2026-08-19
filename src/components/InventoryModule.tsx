@@ -73,6 +73,12 @@ export default function InventoryModule({
 
   // Modal Impresión y Auditoría de Inventario
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printBranchId, setPrintBranchId] = useState<string>('all');
+
+  const handleOpenPrintModalForBranch = (branchId: string) => {
+    setPrintBranchId(branchId);
+    setIsPrintModalOpen(true);
+  };
 
   // Modal 0: Historial de Movimientos de los últimos 15 días
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
@@ -1467,9 +1473,54 @@ export default function InventoryModule({
                   )}
                   <th className="p-3 text-right w-32">3. PRECIO INICIAL</th>
                   <th className="p-3 text-right w-32">4. PRECIO FINAL</th>
-                  <th className="p-3 text-center w-28 bg-blue-950 border-l border-slate-800">BODEGA</th>
-                  <th className="p-3 text-center w-28 bg-emerald-950">NAVOJOA</th>
-                  <th className="p-3 text-center w-28 bg-purple-950 border-r border-slate-800">HUATABAMPO</th>
+                  <th className="p-3 text-center w-32 bg-blue-950 border-l border-slate-800">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>BODEGA</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenPrintModalForBranch('b-bodega');
+                        }}
+                        className="p-1 hover:bg-blue-800 text-blue-300 hover:text-amber-300 rounded transition-all cursor-pointer"
+                        title="Imprimir inventario exclusivo de Bodega Central"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </th>
+                  <th className="p-3 text-center w-32 bg-emerald-950">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>NAVOJOA</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenPrintModalForBranch('b-navojoa');
+                        }}
+                        className="p-1 hover:bg-emerald-800 text-emerald-300 hover:text-amber-300 rounded transition-all cursor-pointer"
+                        title="Imprimir inventario exclusivo de Sucursal Navojoa"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </th>
+                  <th className="p-3 text-center w-32 bg-purple-950 border-r border-slate-800">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>HUATABAMPO</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenPrintModalForBranch('b-huatabampo');
+                        }}
+                        className="p-1 hover:bg-purple-800 text-purple-300 hover:text-amber-300 rounded transition-all cursor-pointer"
+                        title="Imprimir inventario exclusivo de Sucursal Huatabampo"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
                   <th className="p-3 text-center w-28">ACCIONES</th>
                 </tr>
@@ -3232,12 +3283,16 @@ export default function InventoryModule({
       {/* MODAL DE IMPRESIÓN Y REPORTE DE INVENTARIO */}
       <InventoryPrintModal
         isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
+        onClose={() => {
+          setIsPrintModalOpen(false);
+          setPrintBranchId('all');
+        }}
         products={products}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
         allBranches={allBranches}
         initialCategory={activeInventoryTab}
+        initialBranchId={printBranchId}
       />
 
       {/* MODAL DE IMPRESIÓN DE ETIQUETAS CON CÓDIGO DE BARRAS */}

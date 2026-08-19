@@ -24,7 +24,9 @@ import {
   ScanLine,
   Volume2,
   VolumeX,
-  AlertCircle
+  AlertCircle,
+  RotateCcw,
+  Printer
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord } from '../types';
 import RechargeModal from './RechargeModal';
@@ -32,6 +34,7 @@ import CreditDeviceModal from './CreditDeviceModal';
 import ExpenseModal from './ExpenseModal';
 import CorteXModal from './CorteXModal';
 import TicketReceiptModal from './TicketReceiptModal';
+import ReprintTicketModal from './ReprintTicketModal';
 import RepairModal from './RepairModal';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import PaymentCheckoutModal from './PaymentCheckoutModal';
@@ -142,6 +145,7 @@ export default function PosModule({
 
   const [completedTicket, setCompletedTicket] = useState<SaleTicket | null>(null);
   const [isTicketReceiptOpen, setIsTicketReceiptOpen] = useState(false);
+  const [isReprintModalOpen, setIsReprintModalOpen] = useState(false);
   const [isPaymentCheckoutModalOpen, setIsPaymentCheckoutModalOpen] = useState(false);
   const [isCreditPaymentModalOpen, setIsCreditPaymentModalOpen] = useState(false);
   const [isCaseModelModalOpen, setIsCaseModelModalOpen] = useState(false);
@@ -650,6 +654,16 @@ export default function PosModule({
 
             <button
               type="button"
+              onClick={() => setIsReprintModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-black rounded-lg shadow-2xs transition-all cursor-pointer shrink-0 border border-slate-700"
+              title="Reimprimir tickets de venta anteriores (Folio, Cliente, IMEI)"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
+              <span>Reimprimir</span>
+            </button>
+
+            <button
+              type="button"
               onClick={toggleSearch}
               className={`p-1.5 border rounded-lg transition-colors cursor-pointer flex items-center justify-center shrink-0 ${
                 isSearchOpen || searchQuery ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xs' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
@@ -1125,6 +1139,14 @@ export default function PosModule({
         onClose={() => setIsTicketReceiptOpen(false)}
         ticket={completedTicket}
         currentBranch={currentBranch}
+      />
+
+      <ReprintTicketModal
+        isOpen={isReprintModalOpen}
+        onClose={() => setIsReprintModalOpen(false)}
+        salesTickets={salesTickets}
+        currentBranch={currentBranch}
+        currentOperator={currentOperator}
       />
 
       <CaseModelModal
