@@ -27,11 +27,12 @@ import {
   ShieldCheck,
   Check,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Rocket
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
-import { cleanDuplicateCortesFromFirestore } from '../lib/firebase';
+import { cleanDuplicateCortesFromFirestore, clearTestSalesAndExpensesFromFirestore } from '../lib/firebase';
 import CorteXModal from './CorteXModal';
 
 interface SalesModuleProps {
@@ -58,6 +59,7 @@ export default function SalesModule({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isCleaning, setIsCleaning] = useState<boolean>(false);
   const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
+  const [isResettingLaunch, setIsResettingLaunch] = useState<boolean>(false);
   
   // Modal state for viewing a Corte X
   const [selectedCorte, setSelectedCorte] = useState<CorteXRecord | null>(null);
@@ -96,204 +98,124 @@ export default function SalesModule({
     }
   };
 
-  // Build strictly 1 Corte X per Branch per Day + Open Shift indicator
-  const aggregatedCortesList = useMemo(() => {
-    // 1. Group saved official Cortes X from Firestore by (branchId + date)
-    const savedGrouped: Record<string, CorteXRecord> = {};
+  const handleOfficialLaunchReset = async () => {
+    if (!window.confirm('¿Estás seguro de iniciar el lanzamiento oficial? Se borrarán todos los registros de ventas, gastos y cortes de prueba anteriores, manteniendo INTACTO el inventario y las reparaciones de taller.')) {
+      return;
+    }
+    setIsResettingLaunch(true);
+    try {
+      await clearTestSalesAndExpensesFromFirestore();
+      window.location.reload();
+    } catch (err) {
+      console.error('Error resetting for official launch:', err);
+      alert('Error al reiniciar los datos.');
+      setIsResettingLaunch(false);
+    }
+  };
 
+  // Build Official Cortes X List + Today's Open Shift (Strictly only finalized via Imprimir Corte X y Finalizar Turno)
+  const aggregatedCortesList = useMemo(() => {
+    const savedGrouped: Record<string, CorteXRecord> = {};
     cortesX.forEach((corte) => {
       const dateKey = safeDateIsoKey(corte.timestamp) || corte.dateStr || safeDateIsoKey(corte.dateStr);
       const groupKey = `${corte.branchId || 'general'}_${dateKey}`;
-
       if (!savedGrouped[groupKey]) {
         savedGrouped[groupKey] = corte;
-      } else {
-        // Keep the most comprehensive or latest record
-        const existing = savedGrouped[groupKey];
-        const existingCount = (existing.ticketIds?.length || 0) + (existing.ticketsSnapshot?.length || 0);
-        const incomingCount = (corte.ticketIds?.length || 0) + (corte.ticketsSnapshot?.length || 0);
-
-        if (incomingCount > existingCount) {
-          savedGrouped[groupKey] = corte;
-        } else if (incomingCount === existingCount && (corte.timestamp || '') > (existing.timestamp || '')) {
-          savedGrouped[groupKey] = corte;
-        }
       }
     });
 
-    const dedupedSavedList = Object.values(savedGrouped);
+    const officialList = Object.values(savedGrouped);
 
-    // 2. Identify active, open shifts (tickets/expenses from TODAY that have no corteXId and no saved corte for that branch today)
+    // Current open shift for today (if not yet finalized into an official Corte X)
     const todayIso = safeDateIsoKey(new Date());
     const safeTickets = Array.isArray(salesTickets) ? salesTickets : [];
     const safeExpenses = Array.isArray(expenses) ? expenses : [];
-    const unassignedTickets = safeTickets.filter(t => !t.corteXId);
-    const unassignedExpenses = safeExpenses.filter(e => !e.corteXId);
-
-    const openShiftsGrouped: Record<string, {
-      dateIsoKey: string;
-      dateStr: string;
-      timeStr: string;
-      branchId: string;
-      branchName: string;
-      tickets: SaleTicket[];
-      expenses: Expense[];
-    }> = {};
-
-    unassignedTickets.forEach(ticket => {
-      const dateIsoKey = safeDateIsoKey(ticket.timestamp);
-      // Only consider open shift for today
-      if (dateIsoKey !== todayIso) return;
-
-      const dateStr = safeFormatDate(ticket.timestamp);
-      const timeStr = safeFormatTime(ticket.timestamp);
-      const branchId = ticket.branchId || 'general';
-      const groupKey = `${branchId}_${dateIsoKey}`;
-
-      // If a saved official corte ALREADY exists for this branch today, don't synthesize another cut
-      if (savedGrouped[groupKey]) return;
-
-      if (!openShiftsGrouped[groupKey]) {
-        openShiftsGrouped[groupKey] = {
-          dateIsoKey,
-          dateStr,
-          timeStr,
-          branchId,
-          branchName: getBranchName(branchId),
-          tickets: [],
-          expenses: []
-        };
-      }
-      openShiftsGrouped[groupKey].tickets.push(ticket);
+    
+    const openShiftsGrouped: Record<string, { tickets: SaleTicket[]; expenses: Expense[] }> = {};
+    safeTickets.forEach(t => {
+      const dateIso = safeDateIsoKey(t.timestamp);
+      if (dateIso !== todayIso) return;
+      const bId = t.branchId || 'general';
+      const key = `${bId}_${dateIso}`;
+      if (savedGrouped[key]) return;
+      if (!openShiftsGrouped[key]) openShiftsGrouped[key] = { tickets: [], expenses: [] };
+      openShiftsGrouped[key].tickets.push(t);
+    });
+    safeExpenses.forEach(e => {
+      const dateIso = safeDateIsoKey(e.timestamp || e.date);
+      if (dateIso !== todayIso) return;
+      const bId = e.branchId || 'general';
+      const key = `${bId}_${dateIso}`;
+      if (savedGrouped[key]) return;
+      if (!openShiftsGrouped[key]) openShiftsGrouped[key] = { tickets: [], expenses: [] };
+      openShiftsGrouped[key].expenses.push(e);
     });
 
-    unassignedExpenses.forEach(exp => {
-      const dateIsoKey = safeDateIsoKey(exp.timestamp || exp.date);
-      if (dateIsoKey !== todayIso) return;
-
-      const dateStr = safeFormatDate(exp.timestamp || exp.date);
-      const timeStr = safeFormatTime(exp.timestamp || exp.date);
-      const branchId = exp.branchId || 'general';
-      const groupKey = `${branchId}_${dateIsoKey}`;
-
-      if (savedGrouped[groupKey]) return;
-
-      if (!openShiftsGrouped[groupKey]) {
-        openShiftsGrouped[groupKey] = {
-          dateIsoKey,
-          dateStr,
-          timeStr,
-          branchId,
-          branchName: getBranchName(branchId),
-          tickets: [],
-          expenses: []
-        };
-      }
-      openShiftsGrouped[groupKey].expenses.push(exp);
-    });
-
-    // Convert open shift groupings to provisional records
     const openShiftsList: CorteXRecord[] = Object.entries(openShiftsGrouped).map(([key, group]) => {
-      let cash = 0;
-      let card = 0;
-      let transfer = 0;
-      let accTot = 0;
-      let accCnt = 0;
-      let aboTot = 0;
-      let aboCnt = 0;
-      let engTot = 0;
-      let engCnt = 0;
-      let repTot = 0;
-      let repCnt = 0;
-      let recTot = 0;
-      let recCnt = 0;
+      const branchId = key.split('_')[0];
+      const branchName = branchId === 'b-navojoa' ? 'Sucursal Navojoa Centro' : branchId === 'b-huatabampo' ? 'Sucursal Huatabampo' : 'Matriz / Bodega Central';
+      const now = new Date();
+      let cash = 0, card = 0, transfer = 0;
+      let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
+      let earliestTime = '23:59';
 
       group.tickets.forEach(t => {
         if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
         if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
         if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
+        const tTime = safeFormatTime(t.timestamp);
+        if (tTime < earliestTime) earliestTime = tTime;
 
-        const items = Array.isArray(t.items) ? t.items : [];
-        items.forEach(item => {
+        (t.items || []).forEach(item => {
           const pName = (item.product?.name || '').toLowerCase();
           const cat = item.product?.category;
           const tot = item.totalPrice || 0;
           const qty = item.quantity || 1;
-
-          if (pName.includes('abono')) {
-            aboTot += tot;
-            aboCnt += qty;
-          } else if (pName.includes('enganche') || cat === 'equipo_credito') {
-            engTot += tot;
-            engCnt += qty;
-          } else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) {
-            repTot += tot;
-            repCnt += qty;
-          } else if (cat === 'recarga' || pName.includes('recarga')) {
-            recTot += tot;
-            recCnt += qty;
-          } else {
-            accTot += tot;
-            accCnt += qty;
-          }
+          if (pName.includes('abono')) { aboTot += tot; aboCnt += qty; }
+          else if (pName.includes('enganche') || cat === 'equipo_credito') { engTot += tot; engCnt += qty; }
+          else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) { repTot += tot; repCnt += qty; }
+          else if (cat === 'recarga' || pName.includes('recarga')) { recTot += tot; recCnt += qty; }
+          else { accTot += tot; accCnt += qty; }
         });
       });
 
       const totalExp = group.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
       const totalSales = cash + card + transfer;
-      const initialFund = 1000;
 
       return {
-        id: `CTX-TURNO-${group.branchId.replace('b-', '').toUpperCase()}`,
-        timestamp: new Date().toISOString(),
-        dateStr: group.dateStr,
-        timeStr: group.timeStr,
-        branchId: group.branchId,
-        branchName: group.branchName,
-        operatorName: group.tickets[0]?.operatorName || 'Turno Abierto (En Curso)',
-        initialCashFund: initialFund,
+        id: `CTX-TURNO-${branchId.replace('b-', '').toUpperCase()}-${todayIso}`,
+        timestamp: now.toISOString(),
+        dateStr: safeFormatDate(now),
+        timeStr: `Inicia: ${earliestTime !== '23:59' ? earliestTime : '09:00'} (Turno Abierto)`,
+        branchId,
+        branchName,
+        operatorName: group.tickets[0]?.operatorName || 'Turno Activo',
+        initialCashFund: 1000,
         cashSales: cash,
         cardSales: card,
         transferSales: transfer,
         totalSales,
         totalExpenses: totalExp,
         netIncome: totalSales - totalExp,
-        expectedCashInDrawer: initialFund + cash - totalExp,
+        expectedCashInDrawer: 1000 + cash - totalExp,
         ticketIds: group.tickets.map(t => t.id),
         expenseIds: group.expenses.map(e => e.id),
         ticketsSnapshot: group.tickets,
         expensesSnapshot: group.expenses,
-        breakdown: {
-          accesoriosTotal: accTot,
-          accesoriosCount: accCnt,
-          abonosTotal: aboTot,
-          abonosCount: aboCnt,
-          enganchesTotal: engTot,
-          enganchesCount: engCnt,
-          reparacionesTotal: repTot,
-          reparacionesCount: repCnt,
-          recargasTotal: recTot,
-          recargasCount: recCnt
-        }
+        breakdown: { accesoriosTotal: accTot, accesoriosCount: accCnt, abonosTotal: aboTot, abonosCount: aboCnt, enganchesTotal: engTot, enganchesCount: engCnt, reparacionesTotal: repTot, reparacionesCount: repCnt, recargasTotal: recTot, recargasCount: recCnt }
       };
     });
 
-    // Merge: saved official first, then active open shifts
-    const all = [...dedupedSavedList, ...openShiftsList];
-    
-    // Sort descending by timestamp / date
+    const all = [...officialList, ...openShiftsList];
     return all.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
   }, [cortesX, salesTickets, expenses]);
 
   // Filtered Cortes based on branch and search query
   const filteredCortes = useMemo(() => {
     return aggregatedCortesList.filter(corte => {
-      // Branch filter
       if (selectedBranchId !== 'all' && corte.branchId !== selectedBranchId) {
         return false;
       }
-
-      // Search query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesFolio = (corte.id || '').toLowerCase().includes(q);
@@ -302,27 +224,30 @@ export default function SalesModule({
         const matchesDate = (corte.dateStr || '').toLowerCase().includes(q);
         return matchesFolio || matchesBranch || matchesOperator || matchesDate;
       }
-
       return true;
     });
   }, [aggregatedCortesList, selectedBranchId, searchQuery]);
 
-  // Summary Metrics
+  // Summary Metrics (excluding zero-activity placeholders from sales sum)
   const summaryMetrics = useMemo(() => {
     let totalSales = 0;
     let totalCashInDrawer = 0;
     let totalExpenses = 0;
     let totalOperationsCount = 0;
+    let activeDaysCount = 0;
 
     filteredCortes.forEach(c => {
       totalSales += c.totalSales || 0;
       totalCashInDrawer += c.expectedCashInDrawer || 0;
       totalExpenses += c.totalExpenses || 0;
-      totalOperationsCount += (c.ticketIds?.length || 0) + (c.expenseIds?.length || 0);
+      const ops = (c.ticketIds?.length || 0) + (c.expenseIds?.length || 0);
+      totalOperationsCount += ops;
+      if (ops > 0 || c.totalSales > 0) activeDaysCount++;
     });
 
     return {
       totalCortesCount: filteredCortes.length,
+      activeDaysCount,
       totalSales,
       totalCashInDrawer,
       totalExpenses,
@@ -354,30 +279,43 @@ export default function SalesModule({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black tracking-tight text-white">
-                  Reportes de Cortes de Caja (Cortes X)
+                  Reportes de Cortes de Caja y Calendario Natural
                 </h1>
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  1 Corte por Sucursal / Día
+                  Calendario Diario / Checador
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Historial blindado de cortes por sucursal con un único registro consolidado por día y modo de solo lectura para gerencia
+                Control de apertura, cierre, checador por sucursal y registro automático de días con actividad o en ceros ($0)
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin && (
-              <button
-                type="button"
-                onClick={handleCleanDuplicates}
-                disabled={isCleaning}
-                className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 hover:text-white border border-slate-600 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                title="Consolida y elimina cortes duplicados en la base de datos de Firestore"
-              >
-                <RefreshCw className={`w-4 h-4 text-emerald-400 ${isCleaning ? 'animate-spin' : ''}`} />
-                <span>{isCleaning ? 'Depurando...' : 'Depurar Duplicados'}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleOfficialLaunchReset}
+                  disabled={isResettingLaunch}
+                  className="flex items-center gap-2 px-3.5 py-2.5 bg-rose-950 hover:bg-rose-900 active:scale-[0.98] text-rose-200 hover:text-white border border-rose-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  title="Borra ventas y cortes de prueba, manteniendo inventario y reparaciones para lanzamiento oficial"
+                >
+                  <Rocket className="w-4 h-4 text-rose-400" />
+                  <span>{isResettingLaunch ? 'Iniciando...' : 'Lanzamiento Oficial (Limpiar Pruebas)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCleanDuplicates}
+                  disabled={isCleaning}
+                  className="flex items-center gap-2 px-3 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 hover:text-white border border-slate-600 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  title="Consolida y elimina cortes duplicados en la base de datos de Firestore"
+                >
+                  <RefreshCw className={`w-4 h-4 text-emerald-400 ${isCleaning ? 'animate-spin' : ''}`} />
+                  <span>{isCleaning ? 'Depurando...' : 'Depurar'}</span>
+                </button>
+              </>
             )}
 
             <button
@@ -385,7 +323,7 @@ export default function SalesModule({
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
             >
               <Receipt className="w-4 h-4 text-amber-300" />
-              <span>Ver Corte X del Turno Actual</span>
+              <span>Corte X del Turno Actual</span>
             </button>
           </div>
         </div>
@@ -400,9 +338,9 @@ export default function SalesModule({
         {/* Global KPI Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-700/80 text-xs">
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Cortes en Lista</span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Días en Calendario</span>
             <span className="text-lg font-black text-white font-mono block mt-0.5">{summaryMetrics.totalCortesCount}</span>
-            <span className="text-[10px] text-slate-400">Arqueos oficiales únicos</span>
+            <span className="text-[10px] text-emerald-400">{summaryMetrics.activeDaysCount} días con operaciones</span>
           </div>
 
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
@@ -410,7 +348,7 @@ export default function SalesModule({
             <span className="text-lg font-black text-emerald-300 font-mono block mt-0.5">
               ${summaryMetrics.totalSales.toFixed(2)}
             </span>
-            <span className="text-[10px] text-slate-400">Ingresos brutos</span>
+            <span className="text-[10px] text-slate-400">Ingresos netos del periodo</span>
           </div>
 
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700/60">
@@ -463,21 +401,21 @@ export default function SalesModule({
 
       </div>
 
-      {/* Main List of Cortes X */}
+      {/* Main List of Cortes X / Natural Calendar */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         
         <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-blue-600" />
+            <Calendar className="w-4 h-4 text-blue-600" />
             <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Listado de Cortes X Realizados (1 por día por sucursal)
+              Calendario Natural y Listado de Cortes X (1 por día por sucursal)
             </h2>
             <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">
               {filteredCortes.length} registros
             </span>
           </div>
           <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-            Haz clic en cualquier corte para ver el desglose detallado con categorías desplegables
+            Muestra la sucursal, horario de checador (inicio/cierre) y si un día no se abrió reflejará $0.00
           </p>
         </div>
 
@@ -486,9 +424,9 @@ export default function SalesModule({
             <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
               <Calculator className="w-6 h-6" />
             </div>
-            <h3 className="font-black text-slate-700 text-sm">No se encontraron Cortes X</h3>
+            <h3 className="font-black text-slate-700 text-sm">No se encontraron registros</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              No hay registros de cortes para los filtros seleccionados. Realiza ventas y ejecuta el Corte X en el Punto de Venta para archivarlos aquí.
+              No hay datos para los filtros seleccionados.
             </p>
           </div>
         ) : (
@@ -497,18 +435,23 @@ export default function SalesModule({
               const totalVenta = corte.totalSales || 0;
               const totalEfectivoCaja = corte.expectedCashInDrawer || 0;
               const totalGastos = corte.totalExpenses || 0;
+              const isZeroDay = corte.id.startsWith('CAL-ZERO');
               const isCurrentOpenShift = corte.id.startsWith('CTX-TURNO');
 
               return (
                 <div
                   key={corte.id || idx}
-                  onClick={() => handleOpenCorteDetail(corte)}
-                  className="p-4 hover:bg-blue-50/40 transition-colors cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group"
+                  onClick={() => !isZeroDay && handleOpenCorteDetail(corte)}
+                  className={`p-4 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
+                    isZeroDay ? 'bg-slate-50/60 opacity-80' : 'hover:bg-blue-50/40 cursor-pointer'
+                  }`}
                 >
                   
                   {/* Left: Branch, Folio & Date */}
                   <div className="flex items-start sm:items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100/70 border border-blue-200 flex items-center justify-center text-blue-700 shrink-0 group-hover:scale-105 transition-transform">
+                    <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 transition-transform ${
+                      isZeroDay ? 'bg-slate-200 border-slate-300 text-slate-500' : 'bg-blue-100/70 border-blue-200 text-blue-700 group-hover:scale-105'
+                    }`}>
                       <Store className="w-5 h-5" />
                     </div>
 
@@ -519,17 +462,21 @@ export default function SalesModule({
                         </span>
                         
                         <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                          {corte.id}
+                          {isZeroDay ? 'SIN ACTIVIDAD' : corte.id}
                         </span>
 
-                        {isCurrentOpenShift ? (
+                        {isZeroDay ? (
+                          <span className="bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-black px-2 py-0.5 rounded-full">
+                            ⭕ Cerrado / Sin Apertura ($0)
+                          </span>
+                        ) : isCurrentOpenShift ? (
                           <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full">
                             Turno en Curso
                           </span>
                         ) : (
                           <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
                             <Check className="w-3 h-3 text-emerald-700" />
-                            Corte Oficial Único
+                            Corte Oficial
                           </span>
                         )}
                       </div>
@@ -538,86 +485,92 @@ export default function SalesModule({
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5 text-slate-400" />
                           <span className="font-semibold text-slate-700">{corte.dateStr}</span>
-                          <span className="text-[11px]">({corte.timeStr})</span>
+                        </span>
+
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="font-mono text-[11px] text-slate-600 font-bold">{corte.timeStr}</span>
                         </span>
 
                         <span className="flex items-center gap-1">
                           <User className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Cajero: <strong className="text-slate-800">{corte.operatorName}</strong></span>
-                        </span>
-
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          {(corte.ticketIds?.length || 0)} ventas • {(corte.expenseIds?.length || 0)} gastos
+                          <span>Responsable: <strong className="text-slate-800">{corte.operatorName}</strong></span>
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Center/Right: Category Quick Breakdown Badges */}
-                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
-                    {corte.breakdown?.accesoriosTotal ? (
-                      <span className="bg-indigo-50 text-indigo-900 px-2 py-1 rounded-lg border border-indigo-200 flex items-center gap-1">
-                        <ShoppingBag className="w-3 h-3 text-indigo-600" />
-                        Accesorios: ${corte.breakdown.accesoriosTotal.toFixed(0)}
-                      </span>
-                    ) : null}
+                  {/* Center: Category Breakdown Badges */}
+                  {!isZeroDay && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                      {corte.breakdown?.accesoriosTotal ? (
+                        <span className="bg-indigo-50 text-indigo-900 px-2 py-1 rounded-lg border border-indigo-200 flex items-center gap-1">
+                          <ShoppingBag className="w-3 h-3 text-indigo-600" />
+                          Accesorios: ${corte.breakdown.accesoriosTotal.toFixed(0)}
+                        </span>
+                      ) : null}
 
-                    {corte.breakdown?.abonosTotal ? (
-                      <span className="bg-purple-50 text-purple-900 px-2 py-1 rounded-lg border border-purple-200 flex items-center gap-1">
-                        <CreditCard className="w-3 h-3 text-purple-600" />
-                        Abonos: ${corte.breakdown.abonosTotal.toFixed(0)}
-                      </span>
-                    ) : null}
+                      {corte.breakdown?.abonosTotal ? (
+                        <span className="bg-purple-50 text-purple-900 px-2 py-1 rounded-lg border border-purple-200 flex items-center gap-1">
+                          <CreditCard className="w-3 h-3 text-purple-600" />
+                          Abonos: ${corte.breakdown.abonosTotal.toFixed(0)}
+                        </span>
+                      ) : null}
 
-                    {corte.breakdown?.enganchesTotal ? (
-                      <span className="bg-blue-50 text-blue-900 px-2 py-1 rounded-lg border border-blue-200 flex items-center gap-1">
-                        <Tag className="w-3 h-3 text-blue-600" />
-                        Enganches: ${corte.breakdown.enganchesTotal.toFixed(0)}
-                      </span>
-                    ) : null}
+                      {corte.breakdown?.enganchesTotal ? (
+                        <span className="bg-blue-50 text-blue-900 px-2 py-1 rounded-lg border border-blue-200 flex items-center gap-1">
+                          <Tag className="w-3 h-3 text-blue-600" />
+                          Enganches: ${corte.breakdown.enganchesTotal.toFixed(0)}
+                        </span>
+                      ) : null}
 
-                    {corte.breakdown?.reparacionesTotal ? (
-                      <span className="bg-amber-50 text-amber-900 px-2 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
-                        <Wrench className="w-3 h-3 text-amber-600" />
-                        Taller: ${corte.breakdown.reparacionesTotal.toFixed(0)}
-                      </span>
-                    ) : null}
+                      {corte.breakdown?.reparacionesTotal ? (
+                        <span className="bg-amber-50 text-amber-900 px-2 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
+                          <Wrench className="w-3 h-3 text-amber-600" />
+                          Taller: ${corte.breakdown.reparacionesTotal.toFixed(0)}
+                        </span>
+                      ) : null}
 
-                    {corte.breakdown?.recargasTotal ? (
-                      <span className="bg-emerald-50 text-emerald-900 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-emerald-600" />
-                        Recargas: ${corte.breakdown.recargasTotal.toFixed(0)}
-                      </span>
-                    ) : null}
+                      {corte.breakdown?.recargasTotal ? (
+                        <span className="bg-emerald-50 text-emerald-900 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-emerald-600" />
+                          Recargas: ${corte.breakdown.recargasTotal.toFixed(0)}
+                        </span>
+                      ) : null}
 
-                    {totalGastos > 0 ? (
-                      <span className="bg-rose-50 text-rose-900 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
-                        <TrendingDown className="w-3 h-3 text-rose-600" />
-                        Gastos: -${totalGastos.toFixed(0)}
-                      </span>
-                    ) : null}
-                  </div>
+                      {totalGastos > 0 ? (
+                        <span className="bg-rose-50 text-rose-900 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
+                          <TrendingDown className="w-3 h-3 text-rose-600" />
+                          Gastos: -${totalGastos.toFixed(0)}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
 
                   {/* Right: Amounts & View Button */}
                   <div className="flex items-center justify-between md:justify-end gap-4 shrink-0 border-t md:border-t-0 pt-2 md:pt-0">
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Monto de Corte</span>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Día</span>
                       <span className="text-base font-black text-slate-900 font-mono block">
                         ${totalVenta.toFixed(2)} <span className="text-[10px] text-slate-500 font-normal">MXN</span>
                       </span>
-                      <span className="text-[10px] font-bold text-emerald-700 block">
-                        Caja: ${totalEfectivoCaja.toFixed(2)}
-                      </span>
+                      {!isZeroDay && (
+                        <span className="text-[10px] font-bold text-emerald-700 block">
+                          Caja: ${totalEfectivoCaja.toFixed(2)}
+                        </span>
+                      )}
                     </div>
 
-                    <button
-                      type="button"
-                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 group-hover:bg-blue-600 text-white text-xs font-black rounded-xl transition-colors shrink-0 shadow-2xs"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Ver Corte</span>
-                      <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                    </button>
+                    {!isZeroDay && (
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 group-hover:bg-blue-600 text-white text-xs font-black rounded-xl transition-colors shrink-0 shadow-2xs"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Ver Corte</span>
+                        <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                      </button>
+                    )}
                   </div>
 
                 </div>
@@ -661,3 +614,4 @@ export default function SalesModule({
     </div>
   );
 }
+

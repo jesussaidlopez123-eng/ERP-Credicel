@@ -805,3 +805,25 @@ export async function saveInventoryMovementsBatchToFirestore(movements: Inventor
   }
 }
 
+export async function clearTestSalesAndExpensesFromFirestore() {
+  try {
+    const salesSnap = await getDocs(collection(db, SALES_COLLECTION));
+    for (const d of salesSnap.docs) {
+      await deleteDoc(d.ref);
+    }
+    const expSnap = await getDocs(collection(db, EXPENSES_COLLECTION));
+    for (const d of expSnap.docs) {
+      await deleteDoc(d.ref);
+    }
+    const cortesSnap = await getDocs(collection(db, CORTE_X_COLLECTION));
+    for (const d of cortesSnap.docs) {
+      await deleteDoc(d.ref);
+    }
+    console.log('[Firestore] Test sales, expenses and cortes cleared successfully.');
+  } catch (err) {
+    console.error('Error clearing test sales:', err);
+    throw err;
+  }
+}
+
+
