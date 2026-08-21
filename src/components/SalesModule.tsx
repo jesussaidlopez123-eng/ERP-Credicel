@@ -113,7 +113,7 @@ export default function SalesModule({
     }
   };
 
-  // Build Official Cortes X List + Today's Open Shift (Strictly only finalized via Imprimir Corte X y Finalizar Turno)
+  // Build Official Cortes X List + Today's Open Shifts for all active branches (Guaranteed to show today even with 0 sales yet)
   const aggregatedCortesList = useMemo(() => {
     const savedGrouped: Record<string, CorteXRecord> = {};
     cortesX.forEach((corte) => {
@@ -126,40 +126,30 @@ export default function SalesModule({
 
     const officialList = Object.values(savedGrouped);
 
-    // Current open shift for today (if not yet finalized into an official Corte X)
     const todayIso = safeDateIsoKey(new Date());
     const safeTickets = Array.isArray(salesTickets) ? salesTickets : [];
     const safeExpenses = Array.isArray(expenses) ? expenses : [];
     
-    const openShiftsGrouped: Record<string, { tickets: SaleTicket[]; expenses: Expense[] }> = {};
-    safeTickets.forEach(t => {
-      const dateIso = safeDateIsoKey(t.timestamp);
-      if (dateIso !== todayIso) return;
-      const bId = t.branchId || 'general';
-      const key = `${bId}_${dateIso}`;
-      if (savedGrouped[key]) return;
-      if (!openShiftsGrouped[key]) openShiftsGrouped[key] = { tickets: [], expenses: [] };
-      openShiftsGrouped[key].tickets.push(t);
-    });
-    safeExpenses.forEach(e => {
-      const dateIso = safeDateIsoKey(e.timestamp || e.date);
-      if (dateIso !== todayIso) return;
-      const bId = e.branchId || 'general';
-      const key = `${bId}_${dateIso}`;
-      if (savedGrouped[key]) return;
-      if (!openShiftsGrouped[key]) openShiftsGrouped[key] = { tickets: [], expenses: [] };
-      openShiftsGrouped[key].expenses.push(e);
-    });
+    const activeBranches = [
+      { id: 'b-navojoa', name: 'Sucursal Navojoa Centro' },
+      { id: 'b-huatabampo', name: 'Sucursal Huatabampo' }
+    ];
 
-    const openShiftsList: CorteXRecord[] = Object.entries(openShiftsGrouped).map(([key, group]) => {
-      const branchId = key.split('_')[0];
-      const branchName = branchId === 'b-navojoa' ? 'Sucursal Navojoa Centro' : branchId === 'b-huatabampo' ? 'Sucursal Huatabampo' : 'Matriz / Bodega Central';
+    const openShiftsList: CorteXRecord[] = [];
+
+    activeBranches.forEach(branch => {
+      const groupKey = `${branch.id}_${todayIso}`;
+      if (savedGrouped[groupKey]) return; // If official corte saved for today, do not duplicate with open shift
+
+      const branchTickets = safeTickets.filter(t => safeDateIsoKey(t.timestamp) === todayIso && (t.branchId || 'general') === branch.id);
+      const branchExpenses = safeExpenses.filter(e => safeDateIsoKey(e.timestamp || e.date) === todayIso && (e.branchId || 'general') === branch.id);
+
       const now = new Date();
       let cash = 0, card = 0, transfer = 0;
       let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
       let earliestTime = '23:59';
 
-      group.tickets.forEach(t => {
+      branchTickets.forEach(t => {
         if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
         if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
         if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
@@ -179,17 +169,18 @@ export default function SalesModule({
         });
       });
 
-      const totalExp = group.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const totalExp = branchExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
       const totalSales = cash + card + transfer;
+      const hasActivity = branchTickets.length > 0 || branchExpenses.length > 0;
 
-      return {
-        id: `CTX-TURNO-${branchId.replace('b-', '').toUpperCase()}-${todayIso}`,
+      openShiftsList.push({
+        id: `CTX-TURNO-${branch.id.replace('b-', '').toUpperCase()}-${todayIso}`,
         timestamp: now.toISOString(),
         dateStr: safeFormatDate(now),
-        timeStr: `Inicia: ${earliestTime !== '23:59' ? earliestTime : '09:00'} (Turno Abierto)`,
-        branchId,
-        branchName,
-        operatorName: group.tickets[0]?.operatorName || 'Turno Activo',
+        timeStr: hasActivity ? `Inicia: ${earliestTime !== '23:59' ? earliestTime : '09:00'} (Turno Abierto)` : 'Inicia: 09:00 (Checador / Turno Activo)',
+        branchId: branch.id,
+        branchName: branch.name,
+        operatorName: branchTickets[0]?.operatorName || 'Turno Activo',
         initialCashFund: 1000,
         cashSales: cash,
         cardSales: card,
@@ -198,12 +189,12 @@ export default function SalesModule({
         totalExpenses: totalExp,
         netIncome: totalSales - totalExp,
         expectedCashInDrawer: 1000 + cash - totalExp,
-        ticketIds: group.tickets.map(t => t.id),
-        expenseIds: group.expenses.map(e => e.id),
-        ticketsSnapshot: group.tickets,
-        expensesSnapshot: group.expenses,
+        ticketIds: branchTickets.map(t => t.id),
+        expenseIds: branchExpenses.map(e => e.id),
+        ticketsSnapshot: branchTickets,
+        expensesSnapshot: branchExpenses,
         breakdown: { accesoriosTotal: accTot, accesoriosCount: accCnt, abonosTotal: aboTot, abonosCount: aboCnt, enganchesTotal: engTot, enganchesCount: engCnt, reparacionesTotal: repTot, reparacionesCount: repCnt, recargasTotal: recTot, recargasCount: recCnt }
-      };
+      });
     });
 
     const all = [...officialList, ...openShiftsList];
