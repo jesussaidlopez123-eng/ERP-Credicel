@@ -69,7 +69,6 @@ export default function SalesModule({
   // Available branches list
   const branchesList = [
     { id: 'all', name: 'Todas las Sucursales' },
-    { id: 'b-bodega', name: 'Matriz / Bodega Central' },
     { id: 'b-navojoa', name: 'Sucursal Navojoa Centro' },
     { id: 'b-huatabampo', name: 'Sucursal Huatabampo' },
   ];
