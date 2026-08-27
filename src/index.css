@@ -156,18 +156,40 @@
   --color-sky-800: #075985;
   --color-sky-900: #0c4a6e;
   --color-sky-950: #082f49;
+  --font-sans: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
 }
 
 :root {
   color-scheme: light !important;
   --color-scheme: light !important;
+  --credicel-navy: #0b3a6e;
+  --credicel-blue: #0047ab;
+  --credicel-ink: #142033;
+  --credicel-muted: #5b6b7f;
+  --credicel-paper: #f4f6f9;
+  --credicel-line: #e4e9f0;
 }
 
-html, body {
+html, body, #root {
   color-scheme: light !important;
-  background-color: #f1f5f9;
-  color: #0f172a;
+  background-color: var(--credicel-paper);
+  color: var(--credicel-ink);
+  font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+  font-feature-settings: 'kern' 1, 'liga' 1;
+  -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
+}
+
+/* Ultra-black weights look amateur on a POS; keep emphasis without shouting. */
+.font-black,
+.font-extrabold {
+  font-weight: 700 !important;
+  letter-spacing: -0.01em;
+}
+
+.tabular-nums,
+.font-mono {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Fallback colors for older browser engines */

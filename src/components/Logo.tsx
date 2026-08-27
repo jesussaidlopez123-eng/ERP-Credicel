@@ -19,7 +19,7 @@ export default function Logo({ className = '', size = 'md', theme = 'light' }: L
   const secondPartColor = theme === 'light' ? 'text-slate-900' : 'text-white';
 
   return (
-    <div className={`flex items-center justify-center font-black tracking-tight ${currentSize} ${className}`}>
+    <div className={`flex items-center justify-center font-bold tracking-tight ${currentSize} ${className}`}>
       <span className={`${firstPartColor} transition-colors`}>CREDI</span>
       <span className={`${secondPartColor} transition-colors`}>CEL</span>
     </div>

@@ -137,11 +137,11 @@ export default function PurchasesModule({
   const [activeTab, setActiveTab] = useState<'drive' | 'solicitudes' | 'historial'>('drive');
   
   // State for Purchase Drafts Drive
-  const [drafts, setDrafts] = useState<PurchaseDraft[]>(INITIAL_DRAFTS);
+  const [drafts, setDrafts] = useState<PurchaseDraft[]>([]);
   const [searchDraftQuery, setSearchDraftQuery] = useState('');
   
   // State for Branch Requests
-  const [branchRequests, setBranchRequests] = useState<BranchStockRequest[]>(INITIAL_BRANCH_REQUESTS);
+  const [branchRequests, setBranchRequests] = useState<BranchStockRequest[]>([]);
   const [filterBranch, setFilterBranch] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 

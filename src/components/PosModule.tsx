@@ -25,7 +25,6 @@ import {
   Volume2,
   VolumeX,
   AlertCircle,
-  RotateCcw,
   Printer
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
@@ -673,10 +672,10 @@ export default function PosModule({
 
             <button
               type="submit"
-              className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-xs font-black rounded-lg shadow-2xs transition-all cursor-pointer shrink-0"
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#0047AB] hover:bg-[#003d93] text-white text-xs font-semibold rounded-lg cursor-pointer shrink-0"
             >
-              <ScanLine className="w-3.5 h-3.5 text-indigo-200" />
-              <span>Cobrar</span>
+              <ScanLine className="w-3.5 h-3.5" />
+              <span>Agregar</span>
             </button>
 
             <button
@@ -688,16 +687,6 @@ export default function PosModule({
               title={isBeepEnabled ? 'Sonido Bip Activado' : 'Sonido Desactivado'}
             >
               {isBeepEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsReprintModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs font-black rounded-lg shadow-2xs transition-all cursor-pointer shrink-0 border border-slate-700"
-              title="Reimprimir tickets de venta anteriores (Folio, Cliente, IMEI)"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-amber-300" />
-              <span>Reimprimir</span>
             </button>
 
             <button
@@ -929,21 +918,21 @@ export default function PosModule({
       <div className="w-full md:w-[290px] lg:w-[310px] xl:w-[320px] 2xl:w-[340px] shrink-0 bg-white rounded-2xl border border-slate-200/90 shadow-md flex flex-col h-[480px] md:h-auto overflow-hidden">
         
         {/* Ticket Header */}
-        <div className="px-3 py-2.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
+        <div className="px-3 py-2.5 bg-slate-50 text-slate-800 flex items-center justify-between border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-slate-800 rounded-lg border border-slate-700">
-              <ShoppingBag className="w-4 h-4 text-yellow-400" />
+            <div className="p-1.5 bg-white rounded-lg border border-slate-200">
+              <ShoppingBag className="w-4 h-4 text-[#0047AB]" />
             </div>
             <div>
-              <h3 className="font-extrabold text-xs tracking-tight">Ticket de Venta Actual</h3>
-              <p className="text-[10px] text-slate-400">{cart.length} {cart.length === 1 ? 'producto' : 'productos'} en carrito</p>
+              <h3 className="font-semibold text-sm">Ticket actual</h3>
+              <p className="text-[11px] text-slate-500">{cart.length} {cart.length === 1 ? 'artículo' : 'artículos'}</p>
             </div>
           </div>
 
           {cart.length > 0 && (
             <button
               onClick={clearCart}
-              className="text-[11px] text-red-400 hover:text-red-300 font-bold px-2.5 py-1 rounded-lg bg-red-950/60 hover:bg-red-900/80 border border-red-800/80 transition-all cursor-pointer"
+              className="text-[11px] text-red-700 hover:text-red-800 font-semibold px-2 py-1 rounded-md bg-red-50 hover:bg-red-100 border border-red-100 cursor-pointer"
             >
               Vaciar
             </button>
@@ -1088,13 +1077,36 @@ export default function PosModule({
           </div>
 
           {/* Prominent COBRAR Button (Opens Modal) */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setIsCorteXOpen(true)}
+              className="py-1.5 px-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-[11px] font-semibold rounded-lg cursor-pointer"
+            >
+              Corte
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsExpenseModalOpen(true)}
+              className="py-1.5 px-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-[11px] font-semibold rounded-lg cursor-pointer"
+            >
+              Gasto
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsReprintModalOpen(true)}
+              className="py-1.5 px-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-[11px] font-semibold rounded-lg cursor-pointer"
+            >
+              Reimprimir
+            </button>
+          </div>
+
           <button
             onClick={handleCheckout}
             disabled={cart.length === 0}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-2 transition-all active:scale-[0.99] cursor-pointer"
+            className="w-full py-3 bg-[#047857] hover:bg-[#066046] disabled:opacity-40 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
           >
-            <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-            COBRAR (${cartTotal.toFixed(2)})
+            Cobrar ${cartTotal.toFixed(2)}
           </button>
 
         </div>

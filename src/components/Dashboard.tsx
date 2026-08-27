@@ -14,7 +14,7 @@ import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
-import { Bell, Megaphone, Plus, Calculator, TrendingDown, Wrench, Cloud, CheckCircle2, Menu } from 'lucide-react';
+import { Bell, Menu, Megaphone } from 'lucide-react';
 import {
   subscribeToProducts,
   saveProductToFirestore,
@@ -53,43 +53,6 @@ const ALL_BRANCHES: Branch[] = [
   { id: 'b-huatabampo', name: 'Huatabampo' },
 ];
 
-const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: 'notif-1',
-    urgency: 'urgente',
-    title: 'Aviso Importante: Arqueo de Caja a las 15:00 hrs',
-    message: 'Favor de realizar el corte de caja intermedio y verificar comprobantes de pago con tarjeta.',
-    createdAt: 'Hace 10 min',
-    read: false,
-    authorName: 'Admin Principal',
-    branchId: 'all',
-    targetOperatorId: 'all'
-  },
-  {
-    id: 'notif-2',
-    urgency: 'normal',
-    title: 'Nuevos Insumos Disponibles en Almacén',
-    message: 'Se recibieron micas de cristal templado para serie iPhone y Samsung Galaxy.',
-    createdAt: 'Hace 35 min',
-    read: false,
-    authorName: 'Admin Principal',
-    branchId: 'b-navojoa',
-    targetOperatorId: 'all'
-  },
-  {
-    id: 'notif-3',
-    urgency: 'urgente',
-    title: 'Verificación de Stock Mínimo',
-    message: 'Favor de confirmar cantidad de cargadores Tipo-C disponibles en mostrador.',
-    createdAt: 'Hace 1 hora',
-    read: false,
-    authorName: 'Admin Principal',
-    branchId: 'b-huatabampo',
-    targetOperatorId: 'o3',
-    targetOperatorName: 'María García'
-  }
-];
-
 interface DashboardProps {
   currentBranch: Branch;
   currentOperator: Operator;
@@ -107,7 +70,7 @@ export default function Dashboard({
 }: DashboardProps) {
   const [activeModule, setActiveModule] = useState<ModuleId>('pos');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isCreateNoticeOpen, setIsCreateNoticeOpen] = useState(false);
 
@@ -163,9 +126,7 @@ export default function Dashboard({
     });
 
     const unsubNotifs = subscribeToNotifications((notifs) => {
-      if (notifs && notifs.length > 0) {
-        setNotifications(notifs);
-      }
+      setNotifications(Array.isArray(notifs) ? notifs : []);
     });
 
     const unsubMovements = subscribeToInventoryMovements((movs) => {
@@ -751,7 +712,7 @@ export default function Dashboard({
 
   return (
 
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans text-slate-900">
+    <div className="flex h-screen bg-[#f4f6f9] overflow-hidden font-sans text-slate-900">
       
       {/* Left Sidebar Section */}
       <Sidebar 
@@ -768,108 +729,60 @@ export default function Dashboard({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
         {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 shrink-0 relative z-30">
-          <div className="flex items-center gap-2.5 sm:gap-4">
-            {/* Hamburger Button on Mobile */}
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-5 shrink-0 relative z-30">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-              title="Abrir Menú de Navegación"
+              className="md:hidden p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
+              title="Abrir menú"
             >
               <Menu className="w-5 h-5" />
             </button>
 
-            <h2 className="text-base sm:text-xl font-black text-slate-800 capitalize tracking-tight">
-              {activeModule === 'pos' ? 'Punto de Venta (POS)' : 
-               activeModule === 'inventory' ? 'Inventario' : 
-               activeModule === 'labels' ? 'Impresión de Etiquetas' :
-               activeModule === 'purchases' ? 'Compras' : 
-               activeModule === 'sales' ? 'Ventas' : 
-               activeModule === 'executive' ? 'Dirección General' : 'Configuración'}
-            </h2>
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200 text-[11px] font-bold">
-              <Cloud className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-              <span>Nube Firebase Activa</span>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900 truncate">
+                {activeModule === 'pos' ? 'Punto de venta' :
+                 activeModule === 'inventory' ? 'Inventario' :
+                 activeModule === 'labels' ? 'Etiquetas' :
+                 activeModule === 'purchases' ? 'Compras' :
+                 activeModule === 'sales' ? 'Ventas y cortes' :
+                 activeModule === 'executive' ? 'Dirección' : 'Usuarios'}
+              </h2>
             </div>
+            <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+              {currentBranch.name}
+            </span>
           </div>
 
-          
-          <div className="flex items-center gap-2.5">
-            {/* Quick POS Operations Buttons in Header (Only in Module 1: POS) */}
-            {activeModule === 'pos' && (
-              <>
-                <button
-                  onClick={() => {
-                    setIsCorteXOpen(true);
-                  }}
-                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all border border-slate-700 cursor-pointer"
-                  title="Abrir Corte X Parcial de Caja"
-                >
-                  <Calculator className="w-3.5 h-3.5 text-yellow-400" />
-                  Corte X
-                </button>
+          <div className="relative">
+            <button
+              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors relative ${
+                isNotificationsOpen ? 'bg-[#0047AB] text-white' : 'hover:bg-slate-100 text-slate-600'
+              }`}
+              title="Avisos"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white bg-red-600">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
 
-                <button
-                  onClick={() => {
-                    setIsExpenseModalOpen(true);
-                  }}
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl text-xs font-bold border border-red-200/80 transition-all shadow-xs cursor-pointer"
-                  title="Registrar Salida de Efectivo"
-                >
-                  <TrendingDown className="w-3.5 h-3.5 text-red-600" />
-                  Registrar Gasto
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsRepairPriceCatalogOpen(true);
-                  }}
-                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl text-xs font-bold border border-amber-300 transition-all shadow-xs cursor-pointer"
-                  title="Lista de Precios y Cotización de Reparaciones"
-                >
-                  <Wrench className="w-3.5 h-3.5 text-amber-600" />
-                  Precios Reparaciones
-                </button>
-
-                <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
-              </>
-            )}
-
-
-            {/* Bell Icon Button */}
-            <div className="relative">
-              <button 
-                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors relative ${
-                  isNotificationsOpen ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-slate-100 text-slate-600'
-                }`}
-                title="Avisos y Alertas"
-              >
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className={`absolute -top-1 -right-1 flex items-center justify-center min-w-5 h-5 px-1.5 text-[11px] font-bold rounded-full text-black bg-yellow-400 border-2 border-white shadow-sm ${
-                    isNotificationsOpen ? 'border-blue-600' : ''
-                  }`}>
-                    {unreadCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Notifications Popover */}
-              <NotificationsPopover
-                isOpen={isNotificationsOpen}
-                onClose={() => setIsNotificationsOpen(false)}
-                notifications={notifications}
-                onDismissNotification={handleDismissNotification}
-                onClearAllNotifications={handleClearAllNotifications}
-                onOpenCreateModal={() => {
-                  setIsNotificationsOpen(false);
-                  setIsCreateNoticeOpen(true);
-                }}
-                currentBranch={currentBranch}
-                currentOperator={currentOperator}
-              />
-            </div>
+            <NotificationsPopover
+              isOpen={isNotificationsOpen}
+              onClose={() => setIsNotificationsOpen(false)}
+              notifications={notifications}
+              onDismissNotification={handleDismissNotification}
+              onClearAllNotifications={handleClearAllNotifications}
+              onOpenCreateModal={() => {
+                setIsNotificationsOpen(false);
+                setIsCreateNoticeOpen(true);
+              }}
+              currentBranch={currentBranch}
+              currentOperator={currentOperator}
+            />
           </div>
         </header>
 

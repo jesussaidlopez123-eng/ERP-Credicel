@@ -734,178 +734,107 @@ export default function SalesModule({
     }
   };
 
-  const isAdmin = currentOperator.role === 'admin';
-
   return (
     <div className="space-y-4 pb-12">
       
-      {/* Top Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-5 text-white border border-slate-700 shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-inner shrink-0">
-              <Calculator className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-white">
-                  Ventas, Cortes de Caja y Reportes en Vivo
-                </h1>
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Sincronizado en Tiempo Real
-                </span>
-              </div>
-              <p className="text-xs text-slate-300">
-                Monitoreo activo por sucursal, registro en vivo de tickets, arqueos, checador de turno y calendario de cortes
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {isAdmin && (
-              <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 border border-slate-600 px-3 py-2 rounded-xl">
-                Los tickets, gastos, cortes e inventario de producción no se borran al actualizar el sistema.
-              </span>
-            )}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900">Ventas y cortes de caja</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Movimiento del día por sucursal. El arqueo se hace una sola vez, desde cada tarjeta.
+            </p>
           </div>
         </div>
 
-        {/* Live Branch Pulse Cards (Real-Time Monitor for Today) */}
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {branchLiveStats.map(bStat => {
             const hasSales = bStat.todayTicketsCount > 0;
             return (
-              <div 
+              <div
                 key={bStat.branchId}
-                className="bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-2xl p-4 transition-all shadow-inner relative overflow-hidden group"
+                className="bg-slate-50 hover:bg-white border border-slate-200 rounded-xl p-4"
               >
-                <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                      hasSales ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-700 text-slate-400'
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                      hasSales ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white text-slate-400 border border-slate-200'
                     }`}>
                       <Store className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="text-xs font-black text-white truncate">{bStat.branchName}</h3>
-                      <p className="text-[10px] text-slate-400 truncate flex items-center gap-1">
-                        <User className="w-3 h-3 text-slate-500" />
-                        {bStat.currentShiftOperator}
-                      </p>
+                      <h3 className="text-sm font-semibold text-slate-900 truncate">{bStat.branchName}</h3>
+                      <p className="text-[11px] text-slate-500 truncate">{bStat.currentShiftOperator}</p>
                     </div>
                   </div>
-
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 border ${
-                    hasSales 
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 animate-pulse' 
-                      : 'bg-slate-700 text-slate-400 border-slate-600'
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                    hasSales
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-white text-slate-500 border border-slate-200'
                   }`}>
-                    {hasSales ? '🟢 En Vivo' : '⚪ Sin Ventas Hoy'}
+                    {hasSales ? 'Con ventas' : 'Sin ventas hoy'}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 my-2.5 pt-2 border-t border-slate-700/60">
-                  <div className="bg-slate-900/60 p-2 rounded-xl border border-slate-800">
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Ventas Hoy ({bStat.todayTicketsCount})</span>
-                    <span className="text-sm font-black text-emerald-400 font-mono block">
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold block">Ventas ({bStat.todayTicketsCount})</span>
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums block">
                       ${bStat.totalSales.toFixed(2)}
                     </span>
-                    <div className="flex items-center gap-1 text-[9px] text-slate-400 mt-0.5">
-                      <span>Ef: ${bStat.cashSales.toFixed(0)}</span>
-                      <span>•</span>
-                      <span>Tarj: ${bStat.cardSales.toFixed(0)}</span>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Ef. ${bStat.cashSales.toFixed(0)} · Tarj. ${bStat.cardSales.toFixed(0)}
                     </div>
                   </div>
-
-                  <div className="bg-slate-900/60 p-2 rounded-xl border border-slate-800">
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Caja Esperada</span>
-                    <span className="text-sm font-black text-amber-300 font-mono block">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200">
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold block">Caja esperada</span>
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums block">
                       ${bStat.expectedCashInDrawer.toFixed(2)}
                     </span>
-                    <span className="text-[9px] text-rose-400 block mt-0.5">
-                      Gastos: -${bStat.totalExpenses.toFixed(0)}
+                    <span className="text-[10px] text-red-600 block mt-0.5">
+                      Gastos −${bStat.totalExpenses.toFixed(0)}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 mt-2">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenLiveShiftForBranch(bStat.branchId)}
-                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer"
-                  >
-                    <Calculator className="w-3.5 h-3.5" />
-                    <span>Arqueo / Corte en Vivo</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenLiveShiftForBranch(bStat.branchId)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-[#0047AB] hover:bg-[#003d93] text-white text-xs font-semibold rounded-lg cursor-pointer"
+                >
+                  <Calculator className="w-3.5 h-3.5" />
+                  Abrir arqueo
+                </button>
               </div>
             );
           })}
         </div>
 
-        {/* Sub Navigation Tabs */}
-        <div className="flex flex-wrap items-center gap-2 mt-5 pt-3 border-t border-slate-700/80">
-          <button
-            type="button"
-            onClick={() => setActiveTab('cortes')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeTab === 'cortes'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40'
-                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            <span>Cortes de Caja y Turnos Diarios</span>
-            <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-              {filteredCortes.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('tickets')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeTab === 'tickets'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40'
-                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            <span>Ventas y Tickets en Vivo</span>
-            <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-              {filteredTickets.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('expenses')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeTab === 'expenses'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40'
-                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
-            }`}
-          >
-            <TrendingDown className="w-4 h-4" />
-            <span>Gastos y Salidas de Caja</span>
-            <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-              {filteredExpenses.length}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('analytics')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-              activeTab === 'analytics'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40'
-                : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300'
-            }`}
-          >
-            <TrendingUp className="w-4 h-4" />
-            <span>Estadísticas y Métodos de Pago</span>
-          </button>
+        <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-slate-200">
+          {([
+            ['cortes', 'Cortes', filteredCortes.length],
+            ['tickets', 'Tickets', filteredTickets.length],
+            ['expenses', 'Gastos', filteredExpenses.length],
+            ['analytics', 'Métodos de pago', null],
+          ] as const).map(([id, label, count]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActiveTab(id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
+                activeTab === id
+                  ? 'bg-[#0047AB] text-white'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+              }`}
+            >
+              {label}
+              {count != null && (
+                <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
