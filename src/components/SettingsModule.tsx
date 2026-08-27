@@ -365,7 +365,7 @@ export default function SettingsModule({
           >
             <option value="all">Todos los roles</option>
             <option value="admin">Administradores</option>
-            <option value="manager">Gerentes</option>
+            <option value="manager">Encargados</option>
             <option value="cashier">Cajeros</option>
           </select>
         </div>
@@ -454,7 +454,7 @@ export default function SettingsModule({
                           ? 'bg-blue-50 text-blue-800 border-blue-200'
                           : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                       }`}>
-                        {op.role === 'admin' ? 'Administrador' : op.role === 'manager' ? 'Gerente' : 'Cajero'}
+                        {op.role === 'admin' ? 'Administrador' : op.role === 'manager' ? 'Encargado' : 'Cajero'}
                       </span>
                     </td>
 
@@ -814,7 +814,7 @@ export default function SettingsModule({
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
                   <option value="cashier">Cajero / Vendedor (Acceso restringido solo al Punto de Venta)</option>
-                  <option value="manager">Gerente de Sucursal (Acceso a Inventario y Ventas)</option>
+                  <option value="manager">Encargado de sucursal (Inventario y Ventas y cortes)</option>
                   <option value="admin">Administrador (Acceso Total a todos los módulos)</option>
                 </select>
               </div>

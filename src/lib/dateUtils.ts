@@ -3,6 +3,8 @@
  * Prevents RangeError: Invalid time value when handling legacy or Firestore dates
  */
 
+import { formatHermosilloDate, formatHermosilloTime, getHermosilloClock, parseSessionInstant } from './shiftHours';
+
 export function tryParseDate(val: any): Date | null {
   if (val === null || val === undefined || val === '') return null;
   if (val instanceof Date) {
@@ -30,11 +32,7 @@ export function tryParseDate(val: any): Date | null {
 
     const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (ymdMatch) {
-      const year = parseInt(ymdMatch[1], 10);
-      const month = parseInt(ymdMatch[2], 10) - 1;
-      const day = parseInt(ymdMatch[3], 10);
-      const d = new Date(year, month, day, 12, 0, 0);
-      if (!isNaN(d.getTime())) return d;
+      return parseSessionInstant(trimmed);
     }
 
     if (trimmed.includes('/')) {
@@ -82,24 +80,25 @@ export function safeIsoString(val: any): string {
   }
 }
 
-/** Calendar key YYYY-MM-DD. Returns empty string when the value is not a real date (never invents "today"). */
+/** Calendar key YYYY-MM-DD in hora Sonora. Empty string when the value is not a real date. */
 export function safeDateIsoKey(val: any): string {
-  const d = tryParseDate(val);
+  if (val === null || val === undefined || val === '') return '';
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())) {
+    return val.trim();
+  }
+  const d = tryParseDate(val) || parseSessionInstant(val);
   if (!d) return '';
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return getHermosilloClock(d).dateKey;
+}
+
+export function todayCashDateKey(): string {
+  return getHermosilloClock().dateKey;
 }
 
 export function safeFormatDate(val: any): string {
-  const d = tryParseDate(val);
+  const d = tryParseDate(val) || parseSessionInstant(val);
   if (!d) return '--/--/----';
-  return d.toLocaleDateString('es-MX', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
+  return formatHermosilloDate(d);
 }
 
 export function safeFormatTime(val: any): string {
@@ -109,10 +108,7 @@ export function safeFormatTime(val: any): string {
       return trimmed;
     }
   }
-  const d = tryParseDate(val);
+  const d = tryParseDate(val) || parseSessionInstant(val);
   if (!d) return '--:--';
-  return d.toLocaleTimeString('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return formatHermosilloTime(d);
 }

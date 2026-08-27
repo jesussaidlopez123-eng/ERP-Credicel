@@ -14,7 +14,9 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Otra computadora o celular, misma sucursal:** se engancha al **mismo turno**. No abre una caja nueva. Lo que ya se cobró aparece en ambos. El carrito sin cobrar se queda solo en el equipo donde se armó.
 - **Otra sucursal:** Navojoa y Huatabampo tienen turnos independientes.
 - **Cierre 11:00 p.m. (hora Sonora):** si dejan la sesión abierta, a las 11:00 p.m. el sistema registra el corte, marca las ventas de esa caja y cierra la sesión. El siguiente turno abre después de medianoche. Un turno de **hoy** no se marca cerrado antes de las 11:00 p.m.; si eso llegó a pasar, al entrar de nuevo se reabre el mismo turno.
-- Si internet falla al cobrar, el ticket **no se borra**: inténtalo de nuevo; no se duplica el folio.
+- **Folio de ticket:** al cobrar se asigna un folio corto del día, por ejemplo `NAV-2708-042`. El id interno no se imprime.
+- **Compras:** los pedidos se guardan en la nube. Al marcar **Entregado**, la mercancía entra a inventario de Bodega (si el código o nombre coincide con un producto).
+- **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 
 ## Requisitos
 
@@ -30,14 +32,9 @@ npm run dev
 
 La app queda en `http://127.0.0.1:43127`.
 
-Usuarios de demostración (cambiar en producción):
+Los operadores y contraseñas viven en **Usuarios** (Firestore). No hay usuarios de demostración en producción.
 
-| Usuario | Contraseña | Rol |
-|---|---|---|
-| `admin` | `123` | Administrador |
-| `juan` | `123` | Encargado Navojoa |
-| `maria` | `123` | Cajero Huatabampo |
-| `carlos` | `123` | Cajero Bodega |
+Roles: **Administrador** (todo el menú), **Encargado** (punto de venta, inventario, ventas y cortes) y **Cajero** (solo punto de venta).
 
 ## Scripts
 

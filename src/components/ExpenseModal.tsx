@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode, Store, Clock, User, ShieldCheck } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
 import { printThermalFromElement } from '../lib/printWindow';
+import { formatMoney, money, newUniqueId } from '../lib/ids';
+import { formatHermosilloDate } from '../lib/shiftHours';
 
 interface ExpenseModalProps {
   isOpen: boolean;
@@ -46,14 +48,12 @@ export default function ExpenseModal({
     }
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-
     const newExpense: Expense = {
-      id: `exp-${Date.now()}`,
-      amount: numAmount,
+      id: newUniqueId('EXP'),
+      amount: money(numAmount),
       concept: concept.trim(),
-      timestamp: new Date().toISOString(),
+      timestamp: now.toISOString(),
+      date: formatHermosilloDate(now),
       operatorName: currentOperator.name,
       branchId: currentBranch.id
     };
@@ -155,7 +155,7 @@ export default function ExpenseModal({
               <div className="space-y-1 py-1.5 border-b border-dashed border-slate-400">
                 <div className="flex justify-between items-center text-sm font-black text-slate-900">
                   <span>TOTAL SALIDA:</span>
-                  <span className="text-red-700 text-base font-extrabold">-${createdExpense.amount.toFixed(2)} MXN</span>
+                  <span className="text-red-700 text-base font-extrabold">-${formatMoney(createdExpense.amount)} MXN</span>
                 </div>
               </div>
 

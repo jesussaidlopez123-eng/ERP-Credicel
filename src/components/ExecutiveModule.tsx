@@ -49,12 +49,14 @@ import {
   CartesianGrid
 } from 'recharts';
 import { Branch, Operator, SaleTicket, Expense, Product, CartItem } from '../types';
-import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
-import { normalizeBranchId, compareBranchIds } from '../data/initialBranches';
+import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import { ALL_BRANCHES, branchFolioCode, getBranchDisplayName, normalizeBranchId, compareBranchIds } from '../data/initialBranches';
+import { formatMoney, money } from '../lib/ids';
 
 interface ExecutiveModuleProps {
   currentBranch: Branch;
   currentOperator: Operator;
+  operators?: Operator[];
   onOpenNoticeModal: () => void;
   salesTickets?: SaleTicket[];
   expenses?: Expense[];
@@ -65,14 +67,11 @@ interface BranchStats {
   id: string;
   name: string;
   code: string;
-  status: 'abierta' | 'cerrada' | 'arqueo';
   todaySales: number;
   monthlySales: number;
   ticketCount: number;
-  activeJobs: number;
   stockAlerts: number;
-  activeOperatorsCount: number;
-  manager: string;
+  operatorCount: number;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -88,6 +87,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 export default function ExecutiveModule({
   currentBranch,
   currentOperator,
+  operators = [],
   onOpenNoticeModal,
   salesTickets = [],
   expenses = [],
@@ -97,85 +97,28 @@ export default function ExecutiveModule({
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeMatrixTab, setActiveMatrixTab] = useState<'categories' | 'branches' | 'credit'>('categories');
-
-  const [showAddBranchModal, setShowAddBranchModal] = useState(false);
-  const [newBranchName, setNewBranchName] = useState('');
-  const [newBranchCode, setNewBranchCode] = useState('');
-
-  // Initial branches list matching official branches
-  const [branchesList, setBranchesList] = useState<BranchStats[]>([
-    {
-      id: 'b-bodega',
-      name: 'Bodega Principal',
-      code: 'BDG-01',
-      status: 'abierta',
-      todaySales: 0,
-      monthlySales: 0,
-      ticketCount: 0,
-      activeJobs: 5,
-      stockAlerts: 2,
-      activeOperatorsCount: 2,
-      manager: 'Admin Principal'
-    },
-    {
-      id: 'b-navojoa',
-      name: 'Sucursal Navojoa',
-      code: 'NAV-02',
-      status: 'abierta',
-      todaySales: 0,
-      monthlySales: 0,
-      ticketCount: 0,
-      activeJobs: 8,
-      stockAlerts: 1,
-      activeOperatorsCount: 1,
-      manager: 'Juan Pérez'
-    },
-    {
-      id: 'b-huatabampo',
-      name: 'Sucursal Huatabampo',
-      code: 'HUA-03',
-      status: 'abierta',
-      todaySales: 0,
-      monthlySales: 0,
-      ticketCount: 0,
-      activeJobs: 3,
-      stockAlerts: 0,
-      activeOperatorsCount: 1,
-      manager: 'María García'
-    }
-  ]);
+  const [activeMatrixTab, setActiveMatrixTab] = useState<'categories' | 'branches'>('categories');
 
   // Filter tickets by branch and period
+  const inSelectedPeriod = (isoVal: string | undefined) => {
+    if (selectedPeriod === 'all') return true;
+    const key = safeDateIsoKey(isoVal);
+    if (!key) return false;
+    const today = todayCashDateKey();
+    if (selectedPeriod === 'today') return key === today;
+    if (selectedPeriod === 'month') return key.slice(0, 7) === today.slice(0, 7);
+    if (selectedPeriod === 'week') {
+      const d = parseSafeDate(isoVal);
+      return d.getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000;
+    }
+    return true;
+  };
+
   const filteredTickets = useMemo(() => {
     return salesTickets.filter((t) => {
-      // Branch filter
       const normBId = normalizeBranchId(t.branchId);
-      if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
-        return false;
-      }
-
-      // Period filter
-      if (selectedPeriod === 'all') return true;
-
-      const ticketDate = parseSafeDate(t.timestamp);
-      const now = new Date();
-
-      if (selectedPeriod === 'today') {
-        return ticketDate.toDateString() === now.toDateString();
-      }
-
-      if (selectedPeriod === 'week') {
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(now.getDate() - 7);
-        return ticketDate >= oneWeekAgo;
-      }
-
-      if (selectedPeriod === 'month') {
-        return ticketDate.getMonth() === now.getMonth() && ticketDate.getFullYear() === now.getFullYear();
-      }
-
-      return true;
+      if (selectedBranchId !== 'all' && normBId !== selectedBranchId) return false;
+      return inSelectedPeriod(t.timestamp);
     });
   }, [salesTickets, selectedBranchId, selectedPeriod]);
 
@@ -183,67 +126,48 @@ export default function ExecutiveModule({
   const filteredExpenses = useMemo(() => {
     return expenses.filter((e) => {
       const normBId = normalizeBranchId(e.branchId);
-      if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
-        return false;
-      }
-      if (selectedPeriod === 'all') return true;
-      const expDate = parseSafeDate(e.timestamp || e.date);
-      const now = new Date();
-
-      if (selectedPeriod === 'today') {
-        return expDate.toDateString() === now.toDateString();
-      }
-      if (selectedPeriod === 'week') {
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(now.getDate() - 7);
-        return expDate >= oneWeekAgo;
-      }
-      if (selectedPeriod === 'month') {
-        return expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
-      }
-      return true;
+      if (selectedBranchId !== 'all' && normBId !== selectedBranchId) return false;
+      return inSelectedPeriod(e.timestamp || e.date);
     });
   }, [expenses, selectedBranchId, selectedPeriod]);
 
   // Calculate live branch performance stats
   const liveBranchesList = useMemo(() => {
-    const todayStr = safeDateIsoKey(new Date());
+    const todayStr = todayCashDateKey();
+    const monthPrefix = todayStr.slice(0, 7);
 
-    return branchesList.map((branch) => {
+    return ALL_BRANCHES.map((branch) => {
       const normBId = normalizeBranchId(branch.id);
       const branchTickets = salesTickets.filter((t) => normalizeBranchId(t.branchId) === normBId);
-      
-      const todayTickets = branchTickets.filter((t) => {
-        const tDate = safeDateIsoKey(t.timestamp);
-        return tDate === todayStr;
-      });
-
-      const todaySalesSum = todayTickets.reduce((sum, t) => sum + (t.total || 0), 0);
-      const monthlySalesSum = branchTickets.reduce((sum, t) => sum + (t.total || 0), 0);
-
-      const branchLowStockCount = products.filter((p) => {
-        const stock = p.branchStock ? (p.branchStock[branch.id] ?? p.stock) : p.stock;
-        return stock <= 3;
+      const todayTickets = branchTickets.filter((t) => safeDateIsoKey(t.timestamp) === todayStr);
+      const monthTickets = branchTickets.filter((t) => safeDateIsoKey(t.timestamp).startsWith(monthPrefix));
+      const stockAlerts = products.filter((p) => {
+        const stock = p.branchStock ? Number(p.branchStock[branch.id] || 0) : 0;
+        return stock > 0 && stock <= 3;
       }).length;
+      const operatorCount = operators.filter((op) => (op.branchIds || []).includes(branch.id)).length;
 
       return {
-        ...branch,
-        todaySales: todaySalesSum > 0 ? todaySalesSum : branch.todaySales,
-        monthlySales: monthlySalesSum > 0 ? monthlySalesSum : branch.monthlySales,
-        ticketCount: todayTickets.length > 0 ? todayTickets.length : branch.ticketCount,
-        stockAlerts: branchLowStockCount
-      };
+        id: branch.id,
+        name: getBranchDisplayName(branch.id),
+        code: branchFolioCode(branch.id),
+        todaySales: money(todayTickets.reduce((sum, t) => sum + (t.total || 0), 0)),
+        monthlySales: money(monthTickets.reduce((sum, t) => sum + (t.total || 0), 0)),
+        ticketCount: todayTickets.length,
+        stockAlerts,
+        operatorCount
+      } as BranchStats;
     });
-  }, [branchesList, salesTickets, products]);
+  }, [salesTickets, products, operators]);
 
 
   // Overall Financial Calculations
   const totalGrossSales = useMemo(() => {
-    return filteredTickets.reduce((sum, t) => sum + t.total, 0);
+    return money(filteredTickets.reduce((sum, t) => sum + (t.total || 0), 0));
   }, [filteredTickets]);
 
   const totalExpensesSum = useMemo(() => {
-    return filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+    return money(filteredExpenses.reduce((sum, e) => sum + (e.amount || 0), 0));
   }, [filteredExpenses]);
 
   const netProfit = totalGrossSales - totalExpensesSum;
@@ -253,37 +177,6 @@ export default function ExecutiveModule({
   const inventoryValuation = useMemo(() => {
     return products.reduce((sum, p) => sum + (p.price * p.stock), 0);
   }, [products]);
-
-  // Calculate totals for device financing (Down payments vs Remaining balance)
-  const financingMetrics = useMemo(() => {
-    let totalFullPrice = 0;
-    let totalDownPayment = 0;
-    let totalRemainingBalance = 0;
-    let deviceSalesCount = 0;
-
-    filteredTickets.forEach((t) => {
-      t.items.forEach((item) => {
-        const cat = item.product?.category || '';
-        if (cat === 'equipo' || cat === 'equipo_credito') {
-          deviceSalesCount += item.quantity || 1;
-          const fullPrice = item.metadata?.fullPrice || item.totalPrice;
-          const downPayment = item.metadata?.downPayment || item.totalPrice;
-          const remaining = item.metadata?.remainingBalance ?? Math.max(0, fullPrice - downPayment);
-
-          totalFullPrice += fullPrice;
-          totalDownPayment += downPayment;
-          totalRemainingBalance += remaining;
-        }
-      });
-    });
-
-    return {
-      totalFullPrice,
-      totalDownPayment,
-      totalRemainingBalance,
-      deviceSalesCount
-    };
-  }, [filteredTickets]);
 
   // Category sales breakdown for Pie Chart & Data Table
   const categoryBreakdown = useMemo(() => {
@@ -521,31 +414,6 @@ export default function ExecutiveModule({
     });
   }, [filteredTickets, filteredExpenses, liveBranchesList, historyCategoryFilter, searchQuery]);
 
-  // Add Branch Handler
-  const handleAddBranch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBranchName.trim()) return;
-
-    const newBranch: BranchStats = {
-      id: `b-${Date.now()}`,
-      name: newBranchName.trim(),
-      code: newBranchCode.trim() || `SUC-0${branchesList.length + 1}`,
-      status: 'abierta',
-      todaySales: 0,
-      monthlySales: 0,
-      ticketCount: 0,
-      activeJobs: 0,
-      stockAlerts: 0,
-      activeOperatorsCount: 1,
-      manager: currentOperator.name
-    };
-
-    setBranchesList([...branchesList, newBranch]);
-    setNewBranchName('');
-    setNewBranchCode('');
-    setShowAddBranchModal(false);
-  };
-
   return (
     <div className="space-y-6 pb-16 animate-in fade-in duration-200">
       
@@ -565,25 +433,17 @@ export default function ExecutiveModule({
               Módulo de Dirección General
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-2xl font-medium">
-              Analítica consolidada, matrices de datos por categoría, cartera de financiamiento e historial integral de transacciones del sistema.
+              Ventas, gastos, caja e inventario reales de Navojoa, Huatabampo y Bodega.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setShowAddBranchModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black transition-all shadow-md shadow-amber-500/20 cursor-pointer hover:scale-[1.02]"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              Añadir Sucursal
-            </button>
-
-            <button
               onClick={onOpenNoticeModal}
               className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black transition-all shadow-md cursor-pointer hover:scale-[1.02]"
             >
               <Megaphone className="w-4 h-4 text-amber-300" />
-              Emite Directiva General
+              Aviso a sucursales
             </button>
           </div>
         </div>
@@ -701,17 +561,17 @@ export default function ExecutiveModule({
         {/* KPI 3: Device Financing & Down Payments Portfolio */}
         <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Cartera Equipos & Enganches</span>
+            <span className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tickets del período</span>
             <div className="w-9 h-9 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 border border-amber-100">
               <Smartphone className="w-5 h-5" />
             </div>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-amber-950 font-mono tracking-tight">
-            ${financingMetrics.totalDownPayment.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {filteredTickets.length}
           </div>
           <div className="mt-2 flex items-center justify-between text-xs text-slate-600 font-medium">
-            <span>Enganches ({financingMetrics.deviceSalesCount} eq.)</span>
-            <span className="text-indigo-800 font-bold">Saldo: ${financingMetrics.totalRemainingBalance.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</span>
+            <span>Ventas registradas</span>
+            <span className="text-indigo-800 font-bold">Gastos: {filteredExpenses.length}</span>
           </div>
         </div>
 
@@ -767,14 +627,6 @@ export default function ExecutiveModule({
               }`}
             >
               Rendimiento Sucursales
-            </button>
-            <button
-              onClick={() => setActiveMatrixTab('credit')}
-              className={`px-3.5 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer ${
-                activeMatrixTab === 'credit' ? 'bg-white text-slate-950 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Cartera & Financiamiento
             </button>
           </div>
         </div>
@@ -836,7 +688,7 @@ export default function ExecutiveModule({
               <thead className="bg-slate-100/90 text-slate-700 font-black border-b border-slate-200 uppercase text-[10px] tracking-wider">
                 <tr>
                   <th className="p-3.5">Sucursal / Código</th>
-                  <th className="p-3.5">Gerente Responsable</th>
+                  <th className="p-3.5">Usuarios</th>
                   <th className="p-3.5 text-center">Tickets Hoy</th>
                   <th className="p-3.5 text-right">Ventas Hoy ($)</th>
                   <th className="p-3.5 text-right">Ventas Mes ($)</th>
@@ -857,16 +709,16 @@ export default function ExecutiveModule({
                       </div>
                     </td>
                     <td className="p-3.5 font-semibold text-slate-700">
-                      {b.manager}
+                      {b.operatorCount}
                     </td>
                     <td className="p-3.5 text-center font-mono font-bold text-slate-800">
                       {b.ticketCount}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-emerald-700">
-                      ${b.todaySales.toFixed(2)}
+                      ${formatMoney(b.todaySales)}
                     </td>
                     <td className="p-3.5 text-right font-mono font-black text-blue-900 text-xs">
-                      ${b.monthlySales.toFixed(2)}
+                      ${formatMoney(b.monthlySales)}
                     </td>
                     <td className="p-3.5 text-center">
                       {b.stockAlerts > 0 ? (
@@ -886,31 +738,6 @@ export default function ExecutiveModule({
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* TAB 3: CREDIT & FINANCING MATRIX */}
-        {activeMatrixTab === 'credit' && (
-          <div className="overflow-x-auto p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-amber-950 space-y-1">
-                <span className="text-[10px] uppercase font-black tracking-wider text-amber-800">Enganches Recaudados</span>
-                <div className="text-xl font-black font-mono">${financingMetrics.totalDownPayment.toFixed(2)}</div>
-                <p className="text-[11px] text-amber-800 font-medium">Flujo inmediato ingresado a caja por venta de equipos</p>
-              </div>
-
-              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-200 text-indigo-950 space-y-1">
-                <span className="text-[10px] uppercase font-black tracking-wider text-indigo-800">Saldo Financiado Pendiente</span>
-                <div className="text-xl font-black font-mono">${financingMetrics.totalRemainingBalance.toFixed(2)}</div>
-                <p className="text-[11px] text-indigo-800 font-medium">Monto total diferido a liquidar con financieras</p>
-              </div>
-
-              <div className="p-4 bg-slate-900 text-white rounded-2xl border border-slate-800 space-y-1">
-                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Valor Total Equipos</span>
-                <div className="text-xl font-black font-mono text-amber-300">${financingMetrics.totalFullPrice.toFixed(2)}</div>
-                <p className="text-[11px] text-slate-300 font-medium">{financingMetrics.deviceSalesCount} equipos financiados/vendidos</p>
-              </div>
-            </div>
           </div>
         )}
 
@@ -1136,80 +963,6 @@ export default function ExecutiveModule({
         </div>
 
       </div>
-
-      {/* ========================================================================= */}
-      {/* 6. MODAL AÑADIR SUCURSAL */}
-      {/* ========================================================================= */}
-      {showAddBranchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-950 text-white">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-amber-400" />
-                <h3 className="font-black text-base">Registrar Nueva Sucursal</h3>
-              </div>
-              <button 
-                onClick={() => setShowAddBranchModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddBranch} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nombre de la Sucursal
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Sucursal Poniente / Plaza Galerías"
-                  value={newBranchName}
-                  onChange={(e) => setNewBranchName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Código o Identificador Corto
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej. SUC-03"
-                  value={newBranchCode}
-                  onChange={(e) => setNewBranchCode(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                />
-              </div>
-
-              <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900 space-y-1">
-                <p className="font-extrabold">Expansión de Red CrediCel</p>
-                <p className="text-blue-700 font-medium">Al dar de alta la sucursal, estará disponible de inmediato para el monitoreo y corte de caja.</p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddBranchModal(false)}
-                  className="px-4 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
-                >
-                  Confirmar Alta
-                </button>
-              </div>
-            </form>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );

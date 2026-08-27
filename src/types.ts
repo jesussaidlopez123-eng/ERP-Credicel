@@ -60,6 +60,8 @@ export interface PurchaseDraft {
   notes?: string;
   archivedAt?: string;
   deliveredAt?: string;
+  inventoryApplied?: boolean;
+  receivedBranchId?: string;
 }
 
 export interface BranchStockRequest {

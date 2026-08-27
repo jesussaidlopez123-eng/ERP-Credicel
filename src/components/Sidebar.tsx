@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { ModuleId, Branch, Operator } from '../types';
+import { canOpenModule, roleLabel } from '../lib/roles';
 import Logo from './Logo';
 
 interface SidebarProps {
@@ -32,8 +33,6 @@ export default function Sidebar({
   isMobileOpen = false,
   onCloseMobile
 }: SidebarProps) {
-  const isAdmin = currentOperator.role === 'admin';
-
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
     { id: 'pos', label: 'Punto de venta', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'inventory', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
@@ -43,11 +42,8 @@ export default function Sidebar({
     { id: 'settings', label: 'Usuarios', icon: <Settings className="w-4 h-4" /> },
   ];
 
-  const menuItems = isAdmin ? allMenuItems : allMenuItems.filter((item) => item.id === 'pos');
-
-  const roleLabel =
-    currentOperator.role === 'admin' ? 'Administrador' :
-    currentOperator.role === 'manager' ? 'Encargado' : 'Cajero';
+  const menuItems = allMenuItems.filter((item) => canOpenModule(currentOperator.role, item.id));
+  const roleText = roleLabel(currentOperator.role);
 
   return (
     <>
@@ -86,7 +82,7 @@ export default function Sidebar({
             <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
               <span className="truncate">{currentOperator.name}</span>
               <span className="ml-auto rounded bg-white border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
-                {roleLabel}
+                {roleText}
               </span>
             </div>
           </div>

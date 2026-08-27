@@ -36,7 +36,8 @@ import {
   X
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
-import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
@@ -96,13 +97,13 @@ export default function SalesModule({
   const [ticketDateFilter, setTicketDateFilter] = useState<'all' | 'today' | 'custom'>('today');
   const [ticketPaymentFilter, setTicketPaymentFilter] = useState<string>('all');
 
-  const todayIso = safeDateIsoKey(new Date());
+  const todayIso = todayCashDateKey();
 
   // Fixed canonical branches list (Navojoa always 1st, Huatabampo always 2nd)
   const branchesList = useMemo(() => [
-    { id: 'all', name: 'Todas las Sucursales' },
-    { id: 'b-navojoa', name: 'Sucursal Navojoa Centro' },
-    { id: 'b-huatabampo', name: 'Sucursal Huatabampo' }
+    { id: 'all', name: 'Todas las sucursales' },
+    { id: 'b-navojoa', name: 'Navojoa' },
+    { id: 'b-huatabampo', name: 'Huatabampo' }
   ], []);
 
   const getBranchName = (branchId?: string): string => {
@@ -201,13 +202,13 @@ export default function SalesModule({
         todayTicketsCount: todayTickets.length,
         openTicketsCount: openTickets.length,
         todayExpensesCount: todayExpenses.length,
-        totalSales,
-        cashSales,
-        cardSales,
-        transferSales,
-        totalExpenses,
+        totalSales: money(totalSales),
+        cashSales: money(cashSales),
+        cardSales: money(cardSales),
+        transferSales: money(transferSales),
+        totalExpenses: money(totalExpenses),
         initialCashFund,
-        expectedCashInDrawer,
+        expectedCashInDrawer: money(expectedCashInDrawer),
         currentShiftOperator: currentShiftOperator || 'Operador en Turno',
         hasOpenShift: openTickets.length > 0 || openExpenses.length > 0 || hasActivityToday
       };
@@ -1171,7 +1172,7 @@ export default function SalesModule({
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono font-black text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                            {ticket.folio || ticket.id}
+                            {ticketFolioLabel(ticket)}
                           </span>
                           <span className="font-bold text-xs text-slate-900">
                             {getBranchName(ticket.branchId)}

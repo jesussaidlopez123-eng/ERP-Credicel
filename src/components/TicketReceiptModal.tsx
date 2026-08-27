@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { printThermalFromElement } from '../lib/printWindow';
 import { SaleTicket, Branch } from '../types';
+import { formatMoney, ticketFolioLabel } from '../lib/ids';
 
 interface TicketReceiptModalProps {
   isOpen: boolean;
@@ -40,7 +41,7 @@ export default function TicketReceiptModal({
       if (autoPrintEnabled) {
         const timer = setTimeout(() => {
           try {
-            printThermalFromElement('thermal-receipt-container', `Ticket ${ticket.id}`);
+            printThermalFromElement('thermal-receipt-container', `Ticket ${ticketFolioLabel(ticket)}`);
             setHasPrinted(true);
           } catch (e) {
             console.error('Error triggering auto print:', e);
@@ -76,13 +77,13 @@ export default function TicketReceiptModal({
   if (!isOpen || !ticket) return null;
 
   const handlePrint = () => {
-    printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticket.id}` : 'Ticket CREDI CEL');
+    printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticketFolioLabel(ticket)}` : 'Ticket CREDI CEL');
     setHasPrinted(true);
   };
 
   const handleNextSale = (shouldPrint: boolean = false) => {
     if (shouldPrint) {
-      printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticket.id}` : 'Ticket CREDI CEL');
+      printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticketFolioLabel(ticket)}` : 'Ticket CREDI CEL');
       setHasPrinted(true);
       setTimeout(() => {
         onClose();
@@ -193,7 +194,7 @@ export default function TicketReceiptModal({
                 ¡Venta Cobrada Exitosamente!
               </h3>
               <p className="text-[11px] text-emerald-200/90 mt-0.5">
-                Ticket: <strong className="font-mono font-black text-white">{ticket.id}</strong> • Total: <strong className="text-white">${ticket.total.toFixed(2)}</strong>
+                Ticket: <strong className="font-mono font-black text-white">{ticketFolioLabel(ticket)}</strong> • Total: <strong className="text-white">${formatMoney(ticket.total)}</strong>
               </p>
             </div>
           </div>
@@ -268,7 +269,7 @@ export default function TicketReceiptModal({
               </p>
               
               <div className="inline-block mt-1 px-2 py-0.5 bg-black text-white font-black font-mono text-[10px] rounded tracking-wider">
-                TICKET: {ticket.id}
+                TICKET: {ticketFolioLabel(ticket)}
               </div>
             </div>
 
@@ -454,7 +455,7 @@ export default function TicketReceiptModal({
             <div className="space-y-1 pt-1.5">
               <div className="flex justify-between text-xs font-black text-black border-b-2 border-black pb-0.5">
                 <span>TOTAL:</span>
-                <span className="font-mono">${ticket.total.toFixed(2)} MXN</span>
+                <span className="font-mono">${formatMoney(ticket.total)} MXN</span>
               </div>
 
               <div className="flex justify-between text-[9.5px] text-slate-800">
@@ -516,7 +517,7 @@ export default function TicketReceiptModal({
                 </svg>
               </div>
 
-              <p className="font-mono text-[9.5px] font-black tracking-widest text-black">*{ticket.id}*</p>
+              <p className="font-mono text-[9.5px] font-black tracking-widest text-black">*{ticketFolioLabel(ticket)}*</p>
               
               <div className="text-[9px] text-slate-800 font-sans leading-tight pt-1">
                 <p className="font-bold">¡Gracias por su compra en CrediCel!</p>

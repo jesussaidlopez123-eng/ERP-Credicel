@@ -7,8 +7,8 @@ export const ALL_BRANCHES: Branch[] = [
 ];
 
 export const COMMERCIAL_BRANCHES: Branch[] = [
-  { id: 'b-navojoa', name: 'Sucursal Navojoa Centro' },
-  { id: 'b-huatabampo', name: 'Sucursal Huatabampo' }
+  { id: 'b-navojoa', name: 'Navojoa' },
+  { id: 'b-huatabampo', name: 'Huatabampo' }
 ];
 
 export function normalizeBranchId(id?: string): string {
@@ -41,9 +41,13 @@ export const getBranchById = (id?: string): Branch => {
 };
 
 export function getBranchDisplayName(id?: string): string {
+  const found = getBranchById(id);
+  return found.name || id || 'Sucursal';
+}
+
+export function branchFolioCode(id?: string): string {
   const norm = normalizeBranchId(id);
-  if (norm === 'b-navojoa') return 'Sucursal Navojoa Centro';
-  if (norm === 'b-huatabampo') return 'Sucursal Huatabampo';
-  if (norm === 'b-bodega') return 'Bodega Central';
-  return id || 'Sucursal';
+  if (norm === 'b-huatabampo') return 'HUA';
+  if (norm === 'b-bodega') return 'BDG';
+  return 'NAV';
 }

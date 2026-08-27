@@ -8,10 +8,12 @@ import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
 import SettingsModule from './SettingsModule';
-import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja } from '../types';
+import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja, PurchaseDraft } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
+import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import { canOpenModule } from '../lib/roles';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import { Bell, Menu, Megaphone } from 'lucide-react';
 import {
@@ -41,12 +43,14 @@ import {
   closeCashSessionIfDue,
   syncPosCashSession,
   healPrematureAutoCortesForCommercialBranches,
+  allocateSaleFolio,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
   saveRepairRecordToFirestore,
-  deleteSaleTicketFromFirestore
+  deleteSaleTicketFromFirestore,
+  savePurchaseDraftToFirestore
 } from '../lib/firebase';
 import { belongsToOpenSession } from '../lib/saleClassification';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
@@ -59,12 +63,6 @@ import {
   sessionNeedsAutomaticCorte,
   CashTillLockedError
 } from '../lib/shiftHours';
-
-const ALL_BRANCHES: Branch[] = [
-  { id: 'b-bodega', name: 'Bodega' },
-  { id: 'b-navojoa', name: 'Navojoa' },
-  { id: 'b-huatabampo', name: 'Huatabampo' },
-];
 
 interface DashboardProps {
   currentBranch: Branch;
@@ -186,6 +184,7 @@ export default function Dashboard({
   }, []);
 
   const isAdmin = currentOperator.role === 'admin';
+  const isCashierOnly = currentOperator.role === 'cashier';
 
   useEffect(() => {
     if (currentBranch.id === 'b-bodega') {
@@ -282,12 +281,13 @@ export default function Dashboard({
     };
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, onLogout]);
 
-  // Non-admin operators only have access to POS module
   useEffect(() => {
-    if (!isAdmin && activeModule !== 'pos') {
+    if (isCashierOnly && activeModule !== 'pos') {
+      setActiveModule('pos');
+    } else if (!canOpenModule(currentOperator.role, activeModule)) {
       setActiveModule('pos');
     }
-  }, [isAdmin, activeModule]);
+  }, [isCashierOnly, currentOperator.role, activeModule]);
 
   // Inventory Movement Recording Helper
   const handleRecordInventoryMovement = (movementData: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => {
@@ -360,9 +360,19 @@ export default function Dashboard({
 
       const enrichedTicket: SaleTicket = {
         ...ticket,
+        total: money(Number(ticket.total) || 0),
+        folio: ticket.folio,
         sucursal_id: ticket.branchId,
         sesion_caja_id: session?.id || ticket.sesion_caja_id
       };
+      if (!enrichedTicket.folio) {
+        try {
+          enrichedTicket.folio = await allocateSaleFolio(enrichedTicket.branchId);
+        } catch (folioErr) {
+          console.warn('No se pudo asignar folio corto; se usa el id interno.', folioErr);
+          enrichedTicket.folio = enrichedTicket.id;
+        }
+      }
 
       await saveSaleTicketToFirestore(enrichedTicket);
       setSalesTickets((prev) => [enrichedTicket, ...prev.filter((t) => t.id !== enrichedTicket.id)]);
@@ -571,6 +581,60 @@ export default function Dashboard({
     saveProductToFirestore(updatedProd).catch((err) => console.error('Error updating product:', err));
   };
 
+  const handleReceivePurchase = async (draft: PurchaseDraft) => {
+    if (draft.inventoryApplied) return;
+    const targetBranchId = 'b-bodega';
+    const targetBranchName = getBranchDisplayName(targetBranchId);
+    draft.items.forEach((item) => {
+      const qty = Number(item.quantity) || 0;
+      if (qty <= 0) return;
+      const code = (item.code || '').trim().toUpperCase();
+      const name = (item.productName || '').trim().toLowerCase();
+      const prod = products.find((p) => {
+        if (code && (p.code || '').trim().toUpperCase() === code) return true;
+        return name && (p.name || '').trim().toLowerCase() === name;
+      });
+      if (!prod) return;
+      const branchStock = { ...(prod.branchStock || {}) };
+      branchStock[targetBranchId] = money((Number(branchStock[targetBranchId]) || 0) + qty);
+      const newTotal =
+        (branchStock['b-bodega'] || 0) + (branchStock['b-navojoa'] || 0) + (branchStock['b-huatabampo'] || 0);
+      const updated: Product = {
+        ...prod,
+        branchStock,
+        stock: newTotal,
+        costPrice: item.wholesalePrice > 0 ? money(item.wholesalePrice) : prod.costPrice
+      };
+      handleUpdateProduct(updated);
+      handleRecordInventoryMovement({
+        type: 'ingreso',
+        productId: prod.id,
+        productCode: prod.code || item.code || 'S/C',
+        productName: prod.name,
+        category: prod.category,
+        inventoryType: prod.inventoryType,
+        quantity: qty,
+        previousStock: prod.stock,
+        newStock: newTotal,
+        targetBranchId,
+        targetBranchName,
+        operatorName: currentOperator.name,
+        operatorId: currentOperator.id,
+        reason: 'Recepción de compra',
+        details: `Pedido ${draft.title} · ${draft.supplierName} · +${qty} a ${targetBranchName}`
+      });
+    });
+    const received: PurchaseDraft = {
+      ...draft,
+      status: 'recibido',
+      inventoryApplied: true,
+      receivedBranchId: targetBranchId,
+      deliveredAt: draft.deliveredAt || new Date().toISOString().slice(0, 10),
+      updatedAt: new Date().toISOString().slice(0, 10)
+    };
+    await savePurchaseDraftToFirestore(received);
+  };
+
   const handleDeleteProduct = (id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
     deleteProductFromFirestore(id).catch((err) => console.error('Error deleting product:', err));
@@ -579,7 +643,7 @@ export default function Dashboard({
   // Finalize Corte X Handler (Saves snapshot, closes session and flags shift tickets/expenses as closed)
   const handleFinalizeCorteX = async (corteRecord: CorteXRecord) => {
     if (currentBranch.id === 'b-bodega' || corteRecord.branchId === 'b-bodega') {
-      console.warn('[CorteX] La Bodega Central no genera cortes de caja.');
+      console.warn('[CorteX] Bodega no genera cortes de caja.');
       return;
     }
     if (corteInFlightRef.current) {
@@ -806,8 +870,10 @@ export default function Dashboard({
             notifications={notifications}
             products={products}
             currentBranch={currentBranch}
+            currentOperator={currentOperator}
             onUpdateNotificationStatus={handleUpdateNotificationStatus}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
+            onReceivePurchase={handleReceivePurchase}
           />
         );
       case 'sales':
@@ -831,6 +897,7 @@ export default function Dashboard({
           <ExecutiveModule 
             currentBranch={currentBranch}
             currentOperator={currentOperator}
+            operators={operators}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
             salesTickets={salesTickets}
             expenses={expenses}

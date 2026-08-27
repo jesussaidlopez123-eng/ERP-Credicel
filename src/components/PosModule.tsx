@@ -41,7 +41,7 @@ import PaymentCheckoutModal from './PaymentCheckoutModal';
 import CreditPaymentModal from './CreditPaymentModal';
 import CaseModelModal from './CaseModelModal';
 import { RepairPriceItem } from '../types';
-import { newTicketId } from '../lib/ids';
+import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
 
@@ -655,7 +655,7 @@ export default function PosModule({
   };
 
   // Cart Calculations
-  const cartSubtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
+  const cartSubtotal = money(cart.reduce((sum, item) => sum + item.totalPrice, 0));
   const cartTotal = cartSubtotal;
 
   // Open Payment Modal
@@ -681,7 +681,7 @@ export default function PosModule({
       branchId: currentBranch.id,
       operatorName: currentOperator.name,
       items: [...cart],
-      total: cartTotal,
+      total: money(cartTotal),
       paymentMethod: method,
       cashReceived: method === 'Efectivo' ? cashReceivedVal : undefined,
       change: method === 'Efectivo' ? changeVal : undefined

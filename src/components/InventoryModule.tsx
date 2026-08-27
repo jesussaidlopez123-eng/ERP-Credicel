@@ -27,6 +27,7 @@ import {
   Tag
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement } from '../types';
+import { ALL_BRANCHES } from '../data/initialBranches';
 import { InventoryMovementsModal } from './InventoryMovementsModal';
 import InventoryPrintModal from './InventoryPrintModal';
 import InventoryLabelsModal from './InventoryLabelsModal';
@@ -44,12 +45,6 @@ interface InventoryModuleProps {
   onRecordMovement?: (movement: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => void;
 }
 
-const OFFICIAL_BRANCHES = [
-  { id: 'b-bodega', name: 'Bodega' },
-  { id: 'b-navojoa', name: 'Navojoa' },
-  { id: 'b-huatabampo', name: 'Huatabampo' }
-];
-
 export default function InventoryModule({
   products,
   onAddProduct,
@@ -57,7 +52,7 @@ export default function InventoryModule({
   onDeleteProduct,
   currentBranch,
   currentOperator,
-  allBranches = OFFICIAL_BRANCHES,
+  allBranches = ALL_BRANCHES,
   inventoryMovements = [],
   onRecordMovement
 }: InventoryModuleProps) {
@@ -402,7 +397,7 @@ export default function InventoryModule({
 
     const isDuplicateInSystem = !!conflictingProduct;
     const branchName = conflictingBranchId 
-      ? (OFFICIAL_BRANCHES.find(b => b.id === conflictingBranchId)?.name || conflictingBranchId)
+      ? (ALL_BRANCHES.find(b => b.id === conflictingBranchId)?.name || conflictingBranchId)
       : undefined;
 
     return {
@@ -541,7 +536,7 @@ export default function InventoryModule({
           stock: newTotalStock
         };
 
-        const branchName = OFFICIAL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        const branchName = ALL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
         onRecordMovement?.({
           type: 'ingreso',
           productId: prod.id,
@@ -604,7 +599,7 @@ export default function InventoryModule({
           color: 'bg-slate-800 text-white'
         };
 
-        const branchName = OFFICIAL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        const branchName = ALL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
         onRecordMovement?.({
           type: 'creacion',
           productId: newProd.id,
@@ -716,7 +711,7 @@ export default function InventoryModule({
         stock: newTotalStock
       };
 
-      const branchName = OFFICIAL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
       onRecordMovement?.({
         type: 'ingreso',
         productId: prod.id,
@@ -765,7 +760,7 @@ export default function InventoryModule({
         color: 'bg-blue-800 text-white'
       };
 
-      const branchName = OFFICIAL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
       onRecordMovement?.({
         type: 'creacion',
         productId: newProd.id,
@@ -829,7 +824,7 @@ export default function InventoryModule({
 
     const originAvailable = currentBStock[fromBranchId] || 0;
     if (qty > originAvailable) {
-      const originName = OFFICIAL_BRANCHES.find(b => b.id === fromBranchId)?.name;
+      const originName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name;
       alert(`No hay suficiente inventario en ${originName}. Disponibles: ${originAvailable}`);
       return;
     }
@@ -868,8 +863,8 @@ export default function InventoryModule({
       stock: newTotalStock
     };
 
-    const fromName = OFFICIAL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
-    const toName = OFFICIAL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
+    const fromName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
+    const toName = ALL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
 
     promptSecurityAuth(
       'traspaso',
@@ -945,8 +940,8 @@ export default function InventoryModule({
       stock: newTotalStock
     };
 
-    const fromName = OFFICIAL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
-    const toName = OFFICIAL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
+    const fromName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
+    const toName = ALL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
 
     promptSecurityAuth(
       'traspaso',
@@ -1017,7 +1012,7 @@ export default function InventoryModule({
     if (isEquipment) {
       if (ajustarAction === 'merma') {
         if (qty > currentQtyInBranch) {
-          const branchName = OFFICIAL_BRANCHES.find(b => b.id === ajustarBranchId)?.name;
+          const branchName = ALL_BRANCHES.find(b => b.id === ajustarBranchId)?.name;
           alert(`No puedes restar más de las ${currentQtyInBranch} piezas disponibles en ${branchName}.`);
           return;
         }
@@ -1061,7 +1056,7 @@ export default function InventoryModule({
     let newBranchQty = currentQtyInBranch;
     if (ajustarAction === 'merma') {
       if (qty > currentQtyInBranch) {
-        const branchName = OFFICIAL_BRANCHES.find(b => b.id === ajustarBranchId)?.name;
+        const branchName = ALL_BRANCHES.find(b => b.id === ajustarBranchId)?.name;
         alert(`No puedes restar más de las ${currentQtyInBranch} piezas disponibles en ${branchName}.`);
         return;
       }
@@ -1084,7 +1079,7 @@ export default function InventoryModule({
     };
 
     const actionText = ajustarAction === 'merma' ? 'Baja por Merma' : 'Incremento de Stock';
-    const branchName = OFFICIAL_BRANCHES.find(b => b.id === ajustarBranchId)?.name || ajustarBranchId;
+    const branchName = ALL_BRANCHES.find(b => b.id === ajustarBranchId)?.name || ajustarBranchId;
 
     promptSecurityAuth(
       'ajuste',
@@ -1155,7 +1150,7 @@ export default function InventoryModule({
       stock: newTotalStock
     };
 
-    const branchName = OFFICIAL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+    const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
 
     promptSecurityAuth(
       'ajuste',
@@ -1940,7 +1935,7 @@ export default function InventoryModule({
                     onChange={(e) => setIngresarBranchId(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
-                    {OFFICIAL_BRANCHES.map(b => (
+                    {ALL_BRANCHES.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name}
                       </option>
@@ -2037,7 +2032,7 @@ export default function InventoryModule({
                     onChange={(e) => setFromBranchId(e.target.value)}
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
-                    {OFFICIAL_BRANCHES.map(b => {
+                    {ALL_BRANCHES.map(b => {
                       const prod = products.find(p => p.id === transferSelectedProdId);
                       const qtyInB = prod ? getBranchStock(prod, b.id) : 0;
                       return (
@@ -2058,7 +2053,7 @@ export default function InventoryModule({
                     onChange={(e) => setToBranchId(e.target.value)}
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
-                    {OFFICIAL_BRANCHES.map(b => (
+                    {ALL_BRANCHES.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name}
                       </option>
@@ -2155,7 +2150,7 @@ export default function InventoryModule({
                   onChange={(e) => setAjustarBranchId(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                 >
-                  {OFFICIAL_BRANCHES.map(b => {
+                  {ALL_BRANCHES.map(b => {
                     const prod = products.find(p => p.id === ajustarSelectedProdId);
                     const qtyInB = prod ? getBranchStock(prod, b.id) : 0;
                     return (
@@ -2501,7 +2496,7 @@ export default function InventoryModule({
                 <div>
                   <h3 className="font-black text-base">Captura de IMEIs - {pendingEquipmentData.name}</h3>
                   <p className="text-[11px] font-bold text-slate-900 opacity-90">
-                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {OFFICIAL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'Bodega'}
+                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {ALL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'Bodega'}
                   </p>
                 </div>
               </div>
@@ -2854,7 +2849,7 @@ export default function InventoryModule({
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center justify-between text-blue-950 font-bold">
                 <div>
                   <span className="text-[10px] text-blue-700 uppercase font-black block">Movimiento:</span>
-                  <span>{OFFICIAL_BRANCHES.find(b => b.id === pendingTransferData.fromBranchId)?.name} ➔ {OFFICIAL_BRANCHES.find(b => b.id === pendingTransferData.toBranchId)?.name}</span>
+                  <span>{ALL_BRANCHES.find(b => b.id === pendingTransferData.fromBranchId)?.name} ➔ {ALL_BRANCHES.find(b => b.id === pendingTransferData.toBranchId)?.name}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] text-blue-700 uppercase font-black block">Cantidad:</span>
@@ -3021,7 +3016,7 @@ export default function InventoryModule({
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-amber-950 font-bold">
                 <div>
                   <span className="text-[10px] text-amber-800 uppercase font-black block">Ubicación / Motivo:</span>
-                  <span>{OFFICIAL_BRANCHES.find(b => b.id === pendingAjustarData.branchId)?.name} • {pendingAjustarData.reason}</span>
+                  <span>{ALL_BRANCHES.find(b => b.id === pendingAjustarData.branchId)?.name} • {pendingAjustarData.reason}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] text-amber-800 uppercase font-black block">Baja de Stock:</span>
@@ -3256,7 +3251,7 @@ export default function InventoryModule({
         isOpen={isMovementsModalOpen}
         onClose={() => setIsMovementsModalOpen(false)}
         movements={inventoryMovements}
-        currentBranch={currentBranch || OFFICIAL_BRANCHES[0]}
+        currentBranch={currentBranch || ALL_BRANCHES[0]}
         branches={allBranches}
       />
 

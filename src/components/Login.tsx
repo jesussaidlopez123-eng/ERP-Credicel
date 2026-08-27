@@ -5,7 +5,8 @@ import {
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
-import { ALL_BRANCHES } from '../data/initialBranches';
+import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import { roleLabel } from '../lib/roles';
 import { isAfterCashClose } from '../lib/shiftHours';
 
 interface LoginProps {
@@ -148,7 +149,7 @@ export default function Login({
                     const opBranch = safeBranches.find((b) => op.branchIds?.includes(b.id)) || safeBranches[0];
                     return (
                       <option key={op.id} value={op.id}>
-                        {op.name} ({op.role.toUpperCase()}) — {opBranch?.name || 'Sucursal'}
+                        {op.name} ({roleLabel(op.role)}) — {getBranchDisplayName(opBranch?.id)}
                       </option>
                     );
                   })}
@@ -173,14 +174,11 @@ export default function Login({
                     onChange={(e) => setSelectedBranchId(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-sm font-semibold text-blue-950"
                   >
-                    {(selectedOperator.branchIds || []).map((id) => {
-                      const b = safeBranches.find((br) => br.id === id);
-                      return (
+                    {(selectedOperator.branchIds || []).map((id) => (
                         <option key={id} value={id}>
-                          {b?.name || id}
+                          {getBranchDisplayName(id)}
                         </option>
-                      );
-                    })}
+                    ))}
                   </select>
                 ) : (
                   <div className="flex items-center justify-between gap-2 pt-0.5">

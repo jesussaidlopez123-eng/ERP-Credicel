@@ -1,138 +1,34 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, Plus, Search, Copy, Check, Trash2, Edit3, Send, 
   PackagePlus, ShoppingBag, Store, AlertTriangle, CheckCircle2, 
   Clock, ArrowUpRight, DollarSign, Layers, ChevronRight, X, Sparkles, Filter,
   Archive, History, Eye, XCircle, RotateCcw, Printer, Calendar, CheckCircle
 } from 'lucide-react';
-import { PurchaseDraft, PurchaseDraftItem, BranchStockRequest, AppNotification, Product, Branch } from '../types';
+import { PurchaseDraft, PurchaseDraftItem, BranchStockRequest, AppNotification, Product, Branch, Operator } from '../types';
+import { formatMoney, money, newUniqueId } from '../lib/ids';
+import { getBranchDisplayName } from '../data/initialBranches';
+import { subscribeToPurchaseDrafts, savePurchaseDraftToFirestore, deletePurchaseDraftFromFirestore } from '../lib/firebase';
+import { todayCashDateKey } from '../lib/dateUtils';
 
 interface PurchasesModuleProps {
   notifications: AppNotification[];
   products: Product[];
   currentBranch: Branch;
+  currentOperator?: Operator;
   onUpdateNotificationStatus?: (notifId: string, status: 'pendiente' | 'en_camino' | 'cumplido') => void;
   onOpenNoticeModal: () => void;
+  onReceivePurchase?: (draft: PurchaseDraft) => Promise<void> | void;
 }
-
-// Sample Initial Purchase Drafts & Archived Orders
-const INITIAL_DRAFTS: PurchaseDraft[] = [
-  {
-    id: 'draft-1',
-    title: 'Cotización Micas Cristal Templado y Fundas TPU',
-    supplierName: 'Distribuidora Celular MX',
-    createdAt: '2026-07-28',
-    updatedAt: '2026-07-28',
-    status: 'enviado_proveedor',
-    archivedAt: '2026-07-28',
-    totalAmount: 4850.00,
-    notes: 'Precios de mayoreo negociados por lote de 100 piezas.',
-    items: [
-      { id: 'item-1', code: 'MICA-IP13', productName: 'Mica Cristal Templado iPhone 13', quantity: 50, wholesalePrice: 35.00, notes: 'Empaque individual' },
-      { id: 'item-2', code: 'FUNDA-SAM-A54', productName: 'Funda TPU Transparente Samsung A54', quantity: 30, wholesalePrice: 45.00, notes: 'Reforzada en esquinas' },
-      { id: 'item-3', code: 'CARG-20W', productName: 'Cargador Carga Rápida 20W USB-C', quantity: 20, wholesalePrice: 87.50, notes: 'Marca 100% compatible' }
-    ]
-  },
-  {
-    id: 'draft-2',
-    title: 'Pedido Equipos Xiaomi y Samsung Mayoreo',
-    supplierName: 'Importaciones Tech Sol',
-    createdAt: '2026-07-29',
-    updatedAt: '2026-07-29',
-    status: 'borrador',
-    totalAmount: 34200.00,
-    notes: 'Revisar garantía de 1 año directo con distribuidor.',
-    items: [
-      { id: 'item-4', code: 'EQ-XIA-NOTE13', productName: 'Xiaomi Redmi Note 13 256GB', quantity: 5, wholesalePrice: 3800.00, notes: 'Color Negro / Azul' },
-      { id: 'item-5', code: 'EQ-SAM-A15', productName: 'Samsung Galaxy A15 128GB', quantity: 4, wholesalePrice: 3800.00, notes: 'Color Gris' }
-    ]
-  },
-  {
-    id: 'draft-3',
-    title: 'Surtido de Refacciones Pantallas iPhone & Motorola',
-    supplierName: 'Refaccionaria Móvil Express',
-    createdAt: '2026-07-20',
-    updatedAt: '2026-07-22',
-    status: 'entregado',
-    archivedAt: '2026-07-20',
-    deliveredAt: '2026-07-22',
-    totalAmount: 12400.00,
-    notes: 'Recibido en almacén central y verificado sin defectos.',
-    items: [
-      { id: 'item-6', code: 'REF-DISP-IP11', productName: 'Display Calidad Original iPhone 11', quantity: 6, wholesalePrice: 1100.00, notes: 'Probado en recepción' },
-      { id: 'item-7', code: 'REF-DISP-G60', productName: 'Display Completo Moto G60', quantity: 5, wholesalePrice: 850.00, notes: 'Con marco' },
-      { id: 'item-8', code: 'REF-BAT-IP12', productName: 'Batería Alta Capacidad iPhone 12', quantity: 5, wholesalePrice: 310.00, notes: 'Cinta adhesiva incluida' }
-    ]
-  },
-  {
-    id: 'draft-4',
-    title: 'Lote Adaptadores Carga Rápida & Cables Genéricos',
-    supplierName: 'Mayorista Tech MX',
-    createdAt: '2026-07-24',
-    updatedAt: '2026-07-25',
-    status: 'pendiente',
-    archivedAt: '2026-07-24',
-    totalAmount: 6350.00,
-    notes: 'Pendiente de llegada por guía DHL #98421039.',
-    items: [
-      { id: 'item-9', code: 'CAB-USB-C', productName: 'Cable USB-C a USB-C 2m 60W', quantity: 40, wholesalePrice: 45.00, notes: 'Trenzado nylon' },
-      { id: 'item-10', code: 'ADAP-30W', productName: 'Cargador de Pared 30W Dual USB', quantity: 30, wholesalePrice: 151.66, notes: 'Certificación CE' }
-    ]
-  }
-];
-
-// Sample Branch Requests
-const INITIAL_BRANCH_REQUESTS: BranchStockRequest[] = [
-  {
-    id: 'req-101',
-    branchId: 'b-navojoa',
-    branchName: 'Navojoa',
-    operatorName: 'Juan Pérez',
-    productName: 'Micas de Cristal Templado iPhone 14 Pro',
-    code: 'MIC-IP14P',
-    currentStock: 0,
-    requestedQty: 15,
-    urgency: 'urgente',
-    notes: 'Sin stock en exhibición. Clientes preguntando diariamente.',
-    createdAt: 'Hace 40 min',
-    status: 'pendiente'
-  },
-  {
-    id: 'req-102',
-    branchId: 'b-huatabampo',
-    branchName: 'Huatabampo',
-    operatorName: 'María García',
-    productName: 'Cargador Tipo-C 20W Carga Rápida',
-    code: 'CARG-20W',
-    currentStock: 1,
-    requestedQty: 10,
-    urgency: 'normal',
-    notes: 'Queda solo 1 pieza en exhibidor.',
-    createdAt: 'Hace 2 horas',
-    status: 'en_camino'
-  },
-  {
-    id: 'req-103',
-    branchId: 'b-navojoa',
-    branchName: 'Navojoa',
-    operatorName: 'Carlos López',
-    productName: 'Cables Lightning a USB-C 1m',
-    code: 'CAB-LGT-1M',
-    currentStock: 2,
-    requestedQty: 20,
-    urgency: 'normal',
-    notes: 'Se entregaron 10 piezas el martes.',
-    createdAt: 'Ayer',
-    status: 'cumplido'
-  }
-];
 
 export default function PurchasesModule({
   notifications,
   products,
   currentBranch,
+  currentOperator,
   onUpdateNotificationStatus,
-  onOpenNoticeModal
+  onOpenNoticeModal,
+  onReceivePurchase
 }: PurchasesModuleProps) {
   const [activeTab, setActiveTab] = useState<'drive' | 'solicitudes' | 'historial'>('drive');
   
@@ -161,63 +57,63 @@ export default function PurchasesModule({
   // Toast / Feedback Copying
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Function to update status of an archived/active draft order
-  const handleUpdateDraftStatus = (draftId: string, newStatus: PurchaseDraft['status']) => {
-    const today = new Date().toISOString().split('T')[0];
-    setDrafts((prev) =>
-      prev.map((d) => {
-        if (d.id === draftId) {
-          const updated: PurchaseDraft = {
-            ...d,
-            status: newStatus,
-            updatedAt: today,
-            archivedAt: d.archivedAt || (newStatus !== 'borrador' ? today : undefined),
-            deliveredAt: (newStatus === 'entregado' || newStatus === 'recibido') ? today : d.deliveredAt
-          };
+  useEffect(() => {
+    return subscribeToPurchaseDrafts(setDrafts);
+  }, []);
 
-          // Also sync viewing modal if open
-          if (viewingHistoryDraft && viewingHistoryDraft.id === draftId) {
-            setViewingHistoryDraft(updated);
-          }
-          return updated;
-        }
-        return d;
-      })
-    );
+  const persistDraft = (draft: PurchaseDraft) => {
+    savePurchaseDraftToFirestore(draft).catch((err) => console.error('Error guardando pedido:', err));
   };
 
-  // Function to explicitly archive a draft to history
+  const handleUpdateDraftStatus = async (draftId: string, newStatus: PurchaseDraft['status']) => {
+    const today = todayCashDateKey();
+    const current = drafts.find((d) => d.id === draftId);
+    if (!current) return;
+    const updated: PurchaseDraft = {
+      ...current,
+      status: newStatus,
+      updatedAt: today,
+      archivedAt: current.archivedAt || (newStatus !== 'borrador' ? today : undefined),
+      deliveredAt: (newStatus === 'entregado' || newStatus === 'recibido') ? today : current.deliveredAt
+    };
+    setDrafts((prev) => prev.map((d) => (d.id === draftId ? updated : d)));
+    if (viewingHistoryDraft && viewingHistoryDraft.id === draftId) {
+      setViewingHistoryDraft(updated);
+    }
+    persistDraft(updated);
+    if ((newStatus === 'entregado' || newStatus === 'recibido') && !updated.inventoryApplied && onReceivePurchase) {
+      await onReceivePurchase(updated);
+    }
+  };
+
   const handleArchiveDraft = (draft: PurchaseDraft) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayCashDateKey();
     const newStatus = draft.status === 'borrador' ? 'enviado_proveedor' : draft.status;
-    setDrafts((prev) =>
-      prev.map((d) =>
-        d.id === draft.id
-          ? {
-              ...d,
-              status: newStatus,
-              archivedAt: today,
-              updatedAt: today
-            }
-          : d
-      )
-    );
+    const updated: PurchaseDraft = {
+      ...draft,
+      status: newStatus,
+      archivedAt: today,
+      updatedAt: today
+    };
+    setDrafts((prev) => prev.map((d) => (d.id === draft.id ? updated : d)));
+    persistDraft(updated);
   };
 
-  // Duplicate order into a new draft
   const handleDuplicateDraft = (draft: PurchaseDraft) => {
+    const today = todayCashDateKey();
     const newDraft: PurchaseDraft = {
-      id: `draft-${Date.now()}`,
+      id: newUniqueId('PED'),
       title: `${draft.title} (Reorden)`,
       supplierName: draft.supplierName,
-      createdAt: new Date().toISOString().split('T')[0],
-      updatedAt: new Date().toISOString().split('T')[0],
-      items: draft.items.map((item) => ({ ...item, id: `item-${Date.now()}-${Math.random()}` })),
-      totalAmount: draft.totalAmount,
+      createdAt: today,
+      updatedAt: today,
+      items: draft.items.map((item) => ({ ...item, id: newUniqueId('item') })),
+      totalAmount: money(draft.totalAmount),
       status: 'borrador',
-      notes: `Duplicado a partir de pedido #${draft.id}`
+      notes: `Duplicado a partir de pedido ${draft.id}`
     };
     setDrafts((prev) => [newDraft, ...prev]);
+    persistDraft(newDraft);
     setActiveTab('drive');
   };
 
@@ -233,7 +129,7 @@ export default function PurchasesModule({
             id: `req-notif-${n.id}`,
             notificationId: n.id,
             branchId: n.branchId,
-            branchName: n.title.includes('(') ? n.title.split('(')[1].replace(')', '') : 'Sucursal',
+            branchName: getBranchDisplayName(n.branchId),
             operatorName: n.authorName,
             productName: n.requestDetails.productName,
             currentStock: n.requestDetails.currentStock,
@@ -252,7 +148,7 @@ export default function PurchasesModule({
   // Open New Draft Modal
   const handleOpenNewDraft = (prefillItem?: { name: string; qty: number }) => {
     setCurrentDraftId(null);
-    setDraftTitle(`Cotización de Pedido - ${new Date().toLocaleDateString('es-MX')}`);
+    setDraftTitle(`Pedido ${todayCashDateKey()}`);
     setSupplierName('');
     setDraftNotes('');
     if (prefillItem) {
@@ -333,32 +229,33 @@ export default function PurchasesModule({
     const validItems = draftItems.filter((i) => i.productName.trim() !== '');
     if (validItems.length === 0) return;
 
-    const total = validItems.reduce((acc, item) => acc + (item.quantity * item.wholesalePrice), 0);
-    const today = new Date().toISOString().split('T')[0];
+    const total = money(validItems.reduce((acc, item) => acc + item.quantity * item.wholesalePrice, 0));
+    const today = todayCashDateKey();
 
     if (currentDraftId) {
-      // Update existing
-      setDrafts((prev) =>
-        prev.map((d) =>
-          d.id === currentDraftId
-            ? {
-                ...d,
-                title: draftTitle.trim(),
-                supplierName: supplierName.trim() || 'Proveedor General',
-                notes: draftNotes.trim(),
-                items: validItems,
-                totalAmount: total,
-                status,
-                updatedAt: today,
-                archivedAt: status !== 'borrador' ? (d.archivedAt || today) : d.archivedAt
-              }
-            : d
-        )
-      );
+      const existing = drafts.find((d) => d.id === currentDraftId);
+      const updated: PurchaseDraft = {
+        ...(existing || {
+          id: currentDraftId,
+          createdAt: today,
+          items: validItems,
+          totalAmount: total,
+          status
+        }),
+        title: draftTitle.trim(),
+        supplierName: supplierName.trim() || 'Proveedor General',
+        notes: draftNotes.trim(),
+        items: validItems,
+        totalAmount: total,
+        status,
+        updatedAt: today,
+        archivedAt: status !== 'borrador' ? (existing?.archivedAt || today) : existing?.archivedAt
+      };
+      setDrafts((prev) => prev.map((d) => (d.id === currentDraftId ? updated : d)));
+      persistDraft(updated);
     } else {
-      // Create new
       const newDraft: PurchaseDraft = {
-        id: `draft-${Date.now()}`,
+        id: newUniqueId('PED'),
         title: draftTitle.trim(),
         supplierName: supplierName.trim() || 'Proveedor General',
         createdAt: today,
@@ -370,6 +267,7 @@ export default function PurchasesModule({
         notes: draftNotes.trim()
       };
       setDrafts((prev) => [newDraft, ...prev]);
+      persistDraft(newDraft);
     }
 
     setIsDraftModalOpen(false);
@@ -382,6 +280,7 @@ export default function PurchasesModule({
   const handleDeleteDraft = (id: string) => {
     if (window.confirm('¿Deseas eliminar este borrador de pedido?')) {
       setDrafts((prev) => prev.filter((d) => d.id !== id));
+      deletePurchaseDraftFromFirestore(id).catch((err) => console.error('Error eliminando pedido:', err));
     }
   };
 

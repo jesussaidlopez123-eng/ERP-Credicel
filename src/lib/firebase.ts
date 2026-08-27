@@ -16,9 +16,9 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
-import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord } from '../types';
-import { money, newSessionId } from './ids';
-import { COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
+import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord, PurchaseDraft } from '../types';
+import { formatTicketFolio, money, newSessionId } from './ids';
+import { branchFolioCode, COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import {
@@ -60,6 +60,8 @@ export const BRANCH_OPEN_SESSIONS_COLLECTION = 'branchOpenSessions';
 export const CREDIT_ACCOUNTS_COLLECTION = 'creditAccounts';
 export const REPAIR_RECORDS_COLLECTION = 'repairRecords';
 export const META_COLLECTION = 'meta';
+export const FOLIO_COUNTERS_COLLECTION = 'folioCounters';
+export const PURCHASE_DRAFTS_COLLECTION = 'purchaseDrafts';
 
 // Helper to remove undefined properties for Firestore compatibility
 export function cleanForFirestore<T>(data: T): Record<string, any> {
@@ -88,7 +90,7 @@ function bodegaPlaceholderSession(operatorName: string): SesionCaja {
   return {
     id: 'SES-BODEGA-CENTRAL',
     sucursal_id: 'b-bodega',
-    sucursal_nombre: 'Bodega Central',
+    sucursal_nombre: 'Bodega',
     operador_apertura: { uid: 'usr-bodega', nombre: operatorName },
     estado: 'ABIERTA',
     fecha_apertura: new Date().toISOString(),
@@ -939,31 +941,84 @@ export async function deleteProductFromFirestore(productId: string) {
 // ----------------------------------------------------
 // 2. SALES TICKETS (VENTAS)
 // ----------------------------------------------------
+function subscribeMergedCollection<T extends { id: string }>(
+  primaryName: string,
+  secondaryName: string,
+  onUpdate: (rows: T[]) => void,
+  onError?: (err: any) => void
+) {
+  let primary: T[] = [];
+  let secondary: T[] = [];
+  const emit = () => {
+    const map = new Map<string, T>();
+    secondary.forEach((row) => {
+      if (row?.id) map.set(row.id, row);
+    });
+    primary.forEach((row) => {
+      if (row?.id) map.set(row.id, row);
+    });
+    const loaded = Array.from(map.values());
+    loaded.sort((a, b) => String((b as { timestamp?: string }).timestamp || '').localeCompare(String((a as { timestamp?: string }).timestamp || '')));
+    onUpdate(loaded);
+  };
+
+  const unsubPrimary = onSnapshot(
+    collection(db, primaryName),
+    (snapshot) => {
+      primary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+      emit();
+    },
+    (err) => {
+      console.error(`[Firestore] subscribe ${primaryName} error:`, err);
+      if (onError) onError(err);
+    }
+  );
+  const unsubSecondary = onSnapshot(
+    collection(db, secondaryName),
+    (snapshot) => {
+      secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+      emit();
+    },
+    (err) => {
+      console.error(`[Firestore] subscribe ${secondaryName} error:`, err);
+      if (onError) onError(err);
+    }
+  );
+
+  return () => {
+    unsubPrimary();
+    unsubSecondary();
+  };
+}
+
 export function subscribeToSales(
   onSalesUpdate: (sales: SaleTicket[]) => void,
   onError?: (err: any) => void
 ) {
-  const salesCol = collection(db, SALES_COLLECTION);
-  return onSnapshot(
-    salesCol,
-    (snapshot) => {
-      const loaded: SaleTicket[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as SaleTicket);
-      });
-      // Sort descending by timestamp / id
-      loaded.sort((a, b) => {
-        const tA = a.timestamp || '';
-        const tB = b.timestamp || '';
-        return tB.localeCompare(tA);
-      });
-      onSalesUpdate(loaded);
-    },
-    (err) => {
-      console.error('[Firestore] subscribeToSales error:', err);
-      if (onError) onError(err);
-    }
-  );
+  return subscribeMergedCollection<SaleTicket>(SALES_COLLECTION, VENTAS_COLLECTION, onSalesUpdate, onError);
+}
+
+export async function allocateSaleFolio(branchId: string): Promise<string> {
+  const normBId = normalizeBranchId(branchId);
+  const dateKey = getHermosilloClock().dateKey;
+  const code = branchFolioCode(normBId);
+  const counterRef = doc(db, FOLIO_COUNTERS_COLLECTION, `${code}-${dateKey}`);
+  const seq = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const last = Number(snap.data()?.lastSeq || 0) + 1;
+    tx.set(
+      counterRef,
+      {
+        branchId: normBId,
+        dateKey,
+        lastSeq: last,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+    return last;
+  });
+  return formatTicketFolio(normBId, dateKey, seq);
 }
 
 export async function saveSaleTicketToFirestore(ticket: SaleTicket) {
@@ -1001,22 +1056,7 @@ export function subscribeToExpenses(
   onExpensesUpdate: (expenses: Expense[]) => void,
   onError?: (err: any) => void
 ) {
-  const expCol = collection(db, EXPENSES_COLLECTION);
-  return onSnapshot(
-    expCol,
-    (snapshot) => {
-      const loaded: Expense[] = [];
-      snapshot.forEach((d) => {
-        loaded.push(d.data() as Expense);
-      });
-      loaded.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-      onExpensesUpdate(loaded);
-    },
-    (err) => {
-      console.error('[Firestore] subscribeToExpenses error:', err);
-      if (onError) onError(err);
-    }
-  );
+  return subscribeMergedCollection<Expense>(EXPENSES_COLLECTION, GASTOS_COLLECTION, onExpensesUpdate, onError);
 }
 
 export async function saveExpenseToFirestore(expense: Expense) {
@@ -1024,6 +1064,7 @@ export async function saveExpenseToFirestore(expense: Expense) {
     const normBId = normalizeBranchId(expense.branchId || expense.sucursal_id || 'b-bodega');
     const enrichedExpense: Expense = {
       ...expense,
+      amount: money(Number(expense.amount) || 0),
       branchId: normBId,
       sucursal_id: normBId
     };
@@ -1636,5 +1677,33 @@ export function subscribeToRepairRecords(
 export async function saveRepairRecordToFirestore(record: RepairRecord) {
   const docRef = doc(db, REPAIR_RECORDS_COLLECTION, record.id);
   await setDoc(docRef, cleanForFirestore(record), { merge: true });
+}
+
+export function subscribeToPurchaseDrafts(
+  onUpdate: (drafts: PurchaseDraft[]) => void,
+  onError?: (err: any) => void
+) {
+  const col = collection(db, PURCHASE_DRAFTS_COLLECTION);
+  return onSnapshot(
+    col,
+    (snapshot) => {
+      const loaded: PurchaseDraft[] = snapshot.docs.map((d) => ({ ...(d.data() as PurchaseDraft), id: d.id }));
+      loaded.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+      onUpdate(loaded);
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToPurchaseDrafts error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function savePurchaseDraftToFirestore(draft: PurchaseDraft) {
+  const docRef = doc(db, PURCHASE_DRAFTS_COLLECTION, draft.id);
+  await setDoc(docRef, cleanForFirestore(draft), { merge: true });
+}
+
+export async function deletePurchaseDraftFromFirestore(draftId: string) {
+  await deleteDoc(doc(db, PURCHASE_DRAFTS_COLLECTION, draftId));
 }
 
