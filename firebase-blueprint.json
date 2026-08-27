@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "SesionCaja": {
+      "title": "SesionCaja",
+      "description": "Sesión de caja y turno inmutable para control de ventas y arqueo por sucursal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Identificador único de la sesión (ej. SES-NAV-20260826-001)" },
+        "sucursal_id": { "type": "string", "description": "ID de la sucursal asignada" },
+        "sucursal_nombre": { "type": "string", "description": "Nombre legible de la sucursal" },
+        "estado": { "type": "string", "enum": ["ABIERTA", "CERRADA"], "description": "Estado actual de la sesión" },
+        "fecha_apertura": { "type": "string", "format": "date-time", "description": "Fecha y hora ISO de apertura de turno" },
+        "fecha_cierre": { "type": "string", "format": "date-time", "description": "Fecha y hora ISO de cierre de turno" },
+        "monto_inicial_efectivo": { "type": "number", "description": "Fondo de caja inicial en efectivo" }
+      },
+      "required": ["id", "sucursal_id", "estado", "fecha_apertura", "monto_inicial_efectivo"]
+    },
+    "Venta": {
+      "title": "Venta",
+      "description": "Registro inmutable de ticket de venta con desglose de artículos y métodos de pago.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID o Folio único del ticket de venta" },
+        "folio": { "type": "string", "description": "Folio numérico de venta" },
+        "sucursal_id": { "type": "string", "description": "ID de la sucursal donde ocurrió la venta" },
+        "sesion_caja_id": { "type": "string", "description": "ID inmutable de la sesión de caja a la que pertenece" },
+        "fecha": { "type": "string", "format": "date-time", "description": "Fecha y hora ISO de la venta" },
+        "total": { "type": "number", "description": "Monto total cobrado" },
+        "estado": { "type": "string", "enum": ["COMPLETADA", "CANCELADA"] }
+      },
+      "required": ["id", "sucursal_id", "sesion_caja_id", "fecha", "total", "estado"]
+    },
+    "Gasto": {
+      "title": "Gasto",
+      "description": "Registro de salida de efectivo de la caja por gastos operativos de sucursal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único del gasto" },
+        "sucursal_id": { "type": "string", "description": "ID de la sucursal" },
+        "sesion_caja_id": { "type": "string", "description": "ID de la sesión de caja" },
+        "monto": { "type": "number", "description": "Monto en efectivo egresado" },
+        "concepto": { "type": "string", "description": "Motivo o concepto del gasto" },
+        "fecha": { "type": "string", "format": "date-time", "description": "Fecha y hora ISO del gasto" }
+      },
+      "required": ["id", "sucursal_id", "sesion_caja_id", "monto", "concepto", "fecha"]
+    },
+    "Producto": {
+      "title": "Producto",
+      "description": "Artículo de inventario físico o servicio.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID del producto" },
+        "code": { "type": "string", "description": "Código o SKU del producto" },
+        "name": { "type": "string", "description": "Nombre o descripción del producto" },
+        "price": { "type": "number", "description": "Precio de venta al público" },
+        "stock": { "type": "number", "description": "Stock global" }
+      },
+      "required": ["id", "code", "name", "price"]
+    }
+  },
+  "firestore": {
+    "/sesiones_caja/{sesionId}": {
+      "schema": "SesionCaja",
+      "description": "Colección raíz de sesiones y cortes de caja por sucursal"
+    },
+    "/ventas/{ventaId}": {
+      "schema": "Venta",
+      "description": "Colección raíz de ventas vinculadas a sesiones de caja"
+    },
+    "/gastos/{gastoId}": {
+      "schema": "Gasto",
+      "description": "Colección raíz de gastos vinculados a sesiones de caja"
+    },
+    "/products/{productId}": {
+      "schema": "Producto",
+      "description": "Catálogo de productos e inventario físico por sucursal"
+    }
+  }
+}
