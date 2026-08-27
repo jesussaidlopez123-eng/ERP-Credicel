@@ -16,11 +16,19 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord } from '../types';
-import { safeDateIsoKey, safeFormatDate, safeFormatTime, parseSafeDate } from './dateUtils';
-import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { money, newSessionId } from './ids';
+import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
+import {
+  AUTO_CORTE_NOTE,
+  CashTillLockedError,
+  automaticCloseIso,
+  canOpenNewCashSession,
+  formatHermosilloDate,
+  formatHermosilloTime,
+  sessionNeedsAutomaticCorte
+} from './shiftHours';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -191,6 +199,10 @@ async function resolveActiveCashSession(
     try {
       const existing = await findExistingOpenSession(normBId, fund);
       if (existing) return existing;
+
+      if (!canOpenNewCashSession()) {
+        throw new CashTillLockedError();
+      }
 
       return await runTransaction(db, async (tx) => {
         const again = await tx.get(stateRef);
@@ -416,6 +428,7 @@ export async function executeCorteSesionCajaTransaction(params: {
   notas?: string;
   ticketsSnapshot?: SaleTicket[];
   expensesSnapshot?: Expense[];
+  fechaCierreIso?: string;
 }): Promise<{ success: boolean; sesion: SesionCaja; corteRecord: CorteXRecord }> {
   const {
     sesionId,
@@ -426,7 +439,8 @@ export async function executeCorteSesionCajaTransaction(params: {
     fondoDejado,
     notas = '',
     ticketsSnapshot = [],
-    expensesSnapshot = []
+    expensesSnapshot = [],
+    fechaCierreIso
   } = params;
 
   const normBId = normalizeBranchId(sucursalId);
@@ -452,8 +466,9 @@ export async function executeCorteSesionCajaTransaction(params: {
   const ticketsForCorte = cloudDocs.tickets;
   const expensesForCorte = cloudDocs.expenses;
 
-  const fechaCierre = new Date().toISOString();
-  const targetDate = parseSafeDate(fechaCierre);
+  const fechaCierre = fechaCierreIso || new Date().toISOString();
+  const dateStr = formatHermosilloDate(fechaCierre);
+  const timeStr = formatHermosilloTime(fechaCierre);
 
   const totals = summarizeTickets(ticketsForCorte);
   const cashSales = totals.cashSales;
@@ -515,15 +530,15 @@ export async function executeCorteSesionCajaTransaction(params: {
       notas_observaciones: notas
     },
     auditoria: {
-      version: 'v3.0-session-lock'
+      version: notas.includes('23:00') ? 'v3.1-cierre-23' : 'v3.0-session-lock'
     }
   };
 
   const corteRecord: CorteXRecord = {
     id: sesionId,
     timestamp: fechaCierre,
-    dateStr: safeFormatDate(targetDate),
-    timeStr: safeFormatTime(targetDate),
+    dateStr,
+    timeStr,
     branchId: normBId,
     sucursal_id: normBId,
     sesion_caja_id: sesionId,
@@ -598,6 +613,73 @@ export async function executeCorteSesionCajaTransaction(params: {
   console.log(`[Firestore] Corte de caja cerrado: ${sesionId} (contado ${counted} vs esperado ${expectedCashInDrawer})`);
   return { success: true, sesion: sesionCerrada, corteRecord };
 }
+
+export async function closeCashSessionIfDue(params: {
+  branchId: string;
+  branchName?: string;
+  operatorUid: string;
+  operatorName: string;
+  initialFund?: number;
+}): Promise<{ closed: boolean; session: SesionCaja | null; corteRecord?: CorteXRecord }> {
+  const normBId = normalizeBranchId(params.branchId);
+  if (normBId === 'b-bodega') {
+    return { closed: false, session: null };
+  }
+
+  const fund = await readBranchFundAmount(normBId, params.initialFund ?? 1000);
+  const existing = await findExistingOpenSession(normBId, fund);
+  if (!existing) return { closed: false, session: null };
+  if (!sessionNeedsAutomaticCorte(existing)) {
+    return { closed: false, session: existing };
+  }
+
+  const cloudDocs = await loadUnclosedDocsForSession(existing.id, normBId);
+  const totals = summarizeTickets(cloudDocs.tickets);
+  const totalExpenses = money(
+    cloudDocs.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+  );
+  const expected = money(Number(existing.monto_inicial_efectivo || 0) + totals.cashSales - totalExpenses);
+
+  const result = await executeCorteSesionCajaTransaction({
+    sesionId: existing.id,
+    sucursalId: normBId,
+    sucursalNombre: params.branchName || existing.sucursal_nombre,
+    operadorCierre: { uid: params.operatorUid, nombre: params.operatorName },
+    efectivoContado: expected,
+    fondoDejado: fund,
+    notas: AUTO_CORTE_NOTE,
+    ticketsSnapshot: cloudDocs.tickets,
+    expensesSnapshot: cloudDocs.expenses,
+    fechaCierreIso: automaticCloseIso(existing.fecha_apertura)
+  });
+
+  return { closed: true, session: result.sesion, corteRecord: result.corteRecord };
+}
+
+export async function syncPosCashSession(params: {
+  branchId: string;
+  branchName: string;
+  operatorUid: string;
+  operatorName: string;
+  initialFund?: number;
+}): Promise<{ session: SesionCaja | null; tillLocked: boolean; autoClosed: boolean }> {
+  const due = await closeCashSessionIfDue(params);
+  if (!canOpenNewCashSession()) {
+    return { session: null, tillLocked: true, autoClosed: due.closed };
+  }
+  const session = await getActiveCashSession(
+    params.branchId,
+    params.branchName,
+    params.operatorName,
+    params.initialFund ?? 1000,
+    params.operatorUid
+  );
+  return { session, tillLocked: false, autoClosed: due.closed };
+}
+
+// ----------------------------------------------------
+// 1. PRODUCTS (INVENTARIO)
+// ----------------------------------------------------
 
 // ----------------------------------------------------
 // 1. PRODUCTS (INVENTARIO)

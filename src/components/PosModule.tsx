@@ -70,6 +70,7 @@ interface PosModuleProps {
   cortesX?: CorteXRecord[];
   initialCashFund?: number;
   activeCashSession?: SesionCaja | null;
+  tillLocked?: boolean;
   creditAccounts?: CreditAccount[];
   repairRecords?: RepairRecord[];
   onAddRepairRecord?: (record: RepairRecord) => void;
@@ -102,6 +103,7 @@ export default function PosModule({
   cortesX = [],
   initialCashFund,
   activeCashSession = null,
+  tillLocked = false,
   creditAccounts = [],
   repairRecords: repairRecordsProp,
   onAddRepairRecord,
@@ -658,6 +660,10 @@ export default function PosModule({
 
   // Open Payment Modal
   const handleCheckout = () => {
+    if (tillLocked) {
+      setSaleError('La caja ya cerró a las 11:00 p.m. No se pueden cobrar más ventas en este turno.');
+      return;
+    }
     if (cart.length === 0) return;
     setIsPaymentCheckoutModalOpen(true);
   };
@@ -695,8 +701,10 @@ export default function PosModule({
         <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-start gap-2">
           <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
           <p className="text-[11px] leading-relaxed text-slate-600">
-            {activeCashSession?.id
-              ? 'Si recargas o entras en otra computadora de esta sucursal, el turno es el mismo: las ventas ya cobradas no se pierden ni se duplican. El ticket que aún no cobras se guarda en este equipo.'
+            {tillLocked
+              ? 'Caja cerrada a las 11:00 p.m. (hora Sonora). El corte del día ya quedó registrado. El siguiente turno abre después de medianoche.'
+              : activeCashSession?.id
+              ? 'Si recargas o entras en otra computadora de esta sucursal, el turno es el mismo. A las 11:00 p.m. el sistema registra el corte y cierra la sesión solo.'
               : 'Conectando el turno de caja… no cobres hasta ver “Turno abierto”.'}
           </p>
         </div>
@@ -1178,10 +1186,10 @@ export default function PosModule({
 
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || saleBusy}
+            disabled={cart.length === 0 || saleBusy || tillLocked}
             className="w-full py-3 bg-[#047857] hover:bg-[#066046] disabled:opacity-40 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
           >
-            {saleBusy ? 'Guardando venta…' : `Cobrar $${cartTotal.toFixed(2)}`}
+            {saleBusy ? 'Guardando venta…' : tillLocked ? 'Caja cerrada 11:00 p.m.' : `Cobrar $${cartTotal.toFixed(2)}`}
           </button>
 
         </div>

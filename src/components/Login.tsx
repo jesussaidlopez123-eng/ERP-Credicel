@@ -6,6 +6,7 @@ import { Branch, Operator } from '../types';
 import Logo from './Logo';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { ALL_BRANCHES } from '../data/initialBranches';
+import { isAfterCashClose } from '../lib/shiftHours';
 
 interface LoginProps {
   onLogin: (branch: Branch, operator: Operator) => void;
@@ -115,6 +116,11 @@ export default function Login({
 
         {/* Form Body */}
         <div className="p-5 sm:p-7 space-y-5">
+          {isAfterCashClose() && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 leading-relaxed">
+              Después de las 11:00 p.m. (hora Sonora) la caja del día ya está cerrada y el corte queda registrado. Puedes entrar a consultar, pero no se abrirá un turno nuevo hasta después de medianoche.
+            </div>
+          )}
           
           <form onSubmit={handleSubmit} className="space-y-4">
             

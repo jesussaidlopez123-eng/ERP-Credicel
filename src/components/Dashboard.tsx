@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import NotificationsPopover from './NotificationsPopover';
 import CreateNoticeModal from './CreateNoticeModal';
@@ -39,6 +39,8 @@ import {
   executeCorteSesionCajaTransaction,
   loadUnclosedDocsForSession,
   saleTicketExistsInFirestore,
+  closeCashSessionIfDue,
+  syncPosCashSession,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
@@ -49,6 +51,14 @@ import {
 import { belongsToOpenSession } from '../lib/saleClassification';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
 import { money, newUniqueId } from '../lib/ids';
+import {
+  canOpenNewCashSession,
+  isAfterCashClose,
+  loggedInBeforeCashClose,
+  msUntilCashClose,
+  sessionNeedsAutomaticCorte,
+  CashTillLockedError
+} from '../lib/shiftHours';
 
 const ALL_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
@@ -96,8 +106,12 @@ export default function Dashboard({
   const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const corteInFlightRef = React.useRef(false);
-  const saleInFlightIdsRef = React.useRef(new Set<string>());
+  const [tillLocked, setTillLocked] = useState(false);
+  const [nightClosing, setNightClosing] = useState(false);
+  const corteInFlightRef = useRef(false);
+  const saleInFlightIdsRef = useRef(new Set<string>());
+  const loggedInAtRef = useRef(Date.now());
+  const nightCloseRanRef = useRef(false);
 
   // -----------------------------------------------------------
   // Real-time Firestore Subscriptions
@@ -173,38 +187,47 @@ export default function Dashboard({
     if (currentBranch.id === 'b-bodega') {
       setActiveCashSession(null);
       setSessionError(null);
+      setTillLocked(false);
       return;
     }
 
     let cancelled = false;
+    const applySync = async () => {
+      try {
+        const result = await syncPosCashSession({
+          branchId: currentBranch.id,
+          branchName: currentBranch.name,
+          operatorUid: currentOperator.id,
+          operatorName: currentOperator.name,
+          initialFund: branchCashFunds[currentBranch.id] ?? 1000
+        });
+        if (cancelled) return;
+        setActiveCashSession(result.session);
+        setTillLocked(result.tillLocked);
+        setSessionError(
+          result.tillLocked
+            ? 'Caja cerrada a las 11:00 p.m. El corte del día ya quedó registrado. El siguiente turno abre después de medianoche.'
+            : null
+        );
+      } catch (err) {
+        console.error('Error loading cash session:', err);
+        if (!cancelled) {
+          setSessionError('No se pudo conectar el turno de caja. Recarga e inicia sesión de nuevo; no cobres hasta ver el turno.');
+        }
+      }
+    };
+
     const unsub = subscribeToOpenCashSession(
       currentBranch.id,
       (ses) => {
         if (cancelled) return;
-        if (ses && ses.estado === 'ABIERTA') {
+        if (ses && ses.estado === 'ABIERTA' && !sessionNeedsAutomaticCorte(ses) && canOpenNewCashSession()) {
           setActiveCashSession(ses);
+          setTillLocked(false);
           setSessionError(null);
           return;
         }
-        getActiveCashSession(
-          currentBranch.id,
-          currentBranch.name,
-          currentOperator.name,
-          branchCashFunds[currentBranch.id] ?? 1000,
-          currentOperator.id
-        )
-          .then((next) => {
-            if (!cancelled) {
-              setActiveCashSession(next);
-              setSessionError(null);
-            }
-          })
-          .catch((err) => {
-            console.error('Error loading cash session:', err);
-            if (!cancelled) {
-              setSessionError('No se pudo conectar el turno de caja. Recarga e inicia sesión de nuevo; no cobres hasta ver el turno.');
-            }
-          });
+        void applySync();
       },
       (err) => {
         console.error('Error subscribing to cash session:', err);
@@ -217,6 +240,43 @@ export default function Dashboard({
       unsub();
     };
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name]);
+
+  useEffect(() => {
+    const runNightClose = async () => {
+      if (nightCloseRanRef.current) return;
+      if (!loggedInBeforeCashClose(loggedInAtRef.current)) return;
+
+      nightCloseRanRef.current = true;
+      setNightClosing(true);
+      try {
+        if (currentBranch.id !== 'b-bodega') {
+          await closeCashSessionIfDue({
+            branchId: currentBranch.id,
+            branchName: currentBranch.name,
+            operatorUid: currentOperator.id,
+            operatorName: currentOperator.name,
+            initialFund: branchCashFunds[currentBranch.id] ?? 1000
+          });
+        }
+      } catch (err) {
+        console.error('Error en cierre automático 23:00:', err);
+      }
+      window.setTimeout(() => onLogout(), 1400);
+    };
+
+    const interval = window.setInterval(() => {
+      void runNightClose();
+    }, 20_000);
+    const timeout = window.setTimeout(() => {
+      void runNightClose();
+    }, msUntilCashClose());
+    void runNightClose();
+
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, onLogout]);
 
   // Non-admin operators only have access to POS module
   useEffect(() => {
@@ -263,6 +323,17 @@ export default function Dashboard({
     saleInFlightIdsRef.current.add(ticket.id);
 
     try {
+      if (isAfterCashClose() && ticket.branchId !== 'b-bodega') {
+        await closeCashSessionIfDue({
+          branchId: ticket.branchId,
+          branchName: currentBranch.name,
+          operatorUid: currentOperator.id,
+          operatorName: currentOperator.name,
+          initialFund: branchCashFunds[ticket.branchId] ?? 1000
+        });
+        throw new CashTillLockedError();
+      }
+
       if (await saleTicketExistsInFirestore(ticket.id)) {
         return;
       }
@@ -447,6 +518,10 @@ export default function Dashboard({
 
   // Add Expense Handler
   const handleAddExpense = async (expense: Expense) => {
+    if (isAfterCashClose() && expense.branchId !== 'b-bodega') {
+      setSessionError('La caja ya cerró a las 11:00 p.m. No se registran gastos en este turno.');
+      return;
+    }
     let activeSessionId = expense.sesion_caja_id || activeCashSession?.id;
     if (!activeSessionId && expense.branchId !== 'b-bodega') {
       try {
@@ -588,14 +663,20 @@ export default function Dashboard({
         )
       );
 
-      const nextSession = await getActiveCashSession(
-        currentBranch.id,
-        currentBranch.name,
-        currentOperator.name,
-        savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
-        currentOperator.id
-      );
-      setActiveCashSession(nextSession);
+      if (canOpenNewCashSession()) {
+        const nextSession = await getActiveCashSession(
+          currentBranch.id,
+          currentBranch.name,
+          currentOperator.name,
+          savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
+          currentOperator.id
+        );
+        setActiveCashSession(nextSession);
+        setTillLocked(false);
+      } else {
+        setActiveCashSession(null);
+        setTillLocked(true);
+      }
     } catch (err) {
       console.error('Error finalizing Corte X and Sesion in Firestore:', err);
       throw err instanceof Error
@@ -692,6 +773,7 @@ export default function Dashboard({
             cortesX={cortesX}
             initialCashFund={branchCashFunds[currentBranch.id]}
             activeCashSession={activeCashSession}
+            tillLocked={tillLocked}
             creditAccounts={creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo')}
             repairRecords={repairRecords.filter((r) => r.branchId === currentBranch.id)}
             onAddRepairRecord={handleAddRepairRecord}
@@ -821,6 +903,11 @@ export default function Dashboard({
                 Turno abierto
               </span>
             )}
+            {tillLocked && currentBranch.id !== 'b-bodega' && (
+              <span className="hidden md:inline-flex items-center rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                Caja cerrada 11:00 p.m.
+              </span>
+            )}
           </div>
 
           <div className="relative">
@@ -890,6 +977,17 @@ export default function Dashboard({
         onUpdateRepairPrice={handleUpdateRepairPrice}
         onDeleteRepairPrice={handleDeleteRepairPrice}
       />
+
+      {nightClosing && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center border border-slate-200 shadow-xl space-y-3">
+            <h4 className="text-base font-semibold text-slate-900">Cierre automático 11:00 p.m.</h4>
+            <p className="text-sm text-slate-600">
+              Se está registrando el corte del turno y se cerrará la sesión. Mañana entra con su contraseña para abrir caja de nuevo.
+            </p>
+          </div>
+        </div>
+      )}
 
     </div>
   );
