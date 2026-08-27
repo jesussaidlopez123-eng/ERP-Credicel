@@ -2,6 +2,8 @@
 
 Sistema de punto de venta y ERP para sucursales (Navojoa, Huatabampo y Bodega Central): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
+Las etiquetas de producto (código, nombre, código de barras y precio) se imprimen desde **Inventario → Etiquetas**, no como un menú aparte. Los tickets de venta, gasto y corte salen en 58 mm.
+
 Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
 
 Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal, el corte ya no se reabre al recargar, el arqueo compara efectivo **contado** contra **esperado**, el inventario descuenta todas las líneas/IMEI, los abonos se ligan a una cartera por equipo, y el admin puede elegir sucursal (ya no entra forzado a Bodega).
