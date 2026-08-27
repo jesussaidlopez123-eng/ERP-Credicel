@@ -535,6 +535,7 @@ export default function CorteXModal({
   };
 
   const handleFinalizeShift = async (fundLeft: number, notes: string, printTicket: boolean, countedCash: number) => {
+    if (isFinishingShift) return;
     const cashWithdrawn = Math.max(0, money(countedCash) - fundLeft);
     setClosedShiftFundSnapshot({ fundLeft, cashWithdrawn, notes });
     setIsFinishingShift(true);
@@ -596,6 +597,12 @@ export default function CorteXModal({
         await onFinalizeCorteX(corteRecord);
       } catch (err) {
         console.error('Error in onFinalizeCorteX:', err);
+        setIsFinishingShift(false);
+        setIsClosingShiftDialog(true);
+        setFinishStatusMessage('');
+        setCopiedNotification('No se pudo guardar el corte. El turno sigue abierto; inténtalo de nuevo.');
+        setTimeout(() => setCopiedNotification(null), 5000);
+        return;
       }
     }
 
@@ -1875,6 +1882,7 @@ export default function CorteXModal({
               <button
                 type="button"
                 onClick={() => {
+                  if (isFinishingShift) return;
                   const finalFund = parseFloat(nextCashFundInput);
                   const counted = parseFloat(countedCashInput);
                   handleFinalizeShift(
@@ -1884,10 +1892,11 @@ export default function CorteXModal({
                     isNaN(counted) || counted < 0 ? expectedCashInDrawer : counted
                   );
                 }}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center gap-2"
+                disabled={isFinishingShift}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center justify-center gap-2"
               >
                 <Check className="w-4 h-4" />
-                <span>Confirmar y Finalizar</span>
+                <span>{isFinishingShift ? 'Guardando…' : 'Confirmar y Finalizar'}</span>
               </button>
             </div>
 

@@ -11,7 +11,7 @@ interface RepairModalProps {
   onAddToCart: (product: Product, amount: number, metadata?: CartItemMetadata) => void;
   currentBranch: Branch;
   currentOperator: Operator;
-  onEmitDirectTicket?: (ticket: SaleTicket) => void;
+  onEmitDirectTicket?: (ticket: SaleTicket) => void | Promise<void>;
 }
 
 export default function RepairModal({

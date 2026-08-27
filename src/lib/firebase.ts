@@ -106,9 +106,49 @@ async function readBranchFundAmount(branchId: string, fallback: number): Promise
   return Math.max(0, fallback);
 }
 
+const inflightSessionByBranch = new Map<string, Promise<SesionCaja>>();
+
+async function readOpenSessionFromPointer(
+  branchId: string
+): Promise<SesionCaja | null> {
+  const stateRef = doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, branchId);
+  const stateSnap = await getDoc(stateRef);
+  const pointedId = String(stateSnap.data()?.openSessionId || '');
+  if (!pointedId) return null;
+  const pointedSes = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, pointedId));
+  if (!pointedSes.exists()) return null;
+  const data = pointedSes.data() as SesionCaja;
+  if (data.estado !== 'ABIERTA') return null;
+  return { ...data, id: pointedId };
+}
+
+async function findExistingOpenSession(branchId: string, fund: number): Promise<SesionCaja | null> {
+  const pointed = await readOpenSessionFromPointer(branchId);
+  if (pointed) return pointed;
+
+  const qOpen = query(
+    collection(db, SESIONES_CAJA_COLLECTION),
+    where('sucursal_id', '==', branchId),
+    where('estado', '==', 'ABIERTA')
+  );
+  const snap = await getDocs(qOpen);
+  if (snap.empty) return null;
+
+  const sessions = snap.docs
+    .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
+    .sort((a, b) => (a.fecha_apertura || '').localeCompare(b.fecha_apertura || ''));
+  const chosen = sessions[0];
+  await setDoc(
+    doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, branchId),
+    { branchId, openSessionId: chosen.id, fundAmount: fund, updatedAt: new Date().toISOString() },
+    { merge: true }
+  );
+  return chosen;
+}
+
 /**
- * Returns the single open cash session for a sales branch.
- * Uses a per-branch pointer so two cashiers cannot open two ABIERTA sessions.
+ * Una sola sesión ABIERTA por sucursal de venta.
+ * Recargar o entrar en otra computadora se engancha al mismo turno; no crea otro.
  */
 export async function getActiveCashSession(
   branchId: string,
@@ -122,92 +162,219 @@ export async function getActiveCashSession(
     return bodegaPlaceholderSession(operatorName);
   }
 
+  const pending = inflightSessionByBranch.get(normBId);
+  if (pending) return pending;
+
+  const work = resolveActiveCashSession(normBId, branchName, operatorName, initialFund, operatorUid)
+    .finally(() => {
+      if (inflightSessionByBranch.get(normBId) === work) {
+        inflightSessionByBranch.delete(normBId);
+      }
+    });
+  inflightSessionByBranch.set(normBId, work);
+  return work;
+}
+
+async function resolveActiveCashSession(
+  normBId: string,
+  branchName: string,
+  operatorName: string,
+  initialFund: number,
+  operatorUid: string
+): Promise<SesionCaja> {
   const displayName = branchName || getBranchDisplayName(normBId);
   const stateRef = doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId);
   const fund = await readBranchFundAmount(normBId, initialFund);
+  const lastError: unknown[] = [];
 
-  try {
-    const stateSnap = await getDoc(stateRef);
-    const pointedId = String(stateSnap.data()?.openSessionId || '');
-    if (pointedId) {
-      const pointedSes = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, pointedId));
-      if (pointedSes.exists()) {
-        const data = pointedSes.data() as SesionCaja;
-        if (data.estado === 'ABIERTA') {
-          return { ...data, id: pointedId };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const existing = await findExistingOpenSession(normBId, fund);
+      if (existing) return existing;
+
+      return await runTransaction(db, async (tx) => {
+        const again = await tx.get(stateRef);
+        const pid = String(again.data()?.openSessionId || '');
+        if (pid) {
+          const ses = await tx.get(doc(db, SESIONES_CAJA_COLLECTION, pid));
+          if (ses.exists() && (ses.data() as SesionCaja).estado === 'ABIERTA') {
+            return { ...(ses.data() as SesionCaja), id: pid };
+          }
         }
-      }
+
+        const openedAt = new Date();
+        const newSesionId = newSessionId(normBId, openedAt);
+        const newSession: SesionCaja = {
+          id: newSesionId,
+          sucursal_id: normBId,
+          sucursal_nombre: displayName,
+          operador_apertura: {
+            uid: operatorUid || `usr-${Date.now().toString(36)}`,
+            nombre: operatorName
+          },
+          estado: 'ABIERTA',
+          fecha_apertura: openedAt.toISOString(),
+          monto_inicial_efectivo: money(fund)
+        };
+
+        tx.set(doc(db, SESIONES_CAJA_COLLECTION, newSesionId), cleanForFirestore(newSession));
+        tx.set(
+          stateRef,
+          {
+            branchId: normBId,
+            openSessionId: newSesionId,
+            fundAmount: money(fund),
+            updatedAt: openedAt.toISOString()
+          },
+          { merge: true }
+        );
+        return newSession;
+      });
+    } catch (err) {
+      lastError.push(err);
+      console.error('[Firestore] Error getting active cash session:', err);
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
     }
-
-    const q = query(
-      collection(db, SESIONES_CAJA_COLLECTION),
-      where('sucursal_id', '==', normBId),
-      where('estado', '==', 'ABIERTA')
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const sessions = snap.docs
-        .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
-        .sort((a, b) => (a.fecha_apertura || '').localeCompare(b.fecha_apertura || ''));
-      const chosen = sessions[0];
-      await setDoc(
-        stateRef,
-        { branchId: normBId, openSessionId: chosen.id, fundAmount: fund, updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
-      return chosen;
-    }
-
-    return await runTransaction(db, async (tx) => {
-      const again = await tx.get(stateRef);
-      const pid = String(again.data()?.openSessionId || '');
-      if (pid) {
-        const ses = await tx.get(doc(db, SESIONES_CAJA_COLLECTION, pid));
-        if (ses.exists() && (ses.data() as SesionCaja).estado === 'ABIERTA') {
-          return { ...(ses.data() as SesionCaja), id: pid };
-        }
-      }
-
-      const openedAt = new Date();
-      const newSesionId = newSessionId(normBId, openedAt);
-      const newSession: SesionCaja = {
-        id: newSesionId,
-        sucursal_id: normBId,
-        sucursal_nombre: displayName,
-        operador_apertura: {
-          uid: operatorUid || `usr-${Date.now().toString(36)}`,
-          nombre: operatorName
-        },
-        estado: 'ABIERTA',
-        fecha_apertura: openedAt.toISOString(),
-        monto_inicial_efectivo: money(fund)
-      };
-
-      tx.set(doc(db, SESIONES_CAJA_COLLECTION, newSesionId), cleanForFirestore(newSession));
-      tx.set(
-        stateRef,
-        {
-          branchId: normBId,
-          openSessionId: newSesionId,
-          fundAmount: money(fund),
-          updatedAt: openedAt.toISOString()
-        },
-        { merge: true }
-      );
-      return newSession;
-    });
-  } catch (err) {
-    console.error('[Firestore] Error getting active cash session:', err);
-    return {
-      id: newSessionId(normBId),
-      sucursal_id: normBId,
-      sucursal_nombre: displayName,
-      operador_apertura: { uid: operatorUid || 'usr-local', nombre: operatorName },
-      estado: 'ABIERTA',
-      fecha_apertura: new Date().toISOString(),
-      monto_inicial_efectivo: money(fund)
-    };
   }
+
+  throw lastError[lastError.length - 1] || new Error('No se pudo abrir o recuperar la sesión de caja');
+}
+
+function sessionFromSnap(
+  snap: { exists(): boolean; id: string; data(): unknown }
+): SesionCaja | null {
+  if (!snap.exists()) return null;
+  const data = snap.data() as SesionCaja;
+  if (data.estado !== 'ABIERTA') return null;
+  return { ...data, id: snap.id };
+}
+
+/**
+ * Escucha el turno abierto de la sucursal. Si otro equipo hace corte, este se entera al momento.
+ */
+export function subscribeToOpenCashSession(
+  branchId: string,
+  onSession: (session: SesionCaja | null) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  const normBId = normalizeBranchId(branchId);
+  if (normBId === 'b-bodega') {
+    onSession(bodegaPlaceholderSession('Bodega'));
+    return () => {};
+  }
+
+  const stateRef = doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId);
+  let unsubSession: (() => void) | null = null;
+
+  const attachSession = (sessionId: string | null) => {
+    if (unsubSession) {
+      unsubSession();
+      unsubSession = null;
+    }
+    if (!sessionId) {
+      onSession(null);
+      return;
+    }
+    unsubSession = onSnapshot(
+      doc(db, SESIONES_CAJA_COLLECTION, sessionId),
+      (sesSnap) => {
+        onSession(sessionFromSnap(sesSnap));
+      },
+      (err) => {
+        console.error('[Firestore] subscribeToOpenCashSession session:', err);
+        if (onError) onError(err);
+      }
+    );
+  };
+
+  const unsubPointer = onSnapshot(
+    stateRef,
+    (stateSnap) => {
+      const pointedId = String(stateSnap.data()?.openSessionId || '');
+      attachSession(pointedId || null);
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToOpenCashSession pointer:', err);
+      if (onError) onError(err);
+    }
+  );
+
+  return () => {
+    unsubPointer();
+    if (unsubSession) unsubSession();
+  };
+}
+
+function mergeById<T extends { id: string }>(primary: T[], extra: T[]): T[] {
+  const map = new Map<string, T>();
+  extra.forEach((item) => {
+    if (item?.id) map.set(item.id, item);
+  });
+  primary.forEach((item) => {
+    if (item?.id) map.set(item.id, item);
+  });
+  return Array.from(map.values());
+}
+
+async function queryDocsBySession<T extends { id: string }>(
+  collectionName: string,
+  sessionId: string
+): Promise<T[]> {
+  try {
+    const qSession = query(
+      collection(db, collectionName),
+      where('sesion_caja_id', '==', sessionId)
+    );
+    const snap = await getDocs(qSession);
+    return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  } catch (err) {
+    console.warn(`[Firestore] query ${collectionName} by session failed:`, err);
+    return [];
+  }
+}
+
+/**
+ * Tickets y gastos reales de este turno (todos los equipos), no solo lo que ve una pantalla.
+ */
+export async function loadUnclosedDocsForSession(
+  sessionId: string,
+  branchId: string,
+  localTickets: SaleTicket[] = [],
+  localExpenses: Expense[] = []
+): Promise<{ tickets: SaleTicket[]; expenses: Expense[] }> {
+  const normBId = normalizeBranchId(branchId);
+  const [salesA, salesB, expA, expB] = await Promise.all([
+    queryDocsBySession<SaleTicket>(SALES_COLLECTION, sessionId),
+    queryDocsBySession<SaleTicket>(VENTAS_COLLECTION, sessionId),
+    queryDocsBySession<Expense>(EXPENSES_COLLECTION, sessionId),
+    queryDocsBySession<Expense>(GASTOS_COLLECTION, sessionId)
+  ]);
+
+  const tickets = mergeById(mergeById(salesA, salesB), localTickets).filter((t) => {
+    const b = normalizeBranchId(t.branchId || t.sucursal_id || '');
+    if (b && b !== normBId) return false;
+    if (t.corteXId && t.corteXId !== sessionId) return false;
+    if (t.sesion_caja_id && t.sesion_caja_id !== sessionId) return false;
+    return true;
+  });
+
+  const expenses = mergeById(mergeById(expA, expB), localExpenses).filter((e) => {
+    const b = normalizeBranchId(e.branchId || e.sucursal_id || '');
+    if (b && b !== normBId) return false;
+    if (e.corteXId && e.corteXId !== sessionId) return false;
+    if (e.sesion_caja_id && e.sesion_caja_id !== sessionId) return false;
+    return true;
+  });
+
+  return { tickets, expenses };
+}
+
+export async function saleTicketExistsInFirestore(ticketId: string): Promise<boolean> {
+  if (!ticketId) return false;
+  const salesSnap = await getDoc(doc(db, SALES_COLLECTION, ticketId));
+  if (salesSnap.exists()) return true;
+  const ventasSnap = await getDoc(doc(db, VENTAS_COLLECTION, ticketId));
+  return ventasSnap.exists();
 }
 
 /**
@@ -263,24 +430,42 @@ export async function executeCorteSesionCajaTransaction(params: {
   } = params;
 
   const normBId = normalizeBranchId(sucursalId);
+  const sessionRef = doc(db, SESIONES_CAJA_COLLECTION, sesionId);
+  const existingSnap = await getDoc(sessionRef);
+  if (existingSnap.exists()) {
+    const already = { ...(existingSnap.data() as SesionCaja), id: existingSnap.id };
+    if (already.estado === 'CERRADA') {
+      const corteSnap = await getDoc(doc(db, CORTE_X_COLLECTION, sesionId));
+      const corteRecord = corteSnap.exists()
+        ? ({ ...(corteSnap.data() as CorteXRecord), id: corteSnap.id } as CorteXRecord)
+        : ({} as CorteXRecord);
+      return { success: true, sesion: already, corteRecord };
+    }
+  }
+
+  const cloudDocs = await loadUnclosedDocsForSession(
+    sesionId,
+    normBId,
+    ticketsSnapshot,
+    expensesSnapshot
+  );
+  const ticketsForCorte = cloudDocs.tickets;
+  const expensesForCorte = cloudDocs.expenses;
+
   const fechaCierre = new Date().toISOString();
   const targetDate = parseSafeDate(fechaCierre);
 
-  const totals = summarizeTickets(ticketsSnapshot);
+  const totals = summarizeTickets(ticketsForCorte);
   const cashSales = totals.cashSales;
   const cardSales = totals.cardSales;
   const transferSales = totals.transferSales;
   const totalSales = totals.totalSales;
   const breakdown = totals.breakdown;
-  const totalExpenses = money(expensesSnapshot.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
+  const totalExpenses = money(expensesForCorte.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
 
-  let existing: SesionCaja | null = null;
-  try {
-    const sDoc = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, sesionId));
-    if (sDoc.exists()) {
-      existing = { ...(sDoc.data() as SesionCaja), id: sDoc.id };
-    }
-  } catch {}
+  const existing: SesionCaja | null = existingSnap.exists()
+    ? { ...(existingSnap.data() as SesionCaja), id: existingSnap.id }
+    : null;
 
   const initialFund = money(
     existing && Number.isFinite(Number(existing.monto_inicial_efectivo))
@@ -311,8 +496,8 @@ export async function executeCorteSesionCajaTransaction(params: {
       gastos_efectivo: totalExpenses,
       efectivo_esperado_cajon: expectedCashInDrawer,
       conteo_transacciones: {
-        tickets_venta: ticketsSnapshot.length,
-        gastos: expensesSnapshot.length
+        tickets_venta: ticketsForCorte.length,
+        gastos: expensesForCorte.length
       },
       desglose_categorias: {
         accesorios: breakdown.accesoriosTotal,
@@ -357,10 +542,10 @@ export async function executeCorteSesionCajaTransaction(params: {
     expectedCashInDrawer,
     countedCash: counted,
     cashDifference: difference,
-    ticketIds: ticketsSnapshot.map((t) => t.id),
-    expenseIds: expensesSnapshot.map((e) => e.id),
-    ticketsSnapshot,
-    expensesSnapshot,
+    ticketIds: ticketsForCorte.map((t) => t.id),
+    expenseIds: expensesForCorte.map((e) => e.id),
+    ticketsSnapshot: ticketsForCorte,
+    expensesSnapshot: expensesForCorte,
     breakdown
   };
 
@@ -386,11 +571,11 @@ export async function executeCorteSesionCajaTransaction(params: {
     }
   ];
 
-  ticketsSnapshot.forEach((t) => {
+  ticketsForCorte.forEach((t) => {
     operations.push({ ref: doc(db, SALES_COLLECTION, t.id), data: closeStamp, isMerge: true });
     operations.push({ ref: doc(db, VENTAS_COLLECTION, t.id), data: closeStamp, isMerge: true });
   });
-  expensesSnapshot.forEach((e) => {
+  expensesForCorte.forEach((e) => {
     operations.push({ ref: doc(db, EXPENSES_COLLECTION, e.id), data: closeStamp, isMerge: true });
     operations.push({ ref: doc(db, GASTOS_COLLECTION, e.id), data: closeStamp, isMerge: true });
   });

@@ -17,7 +17,7 @@ interface PaymentCheckoutModalProps {
   onClose: () => void;
   totalAmount: number;
   itemCount: number;
-  onConfirmPayment: (method: 'Efectivo' | 'Tarjeta' | 'Transferencia', cashReceived: number, changeAmount: number) => void;
+  onConfirmPayment: (method: 'Efectivo' | 'Tarjeta' | 'Transferencia', cashReceived: number, changeAmount: number) => void | Promise<void>;
 }
 
 export default function PaymentCheckoutModal({
@@ -30,12 +30,14 @@ export default function PaymentCheckoutModal({
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [cashReceived, setCashReceived] = useState<string>('');
   const [showKeypad, setShowKeypad] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setCashReceived('');
       setPaymentMethod('Efectivo');
+      setIsSubmitting(false);
       // Focus on manual input after modal opens
       setTimeout(() => {
         inputRef.current?.focus();
@@ -91,12 +93,19 @@ export default function PaymentCheckoutModal({
     inputRef.current?.focus();
   };
 
-  const handleFinalize = (e?: React.FormEvent) => {
+  const handleFinalize = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!isValidPayment) return;
+    if (!isValidPayment || isSubmitting) return;
     const finalCash = paymentMethod === 'Efectivo' ? numCashReceived : totalAmount;
     const finalChange = paymentMethod === 'Efectivo' ? changeAmount : 0;
-    onConfirmPayment(paymentMethod, finalCash, finalChange);
+    setIsSubmitting(true);
+    try {
+      await onConfirmPayment(paymentMethod, finalCash, finalChange);
+    } catch {
+      // Parent keeps the ticket on screen and shows the error.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -484,7 +493,8 @@ export default function PaymentCheckoutModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2.5 bg-white hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-300 transition-colors cursor-pointer"
+            disabled={isSubmitting}
+            className="px-4 py-2.5 bg-white hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl border border-slate-300 transition-colors cursor-pointer disabled:opacity-50"
           >
             Cancelar
           </button>
@@ -492,16 +502,18 @@ export default function PaymentCheckoutModal({
           <button
             type="button"
             onClick={() => handleFinalize()}
-            disabled={!isValidPayment}
+            disabled={!isValidPayment || isSubmitting}
             className={`flex-1 py-3 px-4 font-black text-xs uppercase tracking-wider rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              isValidPayment
+              isValidPayment && !isSubmitting
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-[1.01] active:scale-[0.99]'
                 : 'bg-slate-300 text-slate-500 opacity-60 cursor-not-allowed'
             }`}
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-200" />
             <span>
-              {paymentMethod === 'Efectivo' && isUnder
+              {isSubmitting
+                ? 'Guardando venta…'
+                : paymentMethod === 'Efectivo' && isUnder
                 ? `Faltan $${(totalAmount - numCashReceived).toFixed(2)} para cobrar`
                 : `Confirmar Venta ($${totalAmount.toFixed(2)})`}
             </span>

@@ -25,7 +25,8 @@ import {
   Volume2,
   VolumeX,
   AlertCircle,
-  Printer
+  Printer,
+  MonitorSmartphone
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
 import RechargeModal from './RechargeModal';
@@ -41,6 +42,7 @@ import CreditPaymentModal from './CreditPaymentModal';
 import CaseModelModal from './CaseModelModal';
 import { RepairPriceItem } from '../types';
 import { newTicketId } from '../lib/ids';
+import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
 
 interface PosModuleProps {
@@ -49,7 +51,7 @@ interface PosModuleProps {
   currentOperator: Operator;
   salesTickets: SaleTicket[];
   expenses: Expense[];
-  onCompleteSale: (ticket: SaleTicket) => void;
+  onCompleteSale: (ticket: SaleTicket) => void | Promise<void>;
   onAddExpense: (expense: Expense) => void;
   isCorteXOpen?: boolean;
   setIsCorteXOpen?: (open: boolean) => void;
@@ -109,6 +111,10 @@ export default function PosModule({
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [saleBusy, setSaleBusy] = useState(false);
+  const [saleError, setSaleError] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const pendingTicketRef = useRef<SaleTicket | null>(null);
   
   // Barcode Scanner & Search State
   const [scannerInput, setScannerInput] = useState<string>('');
@@ -191,6 +197,25 @@ export default function PosModule({
       scannerInputRef.current.focus();
     }
   }, []);
+
+  useEffect(() => {
+    const sessionId = activeCashSession?.id;
+    if (!sessionId || currentBranch.id === 'b-bodega') {
+      setDraftReady(true);
+      return;
+    }
+    setDraftReady(false);
+    const saved = loadPosDraft(currentBranch.id, currentOperator.id, sessionId);
+    setCart(saved);
+    setDraftReady(true);
+  }, [activeCashSession?.id, currentBranch.id, currentOperator.id]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    const sessionId = activeCashSession?.id;
+    if (!sessionId || currentBranch.id === 'b-bodega') return;
+    savePosDraft(currentBranch.id, currentOperator.id, sessionId, cart);
+  }, [cart, draftReady, activeCashSession?.id, currentBranch.id, currentOperator.id]);
 
   // Beep Sound Synth for Barcode Scanner
   const playBeepSound = () => {
@@ -595,6 +620,36 @@ export default function PosModule({
   const clearCart = () => {
     setCart([]);
     setCashReceived('');
+    pendingTicketRef.current = null;
+    clearPosDraft(currentBranch.id, currentOperator.id);
+  };
+
+  const commitSale = async (ticket: SaleTicket) => {
+    if (saleBusy) return false;
+    setSaleBusy(true);
+    setSaleError(null);
+    const toSave = pendingTicketRef.current?.id === ticket.id
+      ? { ...pendingTicketRef.current, ...ticket, id: pendingTicketRef.current.id }
+      : ticket;
+    pendingTicketRef.current = toSave;
+    try {
+      await Promise.resolve(onCompleteSale(toSave));
+      pendingTicketRef.current = null;
+      setCompletedTicket(toSave);
+      setIsTicketReceiptOpen(true);
+      clearCart();
+      return true;
+    } catch (err) {
+      console.error('Error cobrando ticket:', err);
+      setSaleError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo guardar la venta. El ticket sigue en pantalla. Pulsa Cobrar de nuevo; no se duplicará.'
+      );
+      return false;
+    } finally {
+      setSaleBusy(false);
+    }
   };
 
   // Cart Calculations
@@ -608,14 +663,15 @@ export default function PosModule({
   };
 
   // Complete sale after payment modal confirmation
-  const handleConfirmPaymentFromModal = (
+  const handleConfirmPaymentFromModal = async (
     method: 'Efectivo' | 'Tarjeta' | 'Transferencia',
     cashReceivedVal: number,
     changeVal: number
   ) => {
+    const reused = pendingTicketRef.current;
     const newTicket: SaleTicket = {
-      id: newTicketId(),
-      timestamp: new Date().toISOString(),
+      id: reused?.id || newTicketId(),
+      timestamp: reused?.timestamp || new Date().toISOString(),
       branchId: currentBranch.id,
       operatorName: currentOperator.name,
       items: [...cart],
@@ -625,15 +681,28 @@ export default function PosModule({
       change: method === 'Efectivo' ? changeVal : undefined
     };
 
-    onCompleteSale(newTicket);
-    setCompletedTicket(newTicket);
-    setIsTicketReceiptOpen(true);
-    clearCart();
-    setIsPaymentCheckoutModalOpen(false);
+    const ok = await commitSale(newTicket);
+    if (ok) {
+      setIsPaymentCheckoutModalOpen(false);
+    } else {
+      throw new Error('No se pudo guardar la venta. El ticket sigue en pantalla.');
+    }
   };
 
   return (
-    <div className="h-full flex flex-col md:flex-row gap-4 p-3 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
+    <div className="h-full flex flex-col gap-2 p-3 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
+      {currentBranch.id !== 'b-bodega' && (
+        <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-start gap-2">
+          <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
+          <p className="text-[11px] leading-relaxed text-slate-600">
+            {activeCashSession?.id
+              ? 'Si recargas o entras en otra computadora de esta sucursal, el turno es el mismo: las ventas ya cobradas no se pierden ni se duplican. El ticket que aún no cobras se guarda en este equipo.'
+              : 'Conectando el turno de caja… no cobres hasta ver “Turno abierto”.'}
+          </p>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
       
       {/* LEFT COLUMN: Barcode Scanner & Product Grid ("BOTONES DE COBRO") */}
       <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3.5 overflow-y-auto min-h-[300px] md:min-h-0">
@@ -1101,15 +1170,23 @@ export default function PosModule({
             </button>
           </div>
 
+          {saleError && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+              {saleError}
+            </div>
+          )}
+
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || saleBusy}
             className="w-full py-3 bg-[#047857] hover:bg-[#066046] disabled:opacity-40 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
           >
-            Cobrar ${cartTotal.toFixed(2)}
+            {saleBusy ? 'Guardando venta…' : `Cobrar $${cartTotal.toFixed(2)}`}
           </button>
 
         </div>
+
+      </div>
 
       </div>
 
@@ -1170,10 +1247,8 @@ export default function PosModule({
         onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
-        onEmitDirectTicket={(ticket) => {
-          onCompleteSale(ticket);
-          setCompletedTicket(ticket);
-          setIsTicketReceiptOpen(true);
+        onEmitDirectTicket={async (ticket) => {
+          await commitSale(ticket);
         }}
       />
 

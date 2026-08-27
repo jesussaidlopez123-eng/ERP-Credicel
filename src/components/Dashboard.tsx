@@ -35,7 +35,10 @@ import {
   saveInventoryMovementsBatchToFirestore,
   subscribeToBranchFunds,
   getActiveCashSession,
+  subscribeToOpenCashSession,
   executeCorteSesionCajaTransaction,
+  loadUnclosedDocsForSession,
+  saleTicketExistsInFirestore,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
@@ -92,6 +95,9 @@ export default function Dashboard({
   const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
   const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const corteInFlightRef = React.useRef(false);
+  const saleInFlightIdsRef = React.useRef(new Set<string>());
 
   // -----------------------------------------------------------
   // Real-time Firestore Subscriptions
@@ -166,24 +172,51 @@ export default function Dashboard({
   useEffect(() => {
     if (currentBranch.id === 'b-bodega') {
       setActiveCashSession(null);
+      setSessionError(null);
       return;
     }
+
     let cancelled = false;
-    getActiveCashSession(
+    const unsub = subscribeToOpenCashSession(
       currentBranch.id,
-      currentBranch.name,
-      currentOperator.name,
-      branchCashFunds[currentBranch.id] ?? 1000,
-      currentOperator.id
-    )
-      .then((ses) => {
-        if (!cancelled) setActiveCashSession(ses);
-      })
-      .catch((err) => console.error('Error loading cash session:', err));
+      (ses) => {
+        if (cancelled) return;
+        if (ses && ses.estado === 'ABIERTA') {
+          setActiveCashSession(ses);
+          setSessionError(null);
+          return;
+        }
+        getActiveCashSession(
+          currentBranch.id,
+          currentBranch.name,
+          currentOperator.name,
+          branchCashFunds[currentBranch.id] ?? 1000,
+          currentOperator.id
+        )
+          .then((next) => {
+            if (!cancelled) {
+              setActiveCashSession(next);
+              setSessionError(null);
+            }
+          })
+          .catch((err) => {
+            console.error('Error loading cash session:', err);
+            if (!cancelled) {
+              setSessionError('No se pudo conectar el turno de caja. Recarga e inicia sesión de nuevo; no cobres hasta ver el turno.');
+            }
+          });
+      },
+      (err) => {
+        console.error('Error subscribing to cash session:', err);
+        if (!cancelled) setCloudSynced(false);
+      }
+    );
+
     return () => {
       cancelled = true;
+      unsub();
     };
-  }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, branchCashFunds]);
+  }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name]);
 
   // Non-admin operators only have access to POS module
   useEffect(() => {
@@ -224,9 +257,18 @@ export default function Dashboard({
 
   // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)
   const handleCompleteSale = async (ticket: SaleTicket) => {
-    let session = activeCashSession;
-    if ((!session || session.sucursal_id !== ticket.branchId) && ticket.branchId !== 'b-bodega') {
-      try {
+    if (saleInFlightIdsRef.current.has(ticket.id)) {
+      return;
+    }
+    saleInFlightIdsRef.current.add(ticket.id);
+
+    try {
+      if (await saleTicketExistsInFirestore(ticket.id)) {
+        return;
+      }
+
+      let session = activeCashSession;
+      if ((!session || session.sucursal_id !== ticket.branchId || session.estado !== 'ABIERTA') && ticket.branchId !== 'b-bodega') {
         session = await getActiveCashSession(
           ticket.branchId,
           currentBranch.name,
@@ -235,24 +277,20 @@ export default function Dashboard({
           currentOperator.id
         );
         setActiveCashSession(session);
-      } catch {
-        session = null;
       }
-    }
 
-    const enrichedTicket: SaleTicket = {
-      ...ticket,
-      sucursal_id: ticket.branchId,
-      sesion_caja_id: session?.id || ticket.sesion_caja_id
-    };
+      if (!session?.id && ticket.branchId !== 'b-bodega') {
+        throw new Error('No hay turno de caja abierto. Recarga e inicia sesión antes de cobrar.');
+      }
 
-    setSalesTickets((prev) => [enrichedTicket, ...prev]);
+      const enrichedTicket: SaleTicket = {
+        ...ticket,
+        sucursal_id: ticket.branchId,
+        sesion_caja_id: session?.id || ticket.sesion_caja_id
+      };
 
-    try {
       await saveSaleTicketToFirestore(enrichedTicket);
-    } catch (err) {
-      console.error('Error saving sale ticket to Firestore:', err);
-    }
+      setSalesTickets((prev) => [enrichedTicket, ...prev.filter((t) => t.id !== enrichedTicket.id)]);
 
     const branchName = ALL_BRANCHES.find((b) => b.id === enrichedTicket.branchId)?.name || enrichedTicket.branchId;
     const saleMovements: InventoryMovement[] = [];
@@ -378,6 +416,14 @@ export default function Dashboard({
           .catch((err) => console.error('Error applying credit payment:', err));
       }
     }
+    } catch (err) {
+      console.error('Error completing sale:', err);
+      throw err instanceof Error
+        ? err
+        : new Error('No se pudo guardar la venta. El ticket sigue en pantalla; inténtalo de nuevo.');
+    } finally {
+      saleInFlightIdsRef.current.delete(ticket.id);
+    }
   };
 
   const handleDeleteSaleTicket = async (ticket: SaleTicket | string, reason?: string) => {
@@ -457,6 +503,10 @@ export default function Dashboard({
       console.warn('[CorteX] La Bodega Central no genera cortes de caja.');
       return;
     }
+    if (corteInFlightRef.current) {
+      return;
+    }
+    corteInFlightRef.current = true;
 
     try {
       const session = await getActiveCashSession(
@@ -476,14 +526,14 @@ export default function Dashboard({
       const idSet = new Set(corteRecord.ticketIds || []);
       const expIdSet = new Set(corteRecord.expenseIds || []);
 
-      const unclosedTickets = salesTickets.filter((t) => {
+      const localTickets = salesTickets.filter((t) => {
         if (t.branchId !== currentBranch.id) return false;
         if (t.corteXId && t.corteXId !== session.id) return false;
         if (idSet.size > 0) return idSet.has(t.id);
         return belongsToOpenSession(t, sessionFilter);
       });
 
-      const unclosedExpenses = expenses.filter((e) => {
+      const localExpenses = expenses.filter((e) => {
         if (e.branchId !== currentBranch.id) return false;
         if (e.corteXId && e.corteXId !== session.id) return false;
         if (expIdSet.size > 0) return expIdSet.has(e.id);
@@ -492,6 +542,13 @@ export default function Dashboard({
           sessionFilter
         );
       });
+
+      const cloudDocs = await loadUnclosedDocsForSession(
+        session.id,
+        currentBranch.id,
+        localTickets,
+        localExpenses
+      );
 
       const counted = Number.isFinite(corteRecord.countedCash)
         ? Number(corteRecord.countedCash)
@@ -505,26 +562,28 @@ export default function Dashboard({
         efectivoContado: counted,
         fondoDejado: corteRecord.cashFundLeftForNextShift ?? 0,
         notas: corteRecord.closingNotes || '',
-        ticketsSnapshot: unclosedTickets,
-        expensesSnapshot: unclosedExpenses
+        ticketsSnapshot: cloudDocs.tickets,
+        expensesSnapshot: cloudDocs.expenses
       });
 
       const savedCorte = result.corteRecord;
-      setCortesX((prev) => [savedCorte, ...prev.filter((c) => c.id !== savedCorte.id)]);
+      if (savedCorte?.id) {
+        setCortesX((prev) => [savedCorte, ...prev.filter((c) => c.id !== savedCorte.id)]);
+      }
 
-      const closedTicketIds = new Set(unclosedTickets.map((t) => t.id));
-      const closedExpenseIds = new Set(unclosedExpenses.map((e) => e.id));
+      const closedTicketIds = new Set((cloudDocs.tickets.length ? cloudDocs.tickets : localTickets).map((t) => t.id));
+      const closedExpenseIds = new Set((cloudDocs.expenses.length ? cloudDocs.expenses : localExpenses).map((e) => e.id));
       setSalesTickets((prev) =>
         prev.map((t) =>
           closedTicketIds.has(t.id)
-            ? { ...t, corteXId: savedCorte.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte.timestamp }
+            ? { ...t, corteXId: session.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte?.timestamp || new Date().toISOString() }
             : t
         )
       );
       setExpenses((prev) =>
         prev.map((e) =>
           closedExpenseIds.has(e.id)
-            ? { ...e, corteXId: savedCorte.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte.timestamp }
+            ? { ...e, corteXId: session.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte?.timestamp || new Date().toISOString() }
             : e
         )
       );
@@ -533,12 +592,17 @@ export default function Dashboard({
         currentBranch.id,
         currentBranch.name,
         currentOperator.name,
-        savedCorte.cashFundLeftForNextShift ?? 0,
+        savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
         currentOperator.id
       );
       setActiveCashSession(nextSession);
     } catch (err) {
       console.error('Error finalizing Corte X and Sesion in Firestore:', err);
+      throw err instanceof Error
+        ? err
+        : new Error('No se pudo cerrar el corte. El turno sigue abierto; inténtalo de nuevo.');
+    } finally {
+      corteInFlightRef.current = false;
     }
   };
 
@@ -752,6 +816,11 @@ export default function Dashboard({
             <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
               {currentBranch.name}
             </span>
+            {activeCashSession?.id && currentBranch.id !== 'b-bodega' && (
+              <span className="hidden md:inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800" title={activeCashSession.id}>
+                Turno abierto
+              </span>
+            )}
           </div>
 
           <div className="relative">
@@ -788,6 +857,11 @@ export default function Dashboard({
 
         {/* Workspace Content Area */}
         <main className="flex-1 overflow-y-auto p-4">
+          {sessionError && (
+            <div className="max-w-[1600px] mx-auto mb-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {sessionError}
+            </div>
+          )}
           <div className="max-w-[1600px] mx-auto h-full">
             {renderModuleContent()}
           </div>
