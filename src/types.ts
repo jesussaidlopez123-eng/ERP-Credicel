@@ -14,7 +14,7 @@ export interface Operator {
   createdAt?: string;
 }
 
-export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'executive' | 'labels' | 'settings';
+export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'executive' | 'settings';
 
 export type NoticeUrgency = 'normal' | 'urgente';
 

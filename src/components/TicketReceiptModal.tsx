@@ -5,6 +5,7 @@ import {
   X, 
   ArrowRight
 } from 'lucide-react';
+import { printThermalFromElement } from '../lib/printWindow';
 import { SaleTicket, Branch } from '../types';
 
 interface TicketReceiptModalProps {
@@ -39,12 +40,12 @@ export default function TicketReceiptModal({
       if (autoPrintEnabled) {
         const timer = setTimeout(() => {
           try {
-            window.print();
+            printThermalFromElement('thermal-receipt-container', `Ticket ${ticket.id}`);
             setHasPrinted(true);
           } catch (e) {
             console.error('Error triggering auto print:', e);
           }
-        }, 220);
+        }, 280);
         return () => clearTimeout(timer);
       }
     }
@@ -75,13 +76,13 @@ export default function TicketReceiptModal({
   if (!isOpen || !ticket) return null;
 
   const handlePrint = () => {
-    window.print();
+    printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticket.id}` : 'Ticket CREDI CEL');
     setHasPrinted(true);
   };
 
   const handleNextSale = (shouldPrint: boolean = false) => {
     if (shouldPrint) {
-      window.print();
+      printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticket.id}` : 'Ticket CREDI CEL');
       setHasPrinted(true);
       setTimeout(() => {
         onClose();

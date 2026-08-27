@@ -8,7 +8,6 @@ import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
 import SettingsModule from './SettingsModule';
-import LabelsModule from './LabelsModule';
 import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
@@ -832,15 +831,6 @@ export default function Dashboard({
             products={products}
           />
         );
-      case 'labels':
-        return (
-          <LabelsModule 
-            products={products}
-            currentBranch={currentBranch}
-            currentOperator={currentOperator}
-            allBranches={ALL_BRANCHES}
-          />
-        );
       case 'settings':
         return (
           <SettingsModule 
@@ -889,7 +879,6 @@ export default function Dashboard({
               <h2 className="text-base sm:text-lg font-semibold text-slate-900 truncate">
                 {activeModule === 'pos' ? 'Punto de venta' :
                  activeModule === 'inventory' ? 'Inventario' :
-                 activeModule === 'labels' ? 'Etiquetas' :
                  activeModule === 'purchases' ? 'Compras' :
                  activeModule === 'sales' ? 'Ventas y cortes' :
                  activeModule === 'executive' ? 'Dirección' : 'Usuarios'}

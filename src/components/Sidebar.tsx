@@ -8,7 +8,6 @@ import {
   Store,
   ShoppingBag,
   Building2,
-  Barcode,
   X
 } from 'lucide-react';
 import { ModuleId, Branch, Operator } from '../types';
@@ -38,7 +37,6 @@ export default function Sidebar({
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
     { id: 'pos', label: 'Punto de venta', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'inventory', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
-    { id: 'labels', label: 'Etiquetas', icon: <Barcode className="w-4 h-4" /> },
     { id: 'purchases', label: 'Compras', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'executive', label: 'Dirección', icon: <Building2 className="w-4 h-4" /> },

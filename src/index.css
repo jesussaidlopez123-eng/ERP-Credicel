@@ -345,6 +345,7 @@ html, body, #root {
   /* Ensure thermal receipt containers are visible and formatted for 58mm */
   #corte-thermal-receipt-container,
   #thermal-receipt-container,
+  #thermal-expense-receipt,
   .printable-thermal-receipt {
     display: block !important;
     visibility: visible !important;
@@ -367,6 +368,7 @@ html, body, #root {
 
   #corte-thermal-receipt-container *,
   #thermal-receipt-container *,
+  #thermal-expense-receipt *,
   .printable-thermal-receipt * {
     visibility: visible !important;
     color: #000000 !important;
@@ -374,12 +376,14 @@ html, body, #root {
 
   #corte-thermal-receipt-container .flex,
   #thermal-receipt-container .flex,
+  #thermal-expense-receipt .flex,
   .printable-thermal-receipt .flex {
     display: flex !important;
   }
 
   #corte-thermal-receipt-container .inline-block,
   #thermal-receipt-container .inline-block,
+  #thermal-expense-receipt .inline-block,
   .printable-thermal-receipt .inline-block {
     display: inline-block !important;
   }

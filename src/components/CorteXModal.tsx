@@ -30,6 +30,7 @@ import { safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils
 import { saveBranchFundToFirestore } from '../lib/firebase';
 import { belongsToOpenSession, classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
+import { printThermalFromElement } from '../lib/printWindow';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -422,7 +423,7 @@ export default function CorteXModal({
 
   const handlePrintThermal = () => {
     try {
-      window.print();
+      printThermalFromElement('corte-thermal-receipt-container', 'Corte de caja');
       setHasPrinted(true);
     } catch (e) {
       console.error('Error triggering window.print():', e);
@@ -625,22 +626,13 @@ export default function CorteXModal({
           }, 350);
         };
 
-        const handleAfterPrint = () => {
-          window.removeEventListener('afterprint', handleAfterPrint);
-          doAutoLogout();
-        };
-
-        window.addEventListener('afterprint', handleAfterPrint);
-
         try {
-          window.print();
+          printThermalFromElement('corte-thermal-receipt-container', 'Corte de caja');
         } catch (e) {
           console.error('Error triggering window.print:', e);
         }
 
-        // Fallback garantizado por si afterprint no se emite por el navegador
         setTimeout(() => {
-          window.removeEventListener('afterprint', handleAfterPrint);
           doAutoLogout();
         }, 2200);
       }, 400);

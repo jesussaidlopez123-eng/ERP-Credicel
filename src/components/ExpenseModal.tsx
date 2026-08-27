@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode, Store, Clock, User, ShieldCheck } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
+import { printThermalFromElement } from '../lib/printWindow';
 
 interface ExpenseModalProps {
   isOpen: boolean;
@@ -64,7 +65,7 @@ export default function ExpenseModal({
   };
 
   const handlePrint = () => {
-    window.print();
+    printThermalFromElement('thermal-expense-receipt', 'Ticket de gasto');
   };
 
   return (
