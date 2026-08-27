@@ -112,6 +112,7 @@ export interface Product {
   model?: string;
   imei?: string;
   imeiList?: string[];
+  imeis?: string[];
   supplier?: string;
 }
 

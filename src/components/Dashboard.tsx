@@ -40,7 +40,8 @@ import {
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
-  saveRepairRecordToFirestore
+  saveRepairRecordToFirestore,
+  deleteSaleTicketFromFirestore
 } from '../lib/firebase';
 import { belongsToOpenSession } from '../lib/saleClassification';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
@@ -418,6 +419,15 @@ export default function Dashboard({
     }
   };
 
+  const handleDeleteSaleTicket = async (ticket: SaleTicket | string, reason?: string) => {
+    const ticketId = typeof ticket === 'string' ? ticket : ticket.id;
+    setSalesTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    await deleteSaleTicketFromFirestore(ticket, {
+      reason: reason || 'Error de captura de operador',
+      operatorName: currentOperator.name
+    });
+  };
+
   const handleAddRepairRecord = (record: RepairRecord) => {
     setRepairRecords((prev) => [record, ...prev.filter((r) => r.id !== record.id)]);
     saveRepairRecordToFirestore(record).catch((err) => console.error('Error saving repair record:', err));
@@ -701,6 +711,7 @@ export default function Dashboard({
             branchCashFunds={branchCashFunds}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
             onFinalizeCorteX={handleFinalizeCorteX}
+            onDeleteSaleTicket={handleDeleteSaleTicket}
           />
         );
       case 'executive':

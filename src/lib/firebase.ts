@@ -6,6 +6,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteDoc,
   onSnapshot,
   writeBatch,
@@ -19,6 +20,7 @@ import { safeDateIsoKey, safeFormatDate, safeFormatTime, parseSafeDate } from '.
 import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { money, newSessionId } from './ids';
 import { summarizeTickets } from './saleClassification';
+import { isNonInventorySaleItem } from './inventoryRules';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -974,6 +976,123 @@ export async function saveInventoryMovementsBatchToFirestore(movements: Inventor
 export async function clearTestSalesAndExpensesFromFirestore() {
   console.warn('[Firestore] Wipe of sales/expenses/cortes is disabled to protect production records.');
   return;
+}
+
+/**
+ * Cancela un ticket por error de operador: restaura stock/IMEI y borra solo ese folio.
+ * No toca el resto de ventas, gastos ni cortes.
+ */
+export async function deleteSaleTicketFromFirestore(
+  ticket: SaleTicket | string,
+  options?: {
+    reason?: string;
+    operatorName?: string;
+  }
+): Promise<void> {
+  const ticketId = typeof ticket === 'string' ? ticket : ticket.id;
+  if (!ticketId) throw new Error('ID de ticket no proporcionado');
+
+  let ticketData: SaleTicket | null = typeof ticket === 'object' ? ticket : null;
+
+  if (!ticketData || !ticketData.items) {
+    try {
+      const ventaSnap = await getDoc(doc(db, VENTAS_COLLECTION, ticketId));
+      if (ventaSnap.exists()) {
+        ticketData = ventaSnap.data() as SaleTicket;
+      } else {
+        const salesSnap = await getDoc(doc(db, SALES_COLLECTION, ticketId));
+        if (salesSnap.exists()) {
+          ticketData = salesSnap.data() as SaleTicket;
+        }
+      }
+    } catch (err) {
+      console.warn('[Firestore] Error al buscar ticket para eliminar:', err);
+    }
+  }
+
+  const normBId = normalizeBranchId(ticketData?.branchId || ticketData?.sucursal_id || 'b-bodega');
+  const branchName = getBranchDisplayName(normBId);
+  const operator = options?.operatorName || ticketData?.operatorName || 'Administrador';
+  const reason = options?.reason || 'Error de captura de operador';
+
+  if (ticketData?.items && Array.isArray(ticketData.items)) {
+    for (const item of ticketData.items) {
+      if (isNonInventorySaleItem(item)) continue;
+      const prodId = item.product?.id;
+      if (!prodId) continue;
+
+      try {
+        const prodRef = doc(db, PRODUCTS_COLLECTION, prodId);
+        const prodSnap = await getDoc(prodRef);
+        if (!prodSnap.exists()) continue;
+
+        const currentProd = prodSnap.data() as Product;
+        const currentBranchStock = currentProd.branchStock?.[normBId] ?? 0;
+        const currentTotalStock = currentProd.stock ?? 0;
+        const qty = item.quantity || 1;
+        const newBranchStock = currentBranchStock + qty;
+        const newTotalStock = currentTotalStock + qty;
+        const imeiSold = item.metadata?.imei;
+        const updatedImeiMap = { ...(currentProd.branchImeiMap || {}) };
+        const updatedImeis = [...(currentProd.imeis || currentProd.imeiList || [])];
+
+        if (imeiSold) {
+          const currentBranchImeis = updatedImeiMap[normBId] || [];
+          if (!currentBranchImeis.includes(imeiSold)) {
+            updatedImeiMap[normBId] = [...currentBranchImeis, imeiSold];
+          }
+          if (!updatedImeis.includes(imeiSold)) {
+            updatedImeis.push(imeiSold);
+          }
+        }
+
+        await updateDoc(prodRef, {
+          stock: newTotalStock,
+          branchStock: {
+            ...(currentProd.branchStock || {}),
+            [normBId]: newBranchStock
+          },
+          branchImeiMap: updatedImeiMap,
+          imeis: updatedImeis
+        });
+
+        const movId = `mov-rev-${ticketId}-${Math.random().toString(36).slice(2, 7)}`;
+        await setDoc(doc(db, MOVEMENTS_COLLECTION, movId), cleanForFirestore({
+          id: movId,
+          timestamp: new Date().toISOString(),
+          date: new Date().toISOString(),
+          type: 'ENTRADA',
+          productId: currentProd.id,
+          productCode: currentProd.code || 'S/C',
+          productName: currentProd.name,
+          category: currentProd.category,
+          inventoryType: currentProd.inventoryType,
+          quantity: qty,
+          previousStock: currentBranchStock,
+          newStock: newBranchStock,
+          targetBranchId: normBId,
+          targetBranchName: branchName,
+          operatorName: operator,
+          ticketId,
+          details: `Reversa de inventario por eliminación de Ticket #${ticketId.slice(-6)} (${reason})`,
+          imeis: imeiSold ? [imeiSold] : undefined
+        }));
+      } catch (err) {
+        console.warn(`[Firestore] No se pudo restaurar stock de ${prodId}:`, err);
+      }
+    }
+  }
+
+  try {
+    await deleteDoc(doc(db, VENTAS_COLLECTION, ticketId));
+  } catch (err) {
+    console.warn('[Firestore] deleteDoc ventas err:', err);
+  }
+  try {
+    await deleteDoc(doc(db, SALES_COLLECTION, ticketId));
+  } catch (err) {
+    console.warn('[Firestore] deleteDoc sales err:', err);
+  }
 }
 
 // ----------------------------------------------------
