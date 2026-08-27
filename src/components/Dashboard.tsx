@@ -40,6 +40,7 @@ import {
   saleTicketExistsInFirestore,
   closeCashSessionIfDue,
   syncPosCashSession,
+  healPrematureAutoCortesForCommercialBranches,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
@@ -178,6 +179,10 @@ export default function Dashboard({
       unsubCredits();
       unsubRepairs();
     };
+  }, []);
+
+  useEffect(() => {
+    void healPrematureAutoCortesForCommercialBranches();
   }, []);
 
   const isAdmin = currentOperator.role === 'admin';
@@ -818,6 +823,7 @@ export default function Dashboard({
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
             onFinalizeCorteX={handleFinalizeCorteX}
             onDeleteSaleTicket={handleDeleteSaleTicket}
+            activeCashSession={activeCashSession}
           />
         );
       case 'executive':

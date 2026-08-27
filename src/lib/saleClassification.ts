@@ -1,6 +1,7 @@
 import { CartItem, SaleTicket } from '../types';
 import { money } from './ids';
 import { safeDateIsoKey } from './dateUtils';
+import { normalizeBranchId } from '../data/initialBranches';
 
 export type SaleCategoryKey = 'accesorios' | 'abonos' | 'enganches' | 'reparaciones' | 'recargas';
 
@@ -131,12 +132,16 @@ export function summarizeTickets(tickets: SaleTicket[]): {
 
 export function belongsToOpenSession(
   ticket: { branchId?: string; sucursal_id?: string; corteXId?: string; sesion_caja_id?: string; timestamp?: string },
-  params: { branchId: string; sessionId: string; sessionOpenedAt: string }
+  params: { branchId: string; sessionId: string; sessionOpenedAt: string; ignoreCorteIds?: Set<string> }
 ): boolean {
   const ticketBranch = ticket.branchId || ticket.sucursal_id || '';
-  if (ticketBranch !== params.branchId) return false;
-  if (ticket.corteXId) return false;
-  if (ticket.sesion_caja_id) return ticket.sesion_caja_id === params.sessionId;
+  if (ticketBranch && normalizeBranchId(ticketBranch) !== normalizeBranchId(params.branchId)) return false;
+  if (ticket.corteXId && !params.ignoreCorteIds?.has(ticket.corteXId)) return false;
+  if (ticket.sesion_caja_id) {
+    if (ticket.sesion_caja_id === params.sessionId) return true;
+    if (params.ignoreCorteIds?.has(ticket.sesion_caja_id)) return true;
+    return false;
+  }
   // Tickets de producción anteriores a sesiones de caja: mismo día, aún abiertos.
   const ticketDay = safeDateIsoKey(ticket.timestamp);
   const sessionDay = safeDateIsoKey(params.sessionOpenedAt);

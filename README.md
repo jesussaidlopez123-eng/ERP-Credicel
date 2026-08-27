@@ -13,7 +13,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Recargar la página:** pide de nuevo la contraseña. Las ventas ya cobradas, gastos y el turno de caja viven en la nube. El ticket que **aún no cobras** se recupera en ese mismo equipo.
 - **Otra computadora o celular, misma sucursal:** se engancha al **mismo turno**. No abre una caja nueva. Lo que ya se cobró aparece en ambos. El carrito sin cobrar se queda solo en el equipo donde se armó.
 - **Otra sucursal:** Navojoa y Huatabampo tienen turnos independientes.
-- **Cierre 11:00 p.m. (hora Sonora):** si dejan la sesión abierta, a las 11:00 p.m. el sistema registra el corte, marca las ventas de esa caja y cierra la sesión. El siguiente turno abre después de medianoche. Si la computadora estaba apagada, el corte se registra al volver a entrar.
+- **Cierre 11:00 p.m. (hora Sonora):** si dejan la sesión abierta, a las 11:00 p.m. el sistema registra el corte, marca las ventas de esa caja y cierra la sesión. El siguiente turno abre después de medianoche. Un turno de **hoy** no se marca cerrado antes de las 11:00 p.m.; si eso llegó a pasar, al entrar de nuevo se reabre el mismo turno.
 - Si internet falla al cobrar, el ticket **no se borra**: inténtalo de nuevo; no se duplica el folio.
 
 ## Requisitos

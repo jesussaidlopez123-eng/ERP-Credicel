@@ -42,36 +42,38 @@ export function canOpenNewCashSession(now: Date = new Date()): boolean {
   return !isAfterCashClose(now);
 }
 
+/**
+ * Parse a session instant. A date-only `YYYY-MM-DD` is noon in Sonora, not UTC midnight
+ * (UTC midnight is the previous evening in Hermosillo and used to trigger a false auto-corte).
+ */
+export function parseSessionInstant(isoOrDate: string | Date | undefined): Date | null {
+  if (!isoOrDate) return null;
+  if (isoOrDate instanceof Date) {
+    return Number.isNaN(isoOrDate.getTime()) ? null : isoOrDate;
+  }
+  const raw = String(isoOrDate).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const noon = new Date(`${raw}T12:00:00-07:00`);
+    return Number.isNaN(noon.getTime()) ? null : noon;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function hermosilloDateKey(isoOrDate: string | Date | undefined): string {
-  if (!isoOrDate) return '';
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
-  if (Number.isNaN(d.getTime())) return '';
+  const d = parseSessionInstant(isoOrDate);
+  if (!d) return '';
   return getHermosilloClock(d).dateKey;
 }
 
-export function formatHermosilloDate(isoOrDate: string | Date): string {
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
-  if (Number.isNaN(d.getTime())) return '--/--/----';
-  return new Intl.DateTimeFormat('es-MX', {
-    timeZone: CASH_TIME_ZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  }).format(d);
+/** 23:00 Sonora of the calendar day the session was opened. */
+export function sessionCloseDeadline(fechaApertura: string | undefined, now: Date = new Date()): Date {
+  const opened = parseSessionInstant(fechaApertura);
+  const key = opened ? getHermosilloClock(opened).dateKey : getHermosilloClock(now).dateKey;
+  return new Date(`${key}T${String(CASH_CLOSE_HOUR).padStart(2, '0')}:00:00-07:00`);
 }
 
-export function formatHermosilloTime(isoOrDate: string | Date): string {
-  const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
-  if (Number.isNaN(d.getTime())) return '--:--';
-  return new Intl.DateTimeFormat('es-MX', {
-    timeZone: CASH_TIME_ZONE,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true
-  }).format(d);
-}
-
-/** 23:00 on the Sonora calendar day when the session was opened. */
 export function automaticCloseIso(fechaApertura: string, now: Date = new Date()): string {
   const key = hermosilloDateKey(fechaApertura) || getHermosilloClock(now).dateKey;
   return `${key}T23:00:00-07:00`;
@@ -83,11 +85,55 @@ export function sessionNeedsAutomaticCorte(
 ): boolean {
   if (!session || session.estado !== 'ABIERTA') return false;
   if (session.sucursal_id === 'b-bodega') return false;
-  const openKey = hermosilloDateKey(session.fecha_apertura);
+  return now.getTime() >= sessionCloseDeadline(session.fecha_apertura, now).getTime();
+}
+
+export function notesLookLikeAuto23Close(notes: string | undefined): boolean {
+  return (notes || '').includes('Cierre automático 23:00');
+}
+
+export function isPrematureAutoCorte(
+  session: { estado?: string; fecha_apertura?: string; arqueo_cierre?: { notas_observaciones?: string } } | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!session || session.estado !== 'CERRADA') return false;
+  if (!notesLookLikeAuto23Close(session.arqueo_cierre?.notas_observaciones)) return false;
+  const openedKey = hermosilloDateKey(session.fecha_apertura);
   const today = getHermosilloClock(now).dateKey;
-  if (!openKey) return isAfterCashClose(now);
-  if (openKey < today) return true;
-  return openKey === today && isAfterCashClose(now);
+  if (openedKey && openedKey !== today) return false;
+  return now.getTime() < sessionCloseDeadline(session.fecha_apertura, now).getTime();
+}
+
+export function isPrematureAutoCorteRecord(
+  corte: { timestamp?: string; dateStr?: string; closingNotes?: string; operatorName?: string } | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!corte) return false;
+  const notes = `${corte.closingNotes || ''} ${corte.operatorName || ''}`;
+  if (!notesLookLikeAuto23Close(notes)) return false;
+  return now.getTime() < sessionCloseDeadline(corte.timestamp || corte.dateStr, now).getTime();
+}
+
+export function formatHermosilloDate(isoOrDate: string | Date): string {
+  const d = isoOrDate instanceof Date ? isoOrDate : parseSessionInstant(isoOrDate) || new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return '--/--/----';
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(d);
+}
+
+export function formatHermosilloTime(isoOrDate: string | Date): string {
+  const d = isoOrDate instanceof Date ? isoOrDate : parseSessionInstant(isoOrDate) || new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return '--:--';
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).format(d);
 }
 
 export function loggedInBeforeCashClose(loggedInAtMs: number, now: Date = new Date()): boolean {

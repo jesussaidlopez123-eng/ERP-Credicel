@@ -8,6 +8,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   onSnapshot,
   writeBatch,
   query,
@@ -17,7 +18,7 @@ import {
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord } from '../types';
 import { money, newSessionId } from './ids';
-import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
+import { COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import {
@@ -27,6 +28,9 @@ import {
   canOpenNewCashSession,
   formatHermosilloDate,
   formatHermosilloTime,
+  getHermosilloClock,
+  hermosilloDateKey,
+  isPrematureAutoCorte,
   sessionNeedsAutomaticCorte
 } from './shiftHours';
 
@@ -345,6 +349,22 @@ async function queryDocsBySession<T extends { id: string }>(
   }
 }
 
+async function queryDocsByField<T extends { id: string }>(
+  collectionName: string,
+  field: string,
+  value: string
+): Promise<T[]> {
+  if (!value) return [];
+  try {
+    const qField = query(collection(db, collectionName), where(field, '==', value));
+    const snap = await getDocs(qField);
+    return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  } catch (err) {
+    console.warn(`[Firestore] query ${collectionName}.${field} failed:`, err);
+    return [];
+  }
+}
+
 /**
  * Tickets y gastos reales de este turno (todos los equipos), no solo lo que ve una pantalla.
  */
@@ -402,7 +422,7 @@ export function subscribeToSesionesCaja(
     (snapshot) => {
       const loaded: SesionCaja[] = [];
       snapshot.forEach((d) => {
-        loaded.push(d.data() as SesionCaja);
+        loaded.push({ ...(d.data() as SesionCaja), id: d.id });
       });
       loaded.sort((a, b) => (b.fecha_apertura || '').localeCompare(a.fecha_apertura || ''));
       onSesionesUpdate(loaded);
@@ -614,6 +634,172 @@ export async function executeCorteSesionCajaTransaction(params: {
   return { success: true, sesion: sesionCerrada, corteRecord };
 }
 
+const UNSTAMP_FIELDS = {
+  corteXId: deleteField(),
+  corteXClosedAt: deleteField()
+};
+
+async function loadDocsTiedToSession(
+  sessionId: string
+): Promise<{ tickets: SaleTicket[]; expenses: Expense[] }> {
+  const [salesA, salesB, ventasCorte, salesCorte, expA, expB, gastosCorte, expensesCorte] =
+    await Promise.all([
+      queryDocsBySession<SaleTicket>(SALES_COLLECTION, sessionId),
+      queryDocsBySession<SaleTicket>(VENTAS_COLLECTION, sessionId),
+      queryDocsByField<SaleTicket>(VENTAS_COLLECTION, 'corteXId', sessionId),
+      queryDocsByField<SaleTicket>(SALES_COLLECTION, 'corteXId', sessionId),
+      queryDocsBySession<Expense>(EXPENSES_COLLECTION, sessionId),
+      queryDocsBySession<Expense>(GASTOS_COLLECTION, sessionId),
+      queryDocsByField<Expense>(GASTOS_COLLECTION, 'corteXId', sessionId),
+      queryDocsByField<Expense>(EXPENSES_COLLECTION, 'corteXId', sessionId)
+    ]);
+  return {
+    tickets: mergeById(mergeById(mergeById(salesA, salesB), ventasCorte), salesCorte),
+    expenses: mergeById(mergeById(mergeById(expA, expB), gastosCorte), expensesCorte)
+  };
+}
+
+async function unstampAndRetargetDocs(
+  sessionId: string,
+  liveSessionId?: string
+): Promise<void> {
+  const { tickets, expenses } = await loadDocsTiedToSession(sessionId);
+  const stamp = liveSessionId
+    ? { ...UNSTAMP_FIELDS, sesion_caja_id: liveSessionId }
+    : UNSTAMP_FIELDS;
+  const operations: { ref: ReturnType<typeof doc>; data: Record<string, unknown> }[] = [];
+  tickets.forEach((t) => {
+    operations.push({ ref: doc(db, SALES_COLLECTION, t.id), data: stamp });
+    operations.push({ ref: doc(db, VENTAS_COLLECTION, t.id), data: stamp });
+  });
+  expenses.forEach((e) => {
+    operations.push({ ref: doc(db, EXPENSES_COLLECTION, e.id), data: stamp });
+    operations.push({ ref: doc(db, GASTOS_COLLECTION, e.id), data: stamp });
+  });
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+    const chunk = operations.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((op) => batch.set(op.ref, op.data, { merge: true }));
+    await batch.commit();
+  }
+}
+
+async function restoreOpenSessionPointer(session: SesionCaja): Promise<void> {
+  const fund = money(Number(session.monto_inicial_efectivo || 0));
+  await setDoc(
+    doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, session.sucursal_id),
+    {
+      branchId: session.sucursal_id,
+      openSessionId: session.id,
+      fundAmount: fund,
+      updatedAt: new Date().toISOString()
+    },
+    { merge: true }
+  );
+}
+
+async function reopenClosedSession(session: SesionCaja): Promise<void> {
+  await updateDoc(doc(db, SESIONES_CAJA_COLLECTION, session.id), {
+    estado: 'ABIERTA',
+    fecha_cierre: deleteField(),
+    operador_cierre: deleteField(),
+    arqueo_cierre: deleteField(),
+    totales_calculados: deleteField()
+  });
+  await restoreOpenSessionPointer(session);
+  await unstampAndRetargetDocs(session.id);
+  try {
+    await deleteDoc(doc(db, CORTE_X_COLLECTION, session.id));
+  } catch {
+    // corte may already be missing
+  }
+}
+
+/**
+ * If an automatic 23:00 corte ran before 23:00 Sonora on the same calendar day
+ * the till opened, put that shift back to ABIERTA so Navojoa/Huatabampo keep
+ * working the real turno instead of seeing "Corte Guardado".
+ */
+export async function reopenPrematureAutoCorteIfNeeded(branchId: string): Promise<boolean> {
+  try {
+    const normBId = normalizeBranchId(branchId);
+    if (normBId === 'b-bodega') return false;
+    if (!canOpenNewCashSession()) return false;
+
+    const today = getHermosilloClock().dateKey;
+    const closedSnap = await getDocs(
+      query(collection(db, SESIONES_CAJA_COLLECTION), where('sucursal_id', '==', normBId))
+    );
+    const premature = closedSnap.docs
+      .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
+      .filter((s) => isPrematureAutoCorte(s) && (hermosilloDateKey(s.fecha_apertura) === today || !hermosilloDateKey(s.fecha_apertura)))
+      .sort((a, b) => (b.fecha_cierre || b.fecha_apertura || '').localeCompare(a.fecha_cierre || a.fecha_apertura || ''));
+
+    if (premature.length === 0) return false;
+
+    const fund = await readBranchFundAmount(normBId, 1000);
+    const live = await findExistingOpenSession(normBId, fund);
+    const primary = premature[0];
+
+    if (live && live.id !== primary.id) {
+      const liveDocs = await loadUnclosedDocsForSession(live.id, normBId);
+      const liveIsEmpty = liveDocs.tickets.length === 0 && liveDocs.expenses.length === 0;
+      if (liveIsEmpty) {
+        await updateDoc(doc(db, SESIONES_CAJA_COLLECTION, live.id), {
+          estado: 'CERRADA',
+          fecha_cierre: new Date().toISOString(),
+          arqueo_cierre: {
+            efectivo_contado_declarado: 0,
+            diferencia_sobrante_faltante: 0,
+            fondo_dejado_siguiente_turno: fund,
+            efectivo_retirado_entregar: 0,
+            notas_observaciones: 'Sesión vacía unificada al revertir cierre automático prematuro'
+          }
+        });
+        await reopenClosedSession(primary);
+      } else {
+        for (const closed of premature) {
+          await unstampAndRetargetDocs(closed.id, live.id);
+          try {
+            await deleteDoc(doc(db, CORTE_X_COLLECTION, closed.id));
+          } catch {
+            // ignore
+          }
+        }
+        await restoreOpenSessionPointer(live);
+      }
+    } else {
+      await reopenClosedSession(primary);
+      for (const extra of premature.slice(1)) {
+        await unstampAndRetargetDocs(extra.id, primary.id);
+        try {
+          await deleteDoc(doc(db, CORTE_X_COLLECTION, extra.id));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    console.log(`[Firestore] Se reabrió el corte automático prematuro de ${normBId} (${primary.id})`);
+    return true;
+  } catch (err) {
+    console.warn('[Firestore] reopenPrematureAutoCorteIfNeeded:', err);
+    return false;
+  }
+}
+
+export async function healPrematureAutoCortesForCommercialBranches(): Promise<void> {
+  await Promise.all(
+    COMMERCIAL_BRANCHES.map((branch) =>
+      reopenPrematureAutoCorteIfNeeded(branch.id).catch((err) => {
+        console.warn(`[Firestore] No se pudo revisar el corte prematuro de ${branch.id}:`, err);
+        return false;
+      })
+    )
+  );
+}
+
 export async function closeCashSessionIfDue(params: {
   branchId: string;
   branchName?: string;
@@ -663,6 +849,7 @@ export async function syncPosCashSession(params: {
   operatorName: string;
   initialFund?: number;
 }): Promise<{ session: SesionCaja | null; tillLocked: boolean; autoClosed: boolean }> {
+  await reopenPrematureAutoCorteIfNeeded(params.branchId);
   const due = await closeCashSessionIfDue(params);
   if (!canOpenNewCashSession()) {
     return { session: null, tillLocked: true, autoClosed: due.closed };
@@ -676,10 +863,6 @@ export async function syncPosCashSession(params: {
   );
   return { session, tillLocked: false, autoClosed: due.closed };
 }
-
-// ----------------------------------------------------
-// 1. PRODUCTS (INVENTARIO)
-// ----------------------------------------------------
 
 // ----------------------------------------------------
 // 1. PRODUCTS (INVENTARIO)

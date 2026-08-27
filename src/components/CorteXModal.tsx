@@ -28,9 +28,11 @@ import {
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { saveBranchFundToFirestore } from '../lib/firebase';
-import { belongsToOpenSession, classifySaleItem } from '../lib/saleClassification';
+import { classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
 import { printThermalFromElement } from '../lib/printWindow';
+import { isPrematureAutoCorteRecord } from '../lib/shiftHours';
+import { normalizeBranchId } from '../data/initialBranches';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -140,15 +142,38 @@ export default function CorteXModal({
   
   const todayDateIsoKey = safeDateIsoKey(new Date());
   const todayFormatted = safeFormatDate(new Date());
-  const todaySavedCorte = !isHistoric ? (cortesX || []).find((c) => 
-    c && c.branchId === effectiveBranchId && 
-    (safeDateIsoKey(c.timestamp) === todayDateIsoKey || c.dateStr === todayFormatted || safeDateIsoKey(c.dateStr) === todayDateIsoKey)
-  ) : null;
+  const realClosedCorteIds = new Set(
+    (cortesX || [])
+      .filter(
+        (c) =>
+          c &&
+          normalizeBranchId(c.branchId) === normalizeBranchId(effectiveBranchId) &&
+          !isPrematureAutoCorteRecord(c)
+      )
+      .flatMap((c) => [c.id, c.sesion_caja_id || ''].filter(Boolean))
+  );
+  const todaySavedCorte = !isHistoric
+    ? (cortesX || []).find((c) => {
+        if (!c || isPrematureAutoCorteRecord(c)) return false;
+        if (normalizeBranchId(c.branchId) !== normalizeBranchId(effectiveBranchId)) return false;
+        const sameDay =
+          safeDateIsoKey(c.timestamp) === todayDateIsoKey ||
+          c.dateStr === todayFormatted ||
+          safeDateIsoKey(c.dateStr) === todayDateIsoKey;
+        if (!sameDay) return false;
+        if (!activeSessionId) return false;
+        return c.id === activeSessionId || c.sesion_caja_id === activeSessionId;
+      })
+    : null;
   const isCorteAlreadyDoneToday = !isHistoric && !!todaySavedCorte;
 
   // Stored branch initial cash fund calculation (with fallback hierarchy)
   const previousBranchCortes = (cortesX || []).filter(c => 
-    c && c.branchId === effectiveBranchId && (!existingCorteRecord || c.id !== existingCorteRecord.id)
+    c &&
+    normalizeBranchId(c.branchId) === normalizeBranchId(effectiveBranchId) &&
+    !isPrematureAutoCorteRecord(c) &&
+    (!existingCorteRecord || c.id !== existingCorteRecord.id) &&
+    (!activeSessionId || (c.id !== activeSessionId && c.sesion_caja_id !== activeSessionId))
   );
   previousBranchCortes.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
   const lastClosedCorte = previousBranchCortes[0];
@@ -206,27 +231,17 @@ export default function CorteXModal({
       );
     }
   } else {
+    const todayIso = safeDateIsoKey(new Date());
     branchTickets = (tickets || []).filter((t) => {
-      if (!t || t.branchId !== effectiveBranchId || t.corteXId) return false;
-      if (activeSessionId) {
-        return belongsToOpenSession(t, {
-          branchId: effectiveBranchId,
-          sessionId: activeSessionId,
-          sessionOpenedAt: sessionOpenedAt || ''
-        });
-      }
-      const todayIso = safeDateIsoKey(new Date());
+      if (!t || normalizeBranchId(t.branchId || t.sucursal_id) !== normalizeBranchId(effectiveBranchId)) return false;
+      if (t.corteXId && realClosedCorteIds.has(t.corteXId)) return false;
+      if (t.sesion_caja_id && realClosedCorteIds.has(t.sesion_caja_id)) return false;
       return !!todayIso && safeDateIsoKey(t.timestamp) === todayIso;
     });
     branchExpenses = (expenses || []).filter((e) => {
-      if (!e || e.branchId !== effectiveBranchId || e.corteXId) return false;
-      if (activeSessionId) {
-        return belongsToOpenSession(
-          { branchId: e.branchId, corteXId: e.corteXId, sesion_caja_id: e.sesion_caja_id, timestamp: e.timestamp },
-          { branchId: effectiveBranchId, sessionId: activeSessionId, sessionOpenedAt: sessionOpenedAt || '' }
-        );
-      }
-      const todayIso = safeDateIsoKey(new Date());
+      if (!e || normalizeBranchId(e.branchId) !== normalizeBranchId(effectiveBranchId)) return false;
+      if (e.corteXId && realClosedCorteIds.has(e.corteXId)) return false;
+      if (e.sesion_caja_id && realClosedCorteIds.has(e.sesion_caja_id)) return false;
       return !!todayIso && safeDateIsoKey(e.timestamp || e.date) === todayIso;
     });
   }
@@ -525,6 +540,10 @@ export default function CorteXModal({
   };
 
   const handleOpenCloseShiftDialog = () => {
+    if (isCorteAlreadyDoneToday) {
+      setFinishStatusMessage('Este turno ya tiene corte registrado.');
+      return;
+    }
     const defaultLeftFund = storedBranchFund > 0 
       ? storedBranchFund 
       : Math.min(1000, Math.max(0, expectedCashInDrawer));

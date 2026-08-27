@@ -14,15 +14,28 @@ function resolveDb(): FirebaseFirestore.Firestore {
   }
 }
 
+function parseSessionInstant(iso: string): Date | null {
+  const raw = String(iso || '').trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const noon = new Date(`${raw}T12:00:00-07:00`);
+    return Number.isNaN(noon.getTime()) ? null : noon;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function hermosilloDateKey(iso: string): string {
   try {
+    const instant = parseSessionInstant(iso);
+    if (!instant) return '';
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Hermosillo',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hourCycle: 'h23'
-    }).formatToParts(new Date(iso));
+    }).formatToParts(instant);
     const g = (t: string) => parts.find((p) => p.type === t)?.value || '0';
     return `${g('year')}-${g('month')}-${g('day')}`;
   } catch {
@@ -59,6 +72,11 @@ export const scheduledMidnightCleanup = functions.pubsub
       if (!branchId || branchId === 'b-bodega') continue;
 
       const openKey = hermosilloDateKey(sesion.fecha_apertura || '');
+      const deadline = openKey ? new Date(`${openKey}T23:00:00-07:00`) : null;
+      if (deadline && Date.now() < deadline.getTime()) {
+        console.log(`[Cloud Function] ${docSnap.id} aún no llega a las 23:00 Sonora; se deja ABIERTA.`);
+        continue;
+      }
       const fechaCierre = openKey ? `${openKey}T23:00:00-07:00` : closeIsoNow;
       const dateStr = openKey
         ? `${openKey.slice(8, 10)}/${openKey.slice(5, 7)}/${openKey.slice(0, 4)}`

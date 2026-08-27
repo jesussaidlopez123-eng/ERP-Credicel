@@ -35,11 +35,12 @@ import {
   ShieldAlert,
   X
 } from 'lucide-react';
-import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
+import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
+import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
 import CorteXModal from './CorteXModal';
 import TicketReceiptModal from './TicketReceiptModal';
 
@@ -54,6 +55,7 @@ interface SalesModuleProps {
   onOpenNoticeModal?: () => void;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onDeleteSaleTicket?: (ticket: SaleTicket | string, reason?: string) => Promise<void> | void;
+  activeCashSession?: SesionCaja | null;
 }
 
 export default function SalesModule({
@@ -66,7 +68,8 @@ export default function SalesModule({
   branchCashFunds = {},
   onOpenNoticeModal,
   onFinalizeCorteX,
-  onDeleteSaleTicket
+  onDeleteSaleTicket,
+  activeCashSession = null
 }: SalesModuleProps) {
 
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
@@ -214,12 +217,18 @@ export default function SalesModule({
   // Build Official Cortes X List + Open/Historical Shifts for all active branches across natural days
   const aggregatedCortesList = useMemo(() => {
     const savedGrouped: Record<string, CorteXRecord> = {};
+    const suppressedPrematureCorteIds = new Set<string>();
     
     safeCortesX.forEach((corte) => {
       if (!corte) return;
       const normBId = normalizeBranchId(corte.branchId);
       if (normBId === 'b-bodega') return; // Bodega is not a sales point
       const dateKey = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
+      if (isPrematureAutoCorteRecord(corte)) {
+        suppressedPrematureCorteIds.add(corte.id);
+        if (corte.sesion_caja_id) suppressedPrematureCorteIds.add(corte.sesion_caja_id);
+        return;
+      }
       const groupKey = `${normBId}_${dateKey}`;
       // Ensure dateStr and branchName are always cleanly formatted
       const normalizedCorte: CorteXRecord = {
@@ -270,6 +279,10 @@ export default function SalesModule({
 
     Object.entries(orphanCorteMap).forEach(([corteId, data]) => {
       const dKey = safeDateIsoKey(data.maxTimestamp);
+      if (dKey === todayIso && !isAfterCashClose()) {
+        suppressedPrematureCorteIds.add(corteId);
+        return;
+      }
       const groupKey = `${data.branchId}_${dKey}`;
       if (!savedGrouped[groupKey] && !savedGrouped[corteId]) {
         let cash = 0, card = 0, transfer = 0;
@@ -355,21 +368,36 @@ export default function SalesModule({
           const branchTodayTickets = safeTickets.filter(t => 
             safeDateIsoKey(t.timestamp) === dateIso && normalizeBranchId(t.branchId) === branch.id
           );
-          const openTickets = branchTodayTickets.filter(t => !t.corteXId);
+          const openTickets = branchTodayTickets.filter(
+            (t) => !t.corteXId || suppressedPrematureCorteIds.has(t.corteXId)
+          );
 
           const branchTodayExpenses = safeExpenses.filter(e => 
             safeDateIsoKey(e.timestamp || e.date) === dateIso && normalizeBranchId(e.branchId) === branch.id
           );
-          const openExpenses = branchTodayExpenses.filter(e => !e.corteXId);
+          const openExpenses = branchTodayExpenses.filter(
+            (e) => !e.corteXId || suppressedPrematureCorteIds.has(e.corteXId)
+          );
 
           // Verificar si ya existe un corte cerrado registrado para hoy en esta sucursal
           const closedCortesToday = officialList.filter(c => 
             normalizeBranchId(c.branchId) === branch.id && 
-            (safeDateIsoKey(c.timestamp) === todayIso || safeDateIsoKey(c.dateStr) === todayIso)
+            (safeDateIsoKey(c.timestamp) === todayIso || safeDateIsoKey(c.dateStr) === todayIso) &&
+            !isPrematureAutoCorteRecord(c)
           );
 
-          // Si ya se realizó el corte oficial hoy y NO hay nuevas ventas/gastos abiertos, NO duplicar fila
-          if (closedCortesToday.length > 0 && openTickets.length === 0 && openExpenses.length === 0) {
+          const branchHasLiveSession =
+            !isAfterCashClose() &&
+            activeCashSession?.estado === 'ABIERTA' &&
+            normalizeBranchId(activeCashSession.sucursal_id || currentBranch.id) === branch.id;
+
+          // Si ya se realizó el corte oficial hoy y NO hay turno vivo ni movimientos abiertos, no duplicar fila
+          if (
+            closedCortesToday.length > 0 &&
+            openTickets.length === 0 &&
+            openExpenses.length === 0 &&
+            !branchHasLiveSession
+          ) {
             return;
           }
 
@@ -579,7 +607,7 @@ export default function SalesModule({
       // 6. Final tiebreaker by ID
       return (a.id || '').localeCompare(b.id || '');
     });
-  }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator]);
+  }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator, activeCashSession]);
 
   // Filtered Cortes list
   const filteredCortes = useMemo(() => {
@@ -936,7 +964,14 @@ export default function SalesModule({
                 return (
                   <div
                     key={corte.id || idx}
-                    onClick={() => !isZeroDay && handleOpenCorteDetail(corte)}
+                    onClick={() => {
+                      if (isZeroDay) return;
+                      if (isCurrentOpenShift) {
+                        handleOpenLiveShiftForBranch(corte.branchId);
+                        return;
+                      }
+                      handleOpenCorteDetail(corte);
+                    }}
                     className={`p-4 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
                       isZeroDay ? 'bg-slate-50/60 opacity-80' : 'hover:bg-blue-50/40 cursor-pointer'
                     }`}
@@ -1439,6 +1474,16 @@ export default function SalesModule({
           currentOperator={currentOperator}
           cortesX={safeCortesX}
           onFinalizeCorteX={onFinalizeCorteX}
+          activeSessionId={
+            normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
+              ? activeCashSession?.id
+              : undefined
+          }
+          sessionOpenedAt={
+            normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
+              ? activeCashSession?.fecha_apertura
+              : undefined
+          }
         />
       )}
 
