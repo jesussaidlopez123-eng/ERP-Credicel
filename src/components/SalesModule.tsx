@@ -23,23 +23,17 @@ import {
   Building2,
   TrendingUp,
   Wallet,
-  Sparkles,
   ShieldCheck,
   Check,
-  RefreshCw,
   AlertCircle,
-  Rocket,
   Activity,
   Layers,
   ArrowUpRight,
-  BadgePercent,
-  CheckCircle2,
-  HelpCircle
+  BadgePercent
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { classifySaleItem } from '../lib/saleClassification';
-import { cleanDuplicateCortesFromFirestore, clearTestSalesAndExpensesFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import CorteXModal from './CorteXModal';
 import TicketReceiptModal from './TicketReceiptModal';
@@ -71,9 +65,6 @@ export default function SalesModule({
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isCleaning, setIsCleaning] = useState<boolean>(false);
-  const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
-  const [isResettingLaunch, setIsResettingLaunch] = useState<boolean>(false);
   
   // Modal states
   const [selectedCorte, setSelectedCorte] = useState<CorteXRecord | null>(null);
@@ -678,42 +669,6 @@ export default function SalesModule({
     };
   }, [filteredTickets, filteredExpenses]);
 
-  // Handle Clean Duplicates
-  const handleCleanDuplicates = async () => {
-    setIsCleaning(true);
-    setCleanFeedback(null);
-    try {
-      const result = await cleanDuplicateCortesFromFirestore();
-      setCleanFeedback(
-        result.purgedCount > 0
-          ? `¡Depuración exitosa! Se eliminaron y consolidaron ${result.purgedCount} corte(s) duplicados.`
-          : 'La base de datos ya está óptima. No se encontraron cortes duplicados.'
-      );
-    } catch (err) {
-      console.error('Error limpiando duplicados:', err);
-      setCleanFeedback('Ocurrió un error al depurar los duplicados.');
-    } finally {
-      setIsCleaning(false);
-      setTimeout(() => setCleanFeedback(null), 6000);
-    }
-  };
-
-  // Official Launch Reset
-  const handleOfficialLaunchReset = async () => {
-    if (!window.confirm('¿Estás seguro de iniciar el lanzamiento oficial? Se borrarán todos los registros de ventas, gastos y cortes de prueba anteriores, manteniendo INTACTO el inventario y las reparaciones de taller.')) {
-      return;
-    }
-    setIsResettingLaunch(true);
-    try {
-      await clearTestSalesAndExpensesFromFirestore();
-      window.location.reload();
-    } catch (err) {
-      console.error('Error resetting for official launch:', err);
-      alert('Error al reiniciar los datos.');
-      setIsResettingLaunch(false);
-    }
-  };
-
   const handleOpenCorteDetail = (corte: CorteXRecord) => {
     setSelectedCorte(corte);
     setSelectedLiveBranch(getBranchObj(corte.branchId));
@@ -762,39 +717,12 @@ export default function SalesModule({
 
           <div className="flex flex-wrap items-center gap-2">
             {isAdmin && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleOfficialLaunchReset}
-                  disabled={isResettingLaunch}
-                  className="flex items-center gap-2 px-3.5 py-2.5 bg-rose-950 hover:bg-rose-900 active:scale-[0.98] text-rose-200 hover:text-white border border-rose-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                  title="Borra ventas y cortes de prueba, manteniendo inventario y reparaciones para lanzamiento oficial"
-                >
-                  <Rocket className="w-4 h-4 text-rose-400" />
-                  <span>{isResettingLaunch ? 'Iniciando...' : 'Lanzamiento Oficial (Limpiar Pruebas)'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCleanDuplicates}
-                  disabled={isCleaning}
-                  className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-slate-200 hover:text-white border border-slate-600 text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                  title="Depura cortes duplicados y consolida un solo corte oficial por día y sucursal"
-                >
-                  <RefreshCw className={`w-4 h-4 text-blue-400 ${isCleaning ? 'animate-spin' : ''}`} />
-                  <span>{isCleaning ? 'Depurando...' : 'Depurar Duplicados'}</span>
-                </button>
-              </>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 border border-slate-600 px-3 py-2 rounded-xl">
+                Los tickets, gastos, cortes e inventario de producción no se borran al actualizar el sistema.
+              </span>
             )}
           </div>
         </div>
-
-        {cleanFeedback && (
-          <div className="mt-3 p-3 bg-blue-500/20 border border-blue-400/40 rounded-xl text-xs text-blue-200 flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{cleanFeedback}</span>
-          </div>
-        )}
 
         {/* Live Branch Pulse Cards (Real-Time Monitor for Today) */}
         <div className="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -16,10 +16,6 @@ import {
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, parseSafeDate } from './dateUtils';
-import { INITIAL_PRODUCTS } from '../data/initialProducts';
-import { INITIAL_OPERATORS } from '../data/initialOperators';
-import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
-import { getInitialInventoryMovements } from '../data/initialMovements';
 import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { money, newSessionId } from './ids';
 import { summarizeTickets } from './saleClassification';
@@ -419,28 +415,10 @@ export async function executeCorteSesionCajaTransaction(params: {
 // ----------------------------------------------------
 // 1. PRODUCTS (INVENTARIO)
 // ----------------------------------------------------
-const DUMMY_PRODUCT_IDS = [
-  'prod-1', 'prod-2', 'prod-3', 'prod-4', 'prod-5', 'prod-6',
-  'prod-eq-1', 'prod-eq-2', 'prod-eq-3', 'prod-eq-4', 'prod-eq-5'
-];
 
 export async function clearDummyProductsFromFirestore() {
-  try {
-    const batch = writeBatch(db);
-    DUMMY_PRODUCT_IDS.forEach((id) => {
-      const docRef = doc(db, PRODUCTS_COLLECTION, id);
-      batch.delete(docRef);
-    });
-    // Also make sure the generic items exist
-    INITIAL_PRODUCTS.forEach((p) => {
-      const docRef = doc(db, PRODUCTS_COLLECTION, p.id);
-      batch.set(docRef, cleanForFirestore(p), { merge: true });
-    });
-    await batch.commit();
-    console.log('[Firestore] Cleaned all dummy products from cloud successfully.');
-  } catch (err) {
-    console.error('[Firestore] Error clearing dummy products:', err);
-  }
+  // Intentionally a no-op: never delete or overwrite the live catalog.
+  return;
 }
 
 export function subscribeToProducts(
@@ -451,31 +429,19 @@ export function subscribeToProducts(
 
   return onSnapshot(
     productsCol,
-    async (snapshot) => {
+    (snapshot) => {
       if (snapshot.empty) {
-        console.log('[Firestore] Seeding initial POS action buttons...');
-        try {
-          const batch = writeBatch(db);
-          INITIAL_PRODUCTS.forEach((prod) => {
-            const ref = doc(db, PRODUCTS_COLLECTION, prod.id);
-            batch.set(ref, cleanForFirestore(prod));
-          });
-          await batch.commit();
-          onProductsUpdate(INITIAL_PRODUCTS);
-        } catch (seedErr) {
-          console.error('[Firestore] Error seeding initial products:', seedErr);
-          onProductsUpdate(INITIAL_PRODUCTS);
-        }
-      } else {
-        const loaded: Product[] = [];
-        snapshot.forEach((d) => {
-          const p = d.data() as Product;
-          if (!DUMMY_PRODUCT_IDS.includes(p.id)) {
-            loaded.push(p);
-          }
-        });
-        onProductsUpdate(loaded);
+        console.warn(
+          '[Firestore] La colección products está vacía. No se siembran productos de demo para no pisar un catálogo de producción.',
+        );
+        onProductsUpdate([]);
+        return;
       }
+      const loaded: Product[] = [];
+      snapshot.forEach((d) => {
+        loaded.push({ ...(d.data() as Product), id: d.id });
+      });
+      onProductsUpdate(loaded);
     },
     (err) => {
       console.error('[Firestore] subscribeToProducts error:', err);
@@ -563,11 +529,11 @@ export async function saveSaleTicketToFirestore(ticket: SaleTicket) {
 
     // 1. Root Collection: /ventas/{id}
     const ventasRef = doc(db, VENTAS_COLLECTION, ticket.id);
-    batch.set(ventasRef, cleanData);
+    batch.set(ventasRef, cleanData, { merge: true });
 
     // 2. Compatibility Collection: /sales/{id}
     const salesRef = doc(db, SALES_COLLECTION, ticket.id);
-    batch.set(salesRef, cleanData);
+    batch.set(salesRef, cleanData, { merge: true });
 
     await batch.commit();
   } catch (err) {
@@ -615,11 +581,11 @@ export async function saveExpenseToFirestore(expense: Expense) {
 
     // 1. Root Collection: /gastos/{id}
     const gastosRef = doc(db, GASTOS_COLLECTION, expense.id);
-    batch.set(gastosRef, cleanData);
+    batch.set(gastosRef, cleanData, { merge: true });
 
     // 2. Compatibility Collection: /expenses/{id}
     const expRef = doc(db, EXPENSES_COLLECTION, expense.id);
-    batch.set(expRef, cleanData);
+    batch.set(expRef, cleanData, { merge: true });
 
     await batch.commit();
   } catch (err) {
@@ -640,25 +606,14 @@ export function subscribeToOperators(
   const opCol = collection(db, OPERATORS_COLLECTION);
   return onSnapshot(
     opCol,
-    async (snapshot) => {
+    (snapshot) => {
       if (snapshot.empty) {
-        console.log('[Firestore] Seeding initial operators to cloud...');
-        try {
-          const batch = writeBatch(db);
-          INITIAL_OPERATORS.forEach((op) => {
-            const ref = doc(db, OPERATORS_COLLECTION, op.id);
-            batch.set(ref, cleanForFirestore(op));
-          });
-          await batch.commit();
-          onOperatorsUpdate(INITIAL_OPERATORS);
-        } catch (seedErr) {
-          console.error('[Firestore] Error seeding operators:', seedErr);
-          onOperatorsUpdate(INITIAL_OPERATORS);
-        }
+        console.warn('[Firestore] La colección operators está vacía. No se siembran usuarios de demo.');
+        onOperatorsUpdate([]);
       } else {
         const loaded: Operator[] = [];
         snapshot.forEach((d) => {
-          loaded.push(d.data() as Operator);
+          loaded.push({ ...(d.data() as Operator), id: d.id });
         });
         onOperatorsUpdate(loaded);
       }
@@ -702,24 +657,14 @@ export function subscribeToRepairPrices(
   const col = collection(db, REPAIR_PRICES_COLLECTION);
   return onSnapshot(
     col,
-    async (snapshot) => {
+    (snapshot) => {
       if (snapshot.empty) {
-        try {
-          const batch = writeBatch(db);
-          INITIAL_REPAIR_PRICES.forEach((item) => {
-            const ref = doc(db, REPAIR_PRICES_COLLECTION, item.id);
-            batch.set(ref, cleanForFirestore(item));
-          });
-          await batch.commit();
-          onPricesUpdate(INITIAL_REPAIR_PRICES);
-        } catch (seedErr) {
-          console.error('[Firestore] Error seeding repair prices:', seedErr);
-          onPricesUpdate(INITIAL_REPAIR_PRICES);
-        }
+        console.warn('[Firestore] La colección repairPrices está vacía. No se siembra el catálogo de demo.');
+        onPricesUpdate([]);
       } else {
         const loaded: RepairPriceItem[] = [];
         snapshot.forEach((d) => {
-          loaded.push(d.data() as RepairPriceItem);
+          loaded.push({ ...(d.data() as RepairPriceItem), id: d.id });
         });
         onPricesUpdate(loaded);
       }
@@ -852,78 +797,8 @@ export async function autoReconcilePastTicketsAndExpenses(): Promise<number> {
 }
 
 export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount: number; remainingCount: number; reconciledTicketsCount?: number }> {
-  try {
-    const reconciledCount = 0;
-
-    const colRef = collection(db, CORTE_X_COLLECTION);
-    const snapshot = await getDocs(colRef);
-    if (snapshot.empty) return { purgedCount: 0, remainingCount: 0, reconciledTicketsCount: reconciledCount };
-
-    // Agrupar por branchId normalizado y dateKey ISO seguro
-    const grouped: Record<string, any[]> = {};
-    const batch = writeBatch(db);
-    let purgedCount = 0;
-
-    snapshot.forEach((d) => {
-      const data = d.data() as CorteXRecord;
-      const normBId = normalizeBranchId(data.branchId);
-      // If corte belongs to bodega, delete it immediately as bodega is not a sales branch
-      if (normBId === 'b-bodega') {
-        batch.delete(d.ref);
-        purgedCount++;
-        return;
-      }
-      // Use strictly safe ISO date parsing
-      const dateKey = safeDateIsoKey(data.timestamp) || safeDateIsoKey(data.dateStr);
-      if (!dateKey) return;
-      const groupKey = `${normBId}_${dateKey}`;
-      if (!grouped[groupKey]) {
-        grouped[groupKey] = [];
-      }
-      grouped[groupKey].push({ id: d.id, ref: d.ref, data });
-    });
-
-    let remainingCount = 0;
-
-    for (const [key, items] of Object.entries(grouped)) {
-      remainingCount++;
-      if (items.length > 1) {
-        // Solo purgar duplicados exactos o registros vacíos si existe otro con tickets completos
-        const withTickets = items.filter(it => (it.data?.ticketIds?.length || 0) > 0 || (it.data?.totalSales || 0) > 0);
-        
-        if (withTickets.length > 0 && withTickets.length < items.length) {
-          // Purgar solo los que están completamente vacíos
-          const emptyOnes = items.filter(it => (it.data?.ticketIds?.length || 0) === 0 && (it.data?.totalSales || 0) === 0);
-          emptyOnes.forEach(emptyIt => {
-            batch.delete(emptyIt.ref);
-            purgedCount++;
-          });
-        } else if (items.length > 1) {
-          // Only drop empty CAL-ZERO placeholders; never delete two real cortes of the same day
-          for (let i = 0; i < items.length; i++) {
-            const isEmptyPlaceholder =
-              String(items[i].id).startsWith('CAL-ZERO') &&
-              (items[i].data?.ticketIds?.length || 0) === 0 &&
-              (items[i].data?.totalSales || 0) === 0;
-            if (isEmptyPlaceholder) {
-              batch.delete(items[i].ref);
-              purgedCount++;
-            }
-          }
-        }
-      }
-    }
-
-    if (purgedCount > 0) {
-      await batch.commit();
-      console.log(`[Firestore] 🛡️ Blindaje de Cortes: Se purgaron ${purgedCount} cortes duplicados en la base de datos.`);
-    }
-
-    return { purgedCount, remainingCount, reconciledTicketsCount: reconciledCount };
-  } catch (err) {
-    console.error('[Firestore] Error limpiando cortes duplicados:', err);
-    return { purgedCount: 0, remainingCount: 0 };
-  }
+  console.warn('[Firestore] Depuración de cortes duplicados desactivada para conservar el historial de producción.');
+  return { purgedCount: 0, remainingCount: 0, reconciledTicketsCount: 0 };
 }
 
 export async function executeAndSaveCorteX(
@@ -1032,44 +907,16 @@ export async function deleteNotificationFromFirestore(id: string) {
 }
 
 // ----------------------------------------------------
-// 8. INVENTORY MOVEMENTS (HISTORIAL DE 15 DÍAS CON AUTO-PURGA)
+// 8. INVENTORY MOVEMENTS
 // ----------------------------------------------------
 const MOVEMENTS_COLLECTION = 'inventoryMovements';
-const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000; // 15 días exactos en milisegundos
 
 /**
- * Purga de manera automática registros en Firestore que tengan más de 15 días de antigüedad
+ * Conserva el kardex completo. Ya no se borran movimientos antiguos.
  */
 export async function purgeOldInventoryMovementsFromFirestore(): Promise<number> {
-  try {
-    const colRef = collection(db, MOVEMENTS_COLLECTION);
-    const snapshot = await getDocs(colRef);
-    if (snapshot.empty) return 0;
-
-    const now = Date.now();
-    const cutoffTime = now - FIFTEEN_DAYS_MS;
-    const batch = writeBatch(db);
-    let purgedCount = 0;
-
-    snapshot.forEach((d) => {
-      const data = d.data() as InventoryMovement;
-      const docTime = data.timestamp ? new Date(data.timestamp).getTime() : 0;
-      if (isNaN(docTime) || docTime < cutoffTime) {
-        batch.delete(d.ref);
-        purgedCount++;
-      }
-    });
-
-    if (purgedCount > 0) {
-      await batch.commit();
-      console.log(`[Firestore] 🧹 Se purgaron automáticamente ${purgedCount} movimientos obsoletos (> 15 días).`);
-    }
-
-    return purgedCount;
-  } catch (err) {
-    console.error('[Firestore] Error purgando movimientos antiguos:', err);
-    return 0;
-  }
+  console.warn('[Firestore] Purga de movimientos de inventario desactivada para conservar el historial.');
+  return 0;
 }
 
 export function subscribeToInventoryMovements(
@@ -1080,61 +927,17 @@ export function subscribeToInventoryMovements(
 
   return onSnapshot(
     colRef,
-    async (snapshot) => {
-      const now = Date.now();
-      const cutoffTime = now - FIFTEEN_DAYS_MS;
-
-      if (snapshot.empty) {
-        // Inicializar con movimientos de ejemplo de los últimos 15 días
-        const initialMovs = getInitialInventoryMovements();
-        try {
-          const batch = writeBatch(db);
-          initialMovs.forEach((m) => {
-            const ref = doc(db, MOVEMENTS_COLLECTION, m.id);
-            batch.set(ref, cleanForFirestore(m));
-          });
-          await batch.commit();
-          onMovementsUpdate(initialMovs);
-        } catch (seedErr) {
-          console.error('[Firestore] Error inicializando movimientos:', seedErr);
-          onMovementsUpdate(initialMovs);
-        }
-      } else {
-        const validMovements: InventoryMovement[] = [];
-        const expiredRefs: any[] = [];
-
-        snapshot.forEach((d) => {
-          const item = d.data() as InventoryMovement;
-          const itemTime = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-
-          if (isNaN(itemTime) || itemTime < cutoffTime) {
-            // Documento expirado (> 15 días)
-            expiredRefs.push(d.ref);
-          } else {
-            validMovements.push(item);
-          }
-        });
-
-        // Purgar en segundo plano los documentos expirados sin bloquear la UI
-        if (expiredRefs.length > 0) {
-          try {
-            const batch = writeBatch(db);
-            expiredRefs.forEach((ref) => batch.delete(ref));
-            batch.commit().catch((err) => console.error('[Firestore] Error en purga automática:', err));
-          } catch (e) {
-            console.error('[Firestore] Error creando batch de purga:', e);
-          }
-        }
-
-        // Ordenar cronológicamente del más reciente al más antiguo
-        validMovements.sort((a, b) => {
-          const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return tB - tA;
-        });
-
-        onMovementsUpdate(validMovements);
-      }
+    (snapshot) => {
+      const movements: InventoryMovement[] = [];
+      snapshot.forEach((d) => {
+        movements.push({ ...(d.data() as InventoryMovement), id: d.id });
+      });
+      movements.sort((a, b) => {
+        const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tB - tA;
+      });
+      onMovementsUpdate(movements);
     },
     (err) => {
       console.error('[Firestore] subscribeToInventoryMovements error:', err);
@@ -1169,24 +972,8 @@ export async function saveInventoryMovementsBatchToFirestore(movements: Inventor
 }
 
 export async function clearTestSalesAndExpensesFromFirestore() {
-  try {
-    const salesSnap = await getDocs(collection(db, SALES_COLLECTION));
-    for (const d of salesSnap.docs) {
-      await deleteDoc(d.ref);
-    }
-    const expSnap = await getDocs(collection(db, EXPENSES_COLLECTION));
-    for (const d of expSnap.docs) {
-      await deleteDoc(d.ref);
-    }
-    const cortesSnap = await getDocs(collection(db, CORTE_X_COLLECTION));
-    for (const d of cortesSnap.docs) {
-      await deleteDoc(d.ref);
-    }
-    console.log('[Firestore] Test sales, expenses and cortes cleared successfully.');
-  } catch (err) {
-    console.error('Error clearing test sales:', err);
-    throw err;
-  }
+  console.warn('[Firestore] Wipe of sales/expenses/cortes is disabled to protect production records.');
+  return;
 }
 
 // ----------------------------------------------------
@@ -1194,8 +981,8 @@ export async function clearTestSalesAndExpensesFromFirestore() {
 // ----------------------------------------------------
 
 /**
- * Ejecuta la migración no destructiva de todos los datos históricos existentes
- * hacia la nueva arquitectura de Sesiones de Caja y Root Collections.
+ * Conserva tickets, gastos y cortes tal como están en producción.
+ * No reescribe documentos históricos ni crea sesiones inventadas.
  */
 export async function runMigrationToSessionArchitecture(): Promise<{
   migratedTickets: number;
@@ -1203,214 +990,8 @@ export async function runMigrationToSessionArchitecture(): Promise<{
   createdSessions: number;
   totalProcessed: number;
 }> {
-  console.log('[Migration] 🚀 Iniciando verificación y migración hacia arquitectura de Sesiones...');
-
-  try {
-    const flagRef = doc(db, META_COLLECTION, 'sessionArchitectureV3');
-    const flagSnap = await getDoc(flagRef);
-    if (flagSnap.exists()) {
-      return { migratedTickets: 0, migratedExpenses: 0, createdSessions: 0, totalProcessed: 0 };
-    }
-
-    const [salesSnap, expensesSnap, cortesSnap] = await Promise.all([
-      getDocs(collection(db, SALES_COLLECTION)),
-      getDocs(collection(db, EXPENSES_COLLECTION)),
-      getDocs(collection(db, CORTE_X_COLLECTION))
-    ]);
-
-    const sessionsMap = new Map<string, SesionCaja>();
-    const operations: { ref: any; data: any; isMerge?: boolean }[] = [];
-    let migratedTickets = 0;
-    let migratedExpenses = 0;
-
-    const todayIso = safeDateIsoKey(new Date());
-
-    // 1. Mapear Cortes X existentes a Sesiones de Caja
-    cortesSnap.forEach((docSnap) => {
-      const c = docSnap.data() as CorteXRecord;
-      const normBId = normalizeBranchId(c.branchId || c.sucursal_id || 'b-bodega');
-      const dateIso = safeDateIsoKey(c.timestamp) || safeDateIsoKey(c.dateStr) || '2026-08-01';
-      const sessionKey = `${normBId}_${dateIso}`;
-      const sessionId = c.id || `SES-${normBId.replace('b-', '').toUpperCase()}-${dateIso.replace(/-/g, '')}-001`;
-
-      const sessionObj: SesionCaja = {
-        id: sessionId,
-        sucursal_id: normBId,
-        sucursal_nombre: c.branchName || getBranchDisplayName(normBId),
-        operador_apertura: { uid: 'usr-migrated', nombre: c.operatorName || 'Cajero' },
-        operador_cierre: { uid: 'usr-migrated', nombre: c.operatorName || 'Cajero' },
-        estado: 'CERRADA',
-        fecha_apertura: c.timestamp ? `${dateIso}T09:00:00.000Z` : new Date().toISOString(),
-        fecha_cierre: c.timestamp || new Date().toISOString(),
-        monto_inicial_efectivo: Number(c.initialCashFund) || 1000,
-        totales_calculados: {
-          ventas_total: Number(c.totalSales) || 0,
-          ventas_efectivo: Number(c.cashSales) || 0,
-          ventas_tarjeta: Number(c.cardSales) || 0,
-          ventas_transferencia: Number(c.transferSales) || 0,
-          gastos_efectivo: Number(c.totalExpenses) || 0,
-          efectivo_esperado_cajon: Number(c.expectedCashInDrawer) || 0,
-          conteo_transacciones: {
-            tickets_venta: Array.isArray(c.ticketIds) ? c.ticketIds.length : (c.ticketsSnapshot?.length || 0),
-            gastos: Array.isArray(c.expenseIds) ? c.expenseIds.length : (c.expensesSnapshot?.length || 0)
-          },
-          desglose_categorias: {
-            accesorios: c.breakdown?.accesoriosTotal || 0,
-            abonos: c.breakdown?.abonosTotal || 0,
-            enganches: c.breakdown?.enganchesTotal || 0,
-            reparaciones: c.breakdown?.reparacionesTotal || 0,
-            recargas: c.breakdown?.recargasTotal || 0
-          }
-        },
-        arqueo_cierre: {
-          efectivo_contado_declarado: Number(c.expectedCashInDrawer) || 0,
-          diferencia_sobrante_faltante: 0,
-          fondo_dejado_siguiente_turno: Number(c.cashFundLeftForNextShift) || 1000,
-          efectivo_retirado_entregar: Number(c.cashWithdrawn) || 0,
-          notas_observaciones: c.closingNotes || 'Migrado desde histórico'
-        },
-        auditoria: {
-          version: 'v2.0-migrated'
-        }
-      };
-
-      sessionsMap.set(sessionKey, sessionObj);
-      operations.push({
-        ref: doc(db, SESIONES_CAJA_COLLECTION, sessionId),
-        data: cleanForFirestore(sessionObj),
-        isMerge: true
-      });
-    });
-
-    // 2. Procesar y normalizar todas las ventas
-    salesSnap.forEach((docSnap) => {
-      const t = docSnap.data() as SaleTicket;
-      const normBId = normalizeBranchId(t.branchId || t.sucursal_id || 'b-bodega');
-      const dateIso = safeDateIsoKey(t.timestamp) || '2026-08-01';
-      const sessionKey = `${normBId}_${dateIso}`;
-      const isToday = dateIso === todayIso;
-
-      let sessionObj = sessionsMap.get(sessionKey);
-      if (!sessionObj) {
-        const sessionId = `SES-${normBId.replace('b-', '').toUpperCase()}-${dateIso.replace(/-/g, '')}-001`;
-        sessionObj = {
-          id: sessionId,
-          sucursal_id: normBId,
-          sucursal_nombre: getBranchDisplayName(normBId),
-          operador_apertura: { uid: 'usr-migrated', nombre: t.operatorName || 'Cajero' },
-          estado: isToday ? 'ABIERTA' : 'CERRADA',
-          fecha_apertura: `${dateIso}T09:00:00.000Z`,
-          fecha_cierre: isToday ? undefined : `${dateIso}T21:00:00.000Z`,
-          monto_inicial_efectivo: 1000
-        };
-        sessionsMap.set(sessionKey, sessionObj);
-        operations.push({
-          ref: doc(db, SESIONES_CAJA_COLLECTION, sessionId),
-          data: cleanForFirestore(sessionObj),
-          isMerge: true
-        });
-      }
-
-      // Keep any existing corte id (SES-... or CTX_...). Never reopen a closed ticket.
-      const assignedSessionId = t.sesion_caja_id || sessionObj.id;
-      const assignedCorteXId = t.corteXId || (!isToday ? sessionObj.id : undefined);
-
-      const enrichedTicket: SaleTicket = {
-        ...t,
-        branchId: normBId,
-        sucursal_id: normBId,
-        sesion_caja_id: assignedSessionId,
-        corteXId: assignedCorteXId,
-        estado: t.estado || 'COMPLETADA'
-      };
-
-      const cleanData = cleanForFirestore(enrichedTicket);
-
-      // Escribir a /ventas (Root Collection)
-      operations.push({
-        ref: doc(db, VENTAS_COLLECTION, t.id),
-        data: cleanData,
-        isMerge: true
-      });
-
-      // Actualizar /sales (Compatibility Collection)
-      operations.push({
-        ref: doc(db, SALES_COLLECTION, t.id),
-        data: cleanData,
-        isMerge: true
-      });
-
-      migratedTickets++;
-    });
-
-    // 3. Procesar y normalizar todos los gastos
-    expensesSnap.forEach((docSnap) => {
-      const e = docSnap.data() as Expense;
-      const normBId = normalizeBranchId(e.branchId || e.sucursal_id || 'b-bodega');
-      const dateIso = safeDateIsoKey(e.timestamp || e.date) || '2026-08-01';
-      const sessionKey = `${normBId}_${dateIso}`;
-      const isToday = dateIso === todayIso;
-
-      const sessionObj = sessionsMap.get(sessionKey);
-      const assignedSessionId = e.sesion_caja_id || (sessionObj ? sessionObj.id : `SES-${normBId.toUpperCase()}-${dateIso.replace(/-/g, '')}-001`);
-      const assignedCorteXId = e.corteXId || (!isToday ? sessionObj?.id : undefined);
-
-      const enrichedExpense: Expense = {
-        ...e,
-        branchId: normBId,
-        sucursal_id: normBId,
-        sesion_caja_id: assignedSessionId,
-        corteXId: assignedCorteXId
-      };
-
-      const cleanData = cleanForFirestore(enrichedExpense);
-
-      // Escribir a /gastos (Root Collection)
-      operations.push({
-        ref: doc(db, GASTOS_COLLECTION, e.id),
-        data: cleanData,
-        isMerge: true
-      });
-
-      // Actualizar /expenses (Compatibility Collection)
-      operations.push({
-        ref: doc(db, EXPENSES_COLLECTION, e.id),
-        data: cleanData,
-        isMerge: true
-      });
-
-      migratedExpenses++;
-    });
-
-    // 4. Ejecutar todas las operaciones en Chunks de 400
-    const CHUNK_SIZE = 400;
-    for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
-      const chunk = operations.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-      chunk.forEach((op) => {
-        if (op.isMerge) {
-          batch.set(op.ref, op.data, { merge: true });
-        } else {
-          batch.set(op.ref, op.data);
-        }
-      });
-      await batch.commit();
-    }
-
-    await setDoc(flagRef, { completedAt: new Date().toISOString(), version: 'v3.0-session-lock' }, { merge: true });
-
-    console.log(`[Migration] ✅ Migración completada exitosamente: ${migratedTickets} ventas, ${migratedExpenses} gastos y ${sessionsMap.size} sesiones.`);
-
-    return {
-      migratedTickets,
-      migratedExpenses,
-      createdSessions: sessionsMap.size,
-      totalProcessed: operations.length
-    };
-  } catch (err) {
-    console.error('[Migration] Error ejecutando migración:', err);
-    throw err;
-  }
+  console.warn('[Firestore] Migración de sesiones desactivada para conservar los registros existentes.');
+  return { migratedTickets: 0, migratedExpenses: 0, createdSessions: 0, totalProcessed: 0 };
 }
 
 // ----------------------------------------------------

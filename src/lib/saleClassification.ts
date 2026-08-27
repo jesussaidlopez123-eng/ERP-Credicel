@@ -1,5 +1,6 @@
 import { CartItem, SaleTicket } from '../types';
 import { money } from './ids';
+import { safeDateIsoKey } from './dateUtils';
 
 export type SaleCategoryKey = 'accesorios' | 'abonos' | 'enganches' | 'reparaciones' | 'recargas';
 
@@ -136,6 +137,10 @@ export function belongsToOpenSession(
   if (ticketBranch !== params.branchId) return false;
   if (ticket.corteXId) return false;
   if (ticket.sesion_caja_id) return ticket.sesion_caja_id === params.sessionId;
+  // Tickets de producción anteriores a sesiones de caja: mismo día, aún abiertos.
+  const ticketDay = safeDateIsoKey(ticket.timestamp);
+  const sessionDay = safeDateIsoKey(params.sessionOpenedAt);
+  if (ticketDay && sessionDay) return ticketDay === sessionDay;
   const ts = ticket.timestamp || '';
   return !params.sessionOpenedAt || ts >= params.sessionOpenedAt;
 }

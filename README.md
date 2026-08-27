@@ -38,7 +38,16 @@ Usuarios de demostración (cambiar en producción):
 
 ## Datos
 
-El catálogo, operadores, ventas, gastos y cortes se sincronizan con Firestore. Las reparaciones en taller se guardan hoy en `localStorage` por sucursal (no en la nube).
+El catálogo, operadores, ventas, gastos, cortes y kardex viven en **Firestore**, no en el código. Actualizar o publicar el frontend **no borra** esos registros.
+
+Esta app usa el mismo proyecto Firebase que el sitio en producción (`https://erp-credicel.vercel.app/`):
+
+- `projectId`: `effective-airline-9gtt6`
+- base: `ai-studio-erpposmultisucur-e55719b2-0519-4116-8707-50042acb7fc7`
+
+No hay botones de “lanzamiento oficial” ni limpiezas masivas. Tampoco se siembran productos de demo ni se purgan cortes o movimientos al abrir el sistema. Las colecciones nuevas (`creditAccounts`, `repairRecords`, `sesiones_caja`) se agregan sin tocar las existentes.
+
+Las reparaciones en taller ahora también se sincronizan en la nube (`repairRecords`).
 
 ## Seguridad
 

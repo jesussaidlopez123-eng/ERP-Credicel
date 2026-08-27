@@ -135,7 +135,11 @@ export default function Dashboard({
   useEffect(() => {
     const unsubProducts = subscribeToProducts((prods) => {
       if (prods && prods.length > 0) {
-        setProducts(prods);
+        const byId = new Map(prods.map((p) => [p.id, p]));
+        INITIAL_PRODUCTS.forEach((p) => {
+          if (!byId.has(p.id)) byId.set(p.id, p);
+        });
+        setProducts(Array.from(byId.values()));
       }
     });
 
