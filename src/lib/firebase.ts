@@ -6,23 +6,23 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  updateDoc,
   deleteDoc,
   onSnapshot,
   writeBatch,
   query,
   where,
-  orderBy,
   runTransaction
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
-import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, Branch, InventoryMovement, SesionCaja, CorteXRecord } from '../types';
+import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, parseSafeDate } from './dateUtils';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { getInitialInventoryMovements } from '../data/initialMovements';
 import { normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
+import { money, newSessionId } from './ids';
+import { summarizeTickets } from './saleClassification';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -46,6 +46,10 @@ export const SALES_COLLECTION = 'sales'; // Kept in sync for 100% backward-compa
 export const EXPENSES_COLLECTION = 'expenses'; // Kept in sync for 100% backward-compatibility
 export const CORTE_X_COLLECTION = 'corteXRecords';
 export const BRANCH_FUNDS_COLLECTION = 'branchCashFunds';
+export const BRANCH_OPEN_SESSIONS_COLLECTION = 'branchOpenSessions';
+export const CREDIT_ACCOUNTS_COLLECTION = 'creditAccounts';
+export const REPAIR_RECORDS_COLLECTION = 'repairRecords';
+export const META_COLLECTION = 'meta';
 
 // Helper to remove undefined properties for Firestore compatibility
 export function cleanForFirestore<T>(data: T): Record<string, any> {
@@ -70,76 +74,140 @@ export function cleanForFirestore<T>(data: T): Record<string, any> {
 // 0. SESIONES DE CAJA (ROOT COLLECTION: sesiones_caja)
 // ----------------------------------------------------
 
+function bodegaPlaceholderSession(operatorName: string): SesionCaja {
+  return {
+    id: 'SES-BODEGA-CENTRAL',
+    sucursal_id: 'b-bodega',
+    sucursal_nombre: 'Bodega Central',
+    operador_apertura: { uid: 'usr-bodega', nombre: operatorName },
+    estado: 'ABIERTA',
+    fecha_apertura: new Date().toISOString(),
+    monto_inicial_efectivo: 0
+  };
+}
+
+async function readBranchFundAmount(branchId: string, fallback: number): Promise<number> {
+  try {
+    const fundSnap = await getDoc(doc(db, BRANCH_FUNDS_COLLECTION, branchId));
+    if (fundSnap.exists()) {
+      const amount = Number(fundSnap.data()?.fundAmount);
+      if (Number.isFinite(amount) && amount >= 0) return amount;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const saved = localStorage.getItem(`erp_branch_fund_${branchId}`);
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return Math.max(0, fallback);
+}
+
 /**
- * Obtiene la sesión de caja activa (estado == 'ABIERTA') para la sucursal.
- * Si no existe una sesión abierta, crea una automáticamente con el fondo inicial configurado.
+ * Returns the single open cash session for a sales branch.
+ * Uses a per-branch pointer so two cashiers cannot open two ABIERTA sessions.
  */
 export async function getActiveCashSession(
   branchId: string,
   branchName: string = '',
   operatorName: string = 'Cajero',
-  initialFund: number = 1000
+  initialFund: number = 1000,
+  operatorUid: string = ''
 ): Promise<SesionCaja> {
   const normBId = normalizeBranchId(branchId);
   if (normBId === 'b-bodega') {
-    return {
-      id: `SES-${normBId.toUpperCase()}-BODEGA`,
-      sucursal_id: normBId,
-      sucursal_nombre: 'Bodega Central',
-      operador_apertura: { uid: 'usr-bodega', nombre: operatorName },
-      estado: 'ABIERTA',
-      fecha_apertura: new Date().toISOString(),
-      monto_inicial_efectivo: 0
-    };
+    return bodegaPlaceholderSession(operatorName);
   }
 
+  const displayName = branchName || getBranchDisplayName(normBId);
+  const stateRef = doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId);
+  const fund = await readBranchFundAmount(normBId, initialFund);
+
   try {
-    const colRef = collection(db, SESIONES_CAJA_COLLECTION);
+    const stateSnap = await getDoc(stateRef);
+    const pointedId = String(stateSnap.data()?.openSessionId || '');
+    if (pointedId) {
+      const pointedSes = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, pointedId));
+      if (pointedSes.exists()) {
+        const data = pointedSes.data() as SesionCaja;
+        if (data.estado === 'ABIERTA') {
+          return { ...data, id: pointedId };
+        }
+      }
+    }
+
     const q = query(
-      colRef,
+      collection(db, SESIONES_CAJA_COLLECTION),
       where('sucursal_id', '==', normBId),
       where('estado', '==', 'ABIERTA')
     );
     const snap = await getDocs(q);
-
     if (!snap.empty) {
-      const session = snap.docs[0].data() as SesionCaja;
-      return session;
+      const sessions = snap.docs
+        .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
+        .sort((a, b) => (a.fecha_apertura || '').localeCompare(b.fecha_apertura || ''));
+      const chosen = sessions[0];
+      await setDoc(
+        stateRef,
+        { branchId: normBId, openSessionId: chosen.id, fundAmount: fund, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      return chosen;
     }
 
-    // No existe sesión abierta: generar una nueva sesión inmutable
-    const todayIso = safeDateIsoKey(new Date()) || '20260826';
-    const cleanDateStr = todayIso.replace(/-/g, '');
-    const newSesionId = `SES-${normBId.replace('b-', '').toUpperCase()}-${cleanDateStr}-${Math.floor(100 + Math.random() * 900)}`;
+    return await runTransaction(db, async (tx) => {
+      const again = await tx.get(stateRef);
+      const pid = String(again.data()?.openSessionId || '');
+      if (pid) {
+        const ses = await tx.get(doc(db, SESIONES_CAJA_COLLECTION, pid));
+        if (ses.exists() && (ses.data() as SesionCaja).estado === 'ABIERTA') {
+          return { ...(ses.data() as SesionCaja), id: pid };
+        }
+      }
 
-    const newSession: SesionCaja = {
-      id: newSesionId,
-      sucursal_id: normBId,
-      sucursal_nombre: branchName || getBranchDisplayName(normBId),
-      operador_apertura: {
-        uid: `usr-${Date.now().toString(36)}`,
-        nombre: operatorName
-      },
-      estado: 'ABIERTA',
-      fecha_apertura: new Date().toISOString(),
-      monto_inicial_efectivo: Math.max(0, initialFund)
-    };
+      const openedAt = new Date();
+      const newSesionId = newSessionId(normBId, openedAt);
+      const newSession: SesionCaja = {
+        id: newSesionId,
+        sucursal_id: normBId,
+        sucursal_nombre: displayName,
+        operador_apertura: {
+          uid: operatorUid || `usr-${Date.now().toString(36)}`,
+          nombre: operatorName
+        },
+        estado: 'ABIERTA',
+        fecha_apertura: openedAt.toISOString(),
+        monto_inicial_efectivo: money(fund)
+      };
 
-    const docRef = doc(db, SESIONES_CAJA_COLLECTION, newSesionId);
-    await setDoc(docRef, cleanForFirestore(newSession));
-    console.log(`[Firestore] 🟢 Nueva Sesión de Caja abierta: ${newSesionId} para ${normBId}`);
-    return newSession;
+      tx.set(doc(db, SESIONES_CAJA_COLLECTION, newSesionId), cleanForFirestore(newSession));
+      tx.set(
+        stateRef,
+        {
+          branchId: normBId,
+          openSessionId: newSesionId,
+          fundAmount: money(fund),
+          updatedAt: openedAt.toISOString()
+        },
+        { merge: true }
+      );
+      return newSession;
+    });
   } catch (err) {
     console.error('[Firestore] Error getting active cash session:', err);
-    // Fallback in-memory session if network error
     return {
-      id: `SES-${normBId.replace('b-', '').toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+      id: newSessionId(normBId),
       sucursal_id: normBId,
-      sucursal_nombre: branchName || getBranchDisplayName(normBId),
-      operador_apertura: { uid: 'usr-local', nombre: operatorName },
+      sucursal_nombre: displayName,
+      operador_apertura: { uid: operatorUid || 'usr-local', nombre: operatorName },
       estado: 'ABIERTA',
       fecha_apertura: new Date().toISOString(),
-      monto_inicial_efectivo: Math.max(0, initialFund)
+      monto_inicial_efectivo: money(fund)
     };
   }
 }
@@ -170,8 +238,8 @@ export function subscribeToSesionesCaja(
 }
 
 /**
- * Ejecuta el Corte de Caja transaccional blindado en Firestore.
- * Calcula los totales atómicamente y congela la sesión.
+ * Cierra la sesión de caja: conserva apertura, compara efectivo contado vs esperado
+ * y marca solo los tickets/gastos de ESA sesión.
  */
 export async function executeCorteSesionCajaTransaction(params: {
   sesionId: string;
@@ -200,75 +268,41 @@ export async function executeCorteSesionCajaTransaction(params: {
   const fechaCierre = new Date().toISOString();
   const targetDate = parseSafeDate(fechaCierre);
 
-  // 1. Cálculos matemáticos rigurosos de todas las transacciones vinculadas
-  let cashSales = 0;
-  let cardSales = 0;
-  let transferSales = 0;
-  let accTot = 0, accCnt = 0;
-  let aboTot = 0, aboCnt = 0;
-  let engTot = 0, engCnt = 0;
-  let repTot = 0, repCnt = 0;
-  let recTot = 0, recCnt = 0;
+  const totals = summarizeTickets(ticketsSnapshot);
+  const cashSales = totals.cashSales;
+  const cardSales = totals.cardSales;
+  const transferSales = totals.transferSales;
+  const totalSales = totals.totalSales;
+  const breakdown = totals.breakdown;
+  const totalExpenses = money(expensesSnapshot.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
 
-  ticketsSnapshot.forEach((t) => {
-    const met = (t.paymentMethod || '').toLowerCase();
-    const tot = t.total || 0;
-    if (met.includes('efectivo') || met === 'cash') cashSales += tot;
-    else if (met.includes('tarjeta') || met === 'card') cardSales += tot;
-    else if (met.includes('transfer')) transferSales += tot;
-    else cashSales += tot; // default
-
-    (t.items || []).forEach((item) => {
-      const pName = (item.product?.name || '').toLowerCase();
-      const cat = item.product?.category;
-      const iTot = item.totalPrice || 0;
-      const qty = item.quantity || 1;
-      if (pName.includes('abono') || cat === 'abono_credito') { aboTot += iTot; aboCnt += qty; }
-      else if (pName.includes('enganche') || cat === 'equipo_credito') { engTot += iTot; engCnt += qty; }
-      else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) { repTot += iTot; repCnt += qty; }
-      else if (cat === 'recarga' || pName.includes('recarga')) { recTot += iTot; recCnt += qty; }
-      else { accTot += iTot; accCnt += qty; }
-    });
-  });
-
-  const totalSales = cashSales + cardSales + transferSales;
-  const totalExpenses = expensesSnapshot.reduce((sum, e) => sum + (e.amount || 0), 0);
-
-  // Leer fondo inicial de la sesión
-  let initialFund = 1000;
+  let existing: SesionCaja | null = null;
   try {
     const sDoc = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, sesionId));
     if (sDoc.exists()) {
-      initialFund = Number(sDoc.data()?.monto_inicial_efectivo) || 1000;
+      existing = { ...(sDoc.data() as SesionCaja), id: sDoc.id };
     }
   } catch {}
 
-  const expectedCashInDrawer = initialFund + cashSales - totalExpenses;
-  const difference = efectivoContado - expectedCashInDrawer;
-  const cashWithdrawn = Math.max(0, efectivoContado - fondoDejado);
+  const initialFund = money(
+    existing && Number.isFinite(Number(existing.monto_inicial_efectivo))
+      ? Number(existing.monto_inicial_efectivo)
+      : 0
+  );
+  const counted = money(efectivoContado);
+  const leftFund = money(Math.max(0, fondoDejado));
+  const expectedCashInDrawer = money(initialFund + cashSales - totalExpenses);
+  const difference = money(counted - expectedCashInDrawer);
+  const cashWithdrawn = money(Math.max(0, counted - leftFund));
 
-  const breakdown = {
-    accesoriosTotal: accTot,
-    accesoriosCount: accCnt,
-    abonosTotal: aboTot,
-    abonosCount: aboCnt,
-    enganchesTotal: engTot,
-    enganchesCount: engCnt,
-    reparacionesTotal: repTot,
-    reparacionesCount: repCnt,
-    recargasTotal: recTot,
-    recargasCount: recCnt
-  };
-
-  // 2. Construir objeto SesionCaja consolidado
   const sesionCerrada: SesionCaja = {
     id: sesionId,
     sucursal_id: normBId,
-    sucursal_nombre: sucursalNombre || getBranchDisplayName(normBId),
-    operador_apertura: { uid: operadorCierre.uid, nombre: operadorCierre.nombre },
+    sucursal_nombre: existing?.sucursal_nombre || sucursalNombre || getBranchDisplayName(normBId),
+    operador_apertura: existing?.operador_apertura || { uid: operadorCierre.uid, nombre: operadorCierre.nombre },
     operador_cierre: operadorCierre,
     estado: 'CERRADA',
-    fecha_apertura: (ticketsSnapshot[0]?.timestamp || fechaCierre),
+    fecha_apertura: existing?.fecha_apertura || fechaCierre,
     fecha_cierre: fechaCierre,
     monto_inicial_efectivo: initialFund,
     totales_calculados: {
@@ -283,26 +317,25 @@ export async function executeCorteSesionCajaTransaction(params: {
         gastos: expensesSnapshot.length
       },
       desglose_categorias: {
-        accesorios: accTot,
-        abonos: aboTot,
-        enganches: engTot,
-        reparaciones: repTot,
-        recargas: recTot
+        accesorios: breakdown.accesoriosTotal,
+        abonos: breakdown.abonosTotal,
+        enganches: breakdown.enganchesTotal,
+        reparaciones: breakdown.reparacionesTotal,
+        recargas: breakdown.recargasTotal
       }
     },
     arqueo_cierre: {
-      efectivo_contado_declarado: efectivoContado,
+      efectivo_contado_declarado: counted,
       diferencia_sobrante_faltante: difference,
-      fondo_dejado_siguiente_turno: fondoDejado,
+      fondo_dejado_siguiente_turno: leftFund,
       efectivo_retirado_entregar: cashWithdrawn,
       notas_observaciones: notas
     },
     auditoria: {
-      version: 'v2.0-session-architecture'
+      version: 'v3.0-session-lock'
     }
   };
 
-  // 3. Construir objeto CorteXRecord compatible
   const corteRecord: CorteXRecord = {
     id: sesionId,
     timestamp: fechaCierre,
@@ -311,10 +344,10 @@ export async function executeCorteSesionCajaTransaction(params: {
     branchId: normBId,
     sucursal_id: normBId,
     sesion_caja_id: sesionId,
-    branchName: sucursalNombre || getBranchDisplayName(normBId),
+    branchName: sesionCerrada.sucursal_nombre,
     operatorName: operadorCierre.nombre,
     initialCashFund: initialFund,
-    cashFundLeftForNextShift: fondoDejado,
+    cashFundLeftForNextShift: leftFund,
     cashWithdrawn,
     closingNotes: notas,
     cashSales,
@@ -322,8 +355,10 @@ export async function executeCorteSesionCajaTransaction(params: {
     transferSales,
     totalSales,
     totalExpenses,
-    netIncome: totalSales - totalExpenses,
+    netIncome: money(totalSales - totalExpenses),
     expectedCashInDrawer,
+    countedCash: counted,
+    cashDifference: difference,
     ticketIds: ticketsSnapshot.map((t) => t.id),
     expenseIds: expensesSnapshot.map((e) => e.id),
     ticketsSnapshot,
@@ -331,102 +366,53 @@ export async function executeCorteSesionCajaTransaction(params: {
     breakdown
   };
 
-  // 4. Batch write para congelar sesión, guardar corte, marcar tickets/gastos y actualizar fondo
-  const operations: { ref: any; data: any; isMerge?: boolean }[] = [];
+  const closeStamp = {
+    sesion_caja_id: sesionId,
+    corteXId: sesionId,
+    corteXClosedAt: fechaCierre,
+    sucursal_id: normBId
+  };
 
-  // Sesión en /sesiones_caja
-  operations.push({
-    ref: doc(db, SESIONES_CAJA_COLLECTION, sesionId),
-    data: cleanForFirestore(sesionCerrada),
-    isMerge: true
-  });
-
-  // Corte en /corteXRecords
-  operations.push({
-    ref: doc(db, CORTE_X_COLLECTION, sesionId),
-    data: cleanForFirestore(corteRecord),
-    isMerge: false
-  });
-
-  // Fondo para siguiente turno
-  operations.push({
-    ref: doc(db, BRANCH_FUNDS_COLLECTION, normBId),
-    data: {
-      branchId: normBId,
-      fundAmount: Math.max(0, fondoDejado),
-      updatedAt: fechaCierre
+  const operations: { ref: any; data: any; isMerge?: boolean }[] = [
+    { ref: doc(db, SESIONES_CAJA_COLLECTION, sesionId), data: cleanForFirestore(sesionCerrada), isMerge: true },
+    { ref: doc(db, CORTE_X_COLLECTION, sesionId), data: cleanForFirestore(corteRecord), isMerge: false },
+    {
+      ref: doc(db, BRANCH_FUNDS_COLLECTION, normBId),
+      data: { branchId: normBId, fundAmount: leftFund, updatedAt: fechaCierre },
+      isMerge: true
     },
-    isMerge: true
-  });
+    {
+      ref: doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId),
+      data: { branchId: normBId, openSessionId: null, fundAmount: leftFund, updatedAt: fechaCierre },
+      isMerge: true
+    }
+  ];
 
-  // Marcar todos los tickets
   ticketsSnapshot.forEach((t) => {
-    // Sync to /sales
-    operations.push({
-      ref: doc(db, SALES_COLLECTION, t.id),
-      data: {
-        sesion_caja_id: sesionId,
-        corteXId: sesionId,
-        corteXClosedAt: fechaCierre,
-        sucursal_id: normBId
-      },
-      isMerge: true
-    });
-    // Sync to /ventas
-    operations.push({
-      ref: doc(db, VENTAS_COLLECTION, t.id),
-      data: {
-        sesion_caja_id: sesionId,
-        corteXId: sesionId,
-        corteXClosedAt: fechaCierre,
-        sucursal_id: normBId
-      },
-      isMerge: true
-    });
+    operations.push({ ref: doc(db, SALES_COLLECTION, t.id), data: closeStamp, isMerge: true });
+    operations.push({ ref: doc(db, VENTAS_COLLECTION, t.id), data: closeStamp, isMerge: true });
   });
-
-  // Marcar todos los gastos
   expensesSnapshot.forEach((e) => {
-    // Sync to /expenses
-    operations.push({
-      ref: doc(db, EXPENSES_COLLECTION, e.id),
-      data: {
-        sesion_caja_id: sesionId,
-        corteXId: sesionId,
-        corteXClosedAt: fechaCierre,
-        sucursal_id: normBId
-      },
-      isMerge: true
-    });
-    // Sync to /gastos
-    operations.push({
-      ref: doc(db, GASTOS_COLLECTION, e.id),
-      data: {
-        sesion_caja_id: sesionId,
-        corteXId: sesionId,
-        corteXClosedAt: fechaCierre,
-        sucursal_id: normBId
-      },
-      isMerge: true
-    });
+    operations.push({ ref: doc(db, EXPENSES_COLLECTION, e.id), data: closeStamp, isMerge: true });
+    operations.push({ ref: doc(db, GASTOS_COLLECTION, e.id), data: closeStamp, isMerge: true });
   });
 
-  // Ejecutar en chunks de 400
   const CHUNK_SIZE = 400;
   for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
     const chunk = operations.slice(i, i + CHUNK_SIZE);
     const batch = writeBatch(db);
     chunk.forEach((op) => {
-      if (op.isMerge) {
-        batch.set(op.ref, op.data, { merge: true });
-      } else {
-        batch.set(op.ref, op.data);
-      }
+      if (op.isMerge) batch.set(op.ref, op.data, { merge: true });
+      else batch.set(op.ref, op.data);
     });
     await batch.commit();
   }
 
-  console.log(`[Firestore] 🔒 Corte de Caja y Sesión congelados exitosamente: ${sesionId}`);
+  try {
+    localStorage.setItem(`erp_branch_fund_${normBId}`, String(leftFund));
+  } catch {}
+
+  console.log(`[Firestore] Corte de caja cerrado: ${sesionId} (contado ${counted} vs esperado ${expectedCashInDrawer})`);
   return { success: true, sesion: sesionCerrada, corteRecord };
 }
 
@@ -463,15 +449,11 @@ export function subscribeToProducts(
 ) {
   const productsCol = collection(db, PRODUCTS_COLLECTION);
 
-  // Auto clean dummy products if any exist
-  clearDummyProductsFromFirestore().catch(() => {});
-
   return onSnapshot(
     productsCol,
     async (snapshot) => {
       if (snapshot.empty) {
-        // First run: Seed INITIAL_PRODUCTS into Firestore
-        console.log('[Firestore] Seeding initial clean generic actions to cloud...');
+        console.log('[Firestore] Seeding initial POS action buttons...');
         try {
           const batch = writeBatch(db);
           INITIAL_PRODUCTS.forEach((prod) => {
@@ -488,7 +470,6 @@ export function subscribeToProducts(
         const loaded: Product[] = [];
         snapshot.forEach((d) => {
           const p = d.data() as Product;
-          // Filter out any mock dummy items if they lingered
           if (!DUMMY_PRODUCT_IDS.includes(p.id)) {
             loaded.push(p);
           }
@@ -862,197 +843,17 @@ export async function deleteCorteXFromFirestore(corteId: string) {
 }
 
 /**
- * Auto-depuración y reconciliación de tickets y abonos de días anteriores:
- * Si existen tickets o abonos de días pasados (timestamp anterior a hoy) que no tengan corteXId,
- * genera automáticamente el Corte X Oficial y los asocia atómicamente,
- * garantizando que ningún turno previo quede abierto ni desaparezca.
+ * Historical auto-close invented cortes with a hardcoded $1000 fund and
+ * split overnight shifts. It is intentionally a no-op: open tickets stay
+ * open until a cashier closes the real session.
  */
 export async function autoReconcilePastTicketsAndExpenses(): Promise<number> {
-  try {
-    const todayIso = safeDateIsoKey(new Date());
-    const salesCol = collection(db, SALES_COLLECTION);
-    const expensesCol = collection(db, EXPENSES_COLLECTION);
-    const cortesCol = collection(db, CORTE_X_COLLECTION);
-
-    const [salesSnap, expensesSnap, cortesSnap] = await Promise.all([
-      getDocs(salesCol),
-      getDocs(expensesCol),
-      getDocs(cortesCol)
-    ]);
-
-    const cortesMap: Record<string, string> = {}; // branchId_dateIso -> corteId
-    cortesSnap.forEach((d) => {
-      const data = d.data() as CorteXRecord;
-      const normBId = normalizeBranchId(data.branchId);
-      const dKey = safeDateIsoKey(data.timestamp) || safeDateIsoKey(data.dateStr);
-      if (dKey) {
-        cortesMap[`${normBId}_${dKey}`] = data.id;
-      }
-    });
-
-    // Agrupar tickets y gastos pasados sin corteXId por sucursal y fecha
-    const pastPendingGroups: Record<string, { branchId: string; dateIso: string; tickets: { docRef: any; data: SaleTicket }[]; expenses: { docRef: any; data: Expense }[] }> = {};
-
-    salesSnap.forEach((d) => {
-      const ticket = d.data() as SaleTicket;
-      const normBId = normalizeBranchId(ticket.branchId);
-      if (normBId === 'b-bodega') return; // Bodega is not a sales branch
-      const ticketDateIso = safeDateIsoKey(ticket.timestamp);
-      if (ticketDateIso && ticketDateIso < todayIso && !ticket.corteXId) {
-        const groupKey = `${normBId}_${ticketDateIso}`;
-        if (!pastPendingGroups[groupKey]) {
-          pastPendingGroups[groupKey] = { branchId: normBId, dateIso: ticketDateIso, tickets: [], expenses: [] };
-        }
-        pastPendingGroups[groupKey].tickets.push({ docRef: d.ref, data: ticket });
-      }
-    });
-
-    expensesSnap.forEach((d) => {
-      const exp = d.data() as Expense;
-      const normBId = normalizeBranchId(exp.branchId);
-      if (normBId === 'b-bodega') return; // Bodega is not a sales branch
-      const expDateIso = safeDateIsoKey(exp.timestamp || exp.date);
-      if (expDateIso && expDateIso < todayIso && !exp.corteXId) {
-        const groupKey = `${normBId}_${expDateIso}`;
-        if (!pastPendingGroups[groupKey]) {
-          pastPendingGroups[groupKey] = { branchId: normBId, dateIso: expDateIso, tickets: [], expenses: [] };
-        }
-        pastPendingGroups[groupKey].expenses.push({ docRef: d.ref, data: exp });
-      }
-    });
-
-    const operations: { ref: any; data: any; isMerge?: boolean }[] = [];
-    let patchedCount = 0;
-
-    for (const [groupKey, group] of Object.entries(pastPendingGroups)) {
-      const existingCorteId = cortesMap[groupKey];
-      const targetCorteId = existingCorteId || `CTX_${group.branchId}_${group.dateIso}`;
-
-      // Si no existe un documento de corte previo para esta fecha y sucursal, crearlo automáticamente
-      if (!existingCorteId) {
-        let cash = 0, card = 0, transfer = 0;
-        let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
-
-        group.tickets.forEach(({ data: t }) => {
-          if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
-          if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
-          if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
-
-          (t.items || []).forEach(item => {
-            const pName = (item.product?.name || '').toLowerCase();
-            const cat = item.product?.category;
-            const tot = item.totalPrice || 0;
-            const qty = item.quantity || 1;
-            if (pName.includes('abono') || cat === 'abono_credito') { aboTot += tot; aboCnt += qty; }
-            else if (pName.includes('enganche') || cat === 'equipo_credito') { engTot += tot; engCnt += qty; }
-            else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) { repTot += tot; repCnt += qty; }
-            else if (cat === 'recarga' || pName.includes('recarga')) { recTot += tot; recCnt += qty; }
-            else { accTot += tot; accCnt += qty; }
-          });
-        });
-
-        const totalExp = group.expenses.reduce((sum, { data: e }) => sum + (e.amount || 0), 0);
-        const totalSales = cash + card + transfer;
-        const targetDate = parseSafeDate(group.dateIso);
-
-        const autoCorteRecord: CorteXRecord = {
-          id: targetCorteId,
-          timestamp: `${group.dateIso}T23:59:59.000Z`,
-          dateStr: safeFormatDate(targetDate),
-          timeStr: 'Cierre Oficial de Turno',
-          branchId: group.branchId,
-          branchName: getBranchDisplayName(group.branchId),
-          operatorName: group.tickets[0]?.data.operatorName || 'Cajero en Turno',
-          initialCashFund: 1000,
-          cashSales: cash,
-          cardSales: card,
-          transferSales: transfer,
-          totalSales,
-          totalExpenses: totalExp,
-          netIncome: totalSales - totalExp,
-          expectedCashInDrawer: 1000 + cash - totalExp,
-          ticketIds: group.tickets.map(t => t.data.id),
-          expenseIds: group.expenses.map(e => e.data.id),
-          ticketsSnapshot: group.tickets.map(t => t.data),
-          expensesSnapshot: group.expenses.map(e => e.data),
-          breakdown: {
-            accesoriosTotal: accTot,
-            accesoriosCount: accCnt,
-            abonosTotal: aboTot,
-            abonosCount: aboCnt,
-            enganchesTotal: engTot,
-            enganchesCount: engCnt,
-            reparacionesTotal: repTot,
-            reparacionesCount: repCnt,
-            recargasTotal: recTot,
-            recargasCount: recCnt
-          }
-        };
-
-        const newCorteRef = doc(db, CORTE_X_COLLECTION, targetCorteId);
-        operations.push({ ref: newCorteRef, data: cleanForFirestore(autoCorteRecord), isMerge: false });
-        cortesMap[groupKey] = targetCorteId;
-      }
-
-      // Marcar todos los tickets con el ID de corte finalizado
-      group.tickets.forEach(({ docRef, data: t }) => {
-        operations.push({
-          ref: docRef,
-          data: {
-            corteXId: targetCorteId,
-            corteXClosedAt: `${group.dateIso}T23:59:59.000Z`
-          },
-          isMerge: true
-        });
-        patchedCount++;
-      });
-
-      // Marcar todos los gastos con el ID de corte finalizado
-      group.expenses.forEach(({ docRef, data: e }) => {
-        operations.push({
-          ref: docRef,
-          data: {
-            corteXId: targetCorteId,
-            corteXClosedAt: `${group.dateIso}T23:59:59.000Z`
-          },
-          isMerge: true
-        });
-        patchedCount++;
-      });
-    }
-
-    if (operations.length > 0) {
-      const CHUNK_SIZE = 400;
-      for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
-        const chunk = operations.slice(i, i + CHUNK_SIZE);
-        const batch = writeBatch(db);
-        chunk.forEach((op) => {
-          if (op.isMerge) {
-            batch.set(op.ref, op.data, { merge: true });
-          } else {
-            batch.set(op.ref, op.data);
-          }
-        });
-        await batch.commit();
-      }
-      console.log(`[Firestore] 🛡️ Auto-Cierre Oficial: Se finalizaron y aseguraron ${patchedCount} movimientos de turnos anteriores.`);
-    }
-
-    return patchedCount;
-  } catch (err) {
-    console.error('[Firestore] Error reconciliando tickets anteriores:', err);
-    return 0;
-  }
+  return 0;
 }
 
-/**
- * Limpia y consolida automáticamente registros duplicados de cortes de caja en Firestore.
- * Asegura que por cada sucursal y por cada fecha (día) exista únicamente el corte oficial registrado.
- */
 export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount: number; remainingCount: number; reconciledTicketsCount?: number }> {
   try {
-    // 1. Reconciliar tickets/abonos de días anteriores para que no queden turnos huérfanos
-    const reconciledCount = await autoReconcilePastTicketsAndExpenses();
+    const reconciledCount = 0;
 
     const colRef = collection(db, CORTE_X_COLLECTION);
     const snapshot = await getDocs(colRef);
@@ -1098,19 +899,13 @@ export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount
             purgedCount++;
           });
         } else if (items.length > 1) {
-          // Si son idénticos o múltiples copias del mismo corte, conservar el más reciente con más datos
-          items.sort((a, b) => {
-            const ticketsA = a.data?.ticketIds?.length || 0;
-            const ticketsB = b.data?.ticketIds?.length || 0;
-            if (ticketsB !== ticketsA) return ticketsB - ticketsA;
-            const tA = a.data?.timestamp || '';
-            const tB = b.data?.timestamp || '';
-            return tB.localeCompare(tA);
-          });
-
-          // Solo eliminar si el segundo es idéntico en fecha y sucursal y tiene menos o iguales datos
-          for (let i = 1; i < items.length; i++) {
-            if (items[i].id.startsWith('CAL-ZERO') || (items[i].data?.totalSales === items[0].data?.totalSales)) {
+          // Only drop empty CAL-ZERO placeholders; never delete two real cortes of the same day
+          for (let i = 0; i < items.length; i++) {
+            const isEmptyPlaceholder =
+              String(items[i].id).startsWith('CAL-ZERO') &&
+              (items[i].data?.ticketIds?.length || 0) === 0 &&
+              (items[i].data?.totalSales || 0) === 0;
+            if (isEmptyPlaceholder) {
               batch.delete(items[i].ref);
               purgedCount++;
             }
@@ -1411,6 +1206,12 @@ export async function runMigrationToSessionArchitecture(): Promise<{
   console.log('[Migration] 🚀 Iniciando verificación y migración hacia arquitectura de Sesiones...');
 
   try {
+    const flagRef = doc(db, META_COLLECTION, 'sessionArchitectureV3');
+    const flagSnap = await getDoc(flagRef);
+    if (flagSnap.exists()) {
+      return { migratedTickets: 0, migratedExpenses: 0, createdSessions: 0, totalProcessed: 0 };
+    }
+
     const [salesSnap, expensesSnap, cortesSnap] = await Promise.all([
       getDocs(collection(db, SALES_COLLECTION)),
       getDocs(collection(db, EXPENSES_COLLECTION)),
@@ -1510,10 +1311,9 @@ export async function runMigrationToSessionArchitecture(): Promise<{
         });
       }
 
-      // Si es de hoy y no tiene un corte cerrado explícito (CTX_...), conservar corteXId vacío para mantenerlo abierto
-      const hasRealClosedCorte = !!t.corteXId && t.corteXId.startsWith('CTX_');
+      // Keep any existing corte id (SES-... or CTX_...). Never reopen a closed ticket.
       const assignedSessionId = t.sesion_caja_id || sessionObj.id;
-      const assignedCorteXId = isToday ? (hasRealClosedCorte ? t.corteXId : undefined) : (t.corteXId || sessionObj.id);
+      const assignedCorteXId = t.corteXId || (!isToday ? sessionObj.id : undefined);
 
       const enrichedTicket: SaleTicket = {
         ...t,
@@ -1552,9 +1352,8 @@ export async function runMigrationToSessionArchitecture(): Promise<{
       const isToday = dateIso === todayIso;
 
       const sessionObj = sessionsMap.get(sessionKey);
-      const hasRealClosedCorte = !!e.corteXId && e.corteXId.startsWith('CTX_');
       const assignedSessionId = e.sesion_caja_id || (sessionObj ? sessionObj.id : `SES-${normBId.toUpperCase()}-${dateIso.replace(/-/g, '')}-001`);
-      const assignedCorteXId = isToday ? (hasRealClosedCorte ? e.corteXId : undefined) : (e.corteXId || sessionObj?.id);
+      const assignedCorteXId = e.corteXId || (!isToday ? sessionObj?.id : undefined);
 
       const enrichedExpense: Expense = {
         ...e,
@@ -1598,6 +1397,8 @@ export async function runMigrationToSessionArchitecture(): Promise<{
       await batch.commit();
     }
 
+    await setDoc(flagRef, { completedAt: new Date().toISOString(), version: 'v3.0-session-lock' }, { merge: true });
+
     console.log(`[Migration] ✅ Migración completada exitosamente: ${migratedTickets} ventas, ${migratedExpenses} gastos y ${sessionsMap.size} sesiones.`);
 
     return {
@@ -1611,3 +1412,79 @@ export async function runMigrationToSessionArchitecture(): Promise<{
     throw err;
   }
 }
+
+// ----------------------------------------------------
+// 10. CREDIT ACCOUNTS (CARTERA)
+// ----------------------------------------------------
+export function subscribeToCreditAccounts(
+  onUpdate: (accounts: CreditAccount[]) => void,
+  onError?: (err: any) => void
+) {
+  const colRef = collection(db, CREDIT_ACCOUNTS_COLLECTION);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const loaded: CreditAccount[] = [];
+      snapshot.forEach((d) => loaded.push({ ...(d.data() as CreditAccount), id: d.id }));
+      loaded.sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''));
+      onUpdate(loaded);
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToCreditAccounts error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function saveCreditAccountToFirestore(account: CreditAccount) {
+  const docRef = doc(db, CREDIT_ACCOUNTS_COLLECTION, account.id);
+  await setDoc(docRef, cleanForFirestore(account), { merge: true });
+}
+
+export async function applyCreditAbonoToAccount(accountId: string, amount: number): Promise<CreditAccount | null> {
+  const ref = doc(db, CREDIT_ACCOUNTS_COLLECTION, accountId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) return null;
+    const current = snap.data() as CreditAccount;
+    const pay = money(Math.max(0, amount));
+    const remaining = money(Math.max(0, Number(current.remainingBalance) - pay));
+    const updated: CreditAccount = {
+      ...current,
+      id: accountId,
+      remainingBalance: remaining,
+      status: remaining <= 0.009 ? 'liquidado' : 'activo',
+      updatedAt: new Date().toISOString()
+    };
+    tx.set(ref, cleanForFirestore(updated), { merge: true });
+    return updated;
+  });
+}
+
+// ----------------------------------------------------
+// 11. REPAIR RECORDS (TALLER)
+// ----------------------------------------------------
+export function subscribeToRepairRecords(
+  onUpdate: (records: RepairRecord[]) => void,
+  onError?: (err: any) => void
+) {
+  const colRef = collection(db, REPAIR_RECORDS_COLLECTION);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const loaded: RepairRecord[] = [];
+      snapshot.forEach((d) => loaded.push({ ...(d.data() as RepairRecord), id: d.id }));
+      onUpdate(loaded);
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToRepairRecords error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function saveRepairRecordToFirestore(record: RepairRecord) {
+  const docRef = doc(db, REPAIR_RECORDS_COLLECTION, record.id);
+  await setDoc(docRef, cleanForFirestore(record), { merge: true });
+}
+

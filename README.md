@@ -2,7 +2,9 @@
 
 Sistema de punto de venta y ERP para sucursales (Navojoa, Huatabampo y Bodega Central): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
-Este repositorio adopta el código de trabajo actual para continuar el desarrollo. La lógica de caja, inventario y créditos aún tiene defectos conocidos; no se asume que los cortes o el stock coincidan al 100 % con el negocio real hasta que se corrijan.
+Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
+
+Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal, el corte ya no se reabre al recargar, el arqueo compara efectivo **contado** contra **esperado**, el inventario descuenta todas las líneas/IMEI, los abonos se ligan a una cartera por equipo, y el admin puede elegir sucursal (ya no entra forzado a Bodega).
 
 ## Requisitos
 

@@ -9,7 +9,7 @@ import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
 import SettingsModule from './SettingsModule';
 import LabelsModule from './LabelsModule';
-import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement } from '../types';
+import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
@@ -30,18 +30,21 @@ import {
   saveNotificationToFirestore,
   deleteNotificationFromFirestore,
   subscribeToCortesX,
-  executeAndSaveCorteX,
-  cleanDuplicateCortesFromFirestore,
   subscribeToInventoryMovements,
   saveInventoryMovementToFirestore,
   saveInventoryMovementsBatchToFirestore,
   subscribeToBranchFunds,
-  saveBranchFundToFirestore,
   getActiveCashSession,
   executeCorteSesionCajaTransaction,
-  runMigrationToSessionArchitecture
+  subscribeToCreditAccounts,
+  saveCreditAccountToFirestore,
+  applyCreditAbonoToAccount,
+  subscribeToRepairRecords,
+  saveRepairRecordToFirestore
 } from '../lib/firebase';
-import { safeDateIsoKey, safeFormatDate } from '../lib/dateUtils';
+import { belongsToOpenSession } from '../lib/saleClassification';
+import { isNonInventorySaleItem } from '../lib/inventoryRules';
+import { money, newUniqueId } from '../lib/ids';
 
 const ALL_BRANCHES: Branch[] = [
   { id: 'b-bodega', name: 'Bodega' },
@@ -69,7 +72,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     createdAt: 'Hace 35 min',
     read: false,
     authorName: 'Admin Principal',
-    branchId: 'b1',
+    branchId: 'b-navojoa',
     targetOperatorId: 'all'
   },
   {
@@ -80,7 +83,7 @@ const INITIAL_NOTIFICATIONS: AppNotification[] = [
     createdAt: 'Hace 1 hora',
     read: false,
     authorName: 'Admin Principal',
-    branchId: 'b2',
+    branchId: 'b-huatabampo',
     targetOperatorId: 'o3',
     targetOperatorName: 'María García'
   }
@@ -121,6 +124,9 @@ export default function Dashboard({
   const [cortesX, setCortesX] = useState<CorteXRecord[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [branchCashFunds, setBranchCashFunds] = useState<Record<string, number>>({});
+  const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([]);
+  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
+  const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
 
   // -----------------------------------------------------------
@@ -167,38 +173,15 @@ export default function Dashboard({
       }
     });
 
-    // Las ventas y gastos se conservan intactos en la nube hasta que se ejecute explícitamente el Corte X.
-    // Purgar, consolidar duplicados históricos y auto-finalizar turnos de días previos en Firestore
-    cleanDuplicateCortesFromFirestore().catch((e) => console.error('Error limpiando duplicados:', e));
+    const unsubCredits = subscribeToCreditAccounts((accounts) => {
+      setCreditAccounts(accounts || []);
+    });
 
-    // Monitor activo de medianoche (12:00 AM): Detecta el cambio de fecha natural y auto-cierra los turnos pendientes
-    let lastCheckedDate = safeDateIsoKey(new Date());
-    const midnightInterval = setInterval(() => {
-      const currentDate = safeDateIsoKey(new Date());
-      if (currentDate !== lastCheckedDate) {
-        console.log(`[Dashboard] 🕛 Medianoche detectada (${lastCheckedDate} -> ${currentDate}). Finalizando automáticamente turnos de ayer...`);
-        lastCheckedDate = currentDate;
-        cleanDuplicateCortesFromFirestore().catch((e) => console.error('Error en auto-cierre de medianoche:', e));
-      }
-    }, 20000); // Comprobar cada 20 segundos
-
-    // Auto-migración no destructiva a la nueva arquitectura de Sesiones de Caja
-    runMigrationToSessionArchitecture().catch((err) => console.error('[Migration] Auto-migration check error:', err));
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        const currentDate = safeDateIsoKey(new Date());
-        if (currentDate !== lastCheckedDate) {
-          lastCheckedDate = currentDate;
-          cleanDuplicateCortesFromFirestore().catch((e) => console.error('Error en reconciliación por foco:', e));
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const unsubRepairs = subscribeToRepairRecords((records) => {
+      setRepairRecords(records || []);
+    });
 
     return () => {
-      clearInterval(midnightInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubProducts();
       unsubSales();
       unsubExpenses();
@@ -207,10 +190,34 @@ export default function Dashboard({
       unsubNotifs();
       unsubMovements();
       unsubFunds();
+      unsubCredits();
+      unsubRepairs();
     };
   }, []);
 
   const isAdmin = currentOperator.role === 'admin';
+
+  useEffect(() => {
+    if (currentBranch.id === 'b-bodega') {
+      setActiveCashSession(null);
+      return;
+    }
+    let cancelled = false;
+    getActiveCashSession(
+      currentBranch.id,
+      currentBranch.name,
+      currentOperator.name,
+      branchCashFunds[currentBranch.id] ?? 1000,
+      currentOperator.id
+    )
+      .then((ses) => {
+        if (!cancelled) setActiveCashSession(ses);
+      })
+      .catch((err) => console.error('Error loading cash session:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, branchCashFunds]);
 
   // Non-admin operators only have access to POS module
   useEffect(() => {
@@ -251,68 +258,75 @@ export default function Dashboard({
 
   // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)
   const handleCompleteSale = async (ticket: SaleTicket) => {
-    // Ensure session and branch references are attached
-    let activeSessionId = ticket.sesion_caja_id;
-    if (!activeSessionId && ticket.branchId !== 'b-bodega') {
+    let session = activeCashSession;
+    if ((!session || session.sucursal_id !== ticket.branchId) && ticket.branchId !== 'b-bodega') {
       try {
-        const activeSes = await getActiveCashSession(ticket.branchId, currentBranch.name, currentOperator.name);
-        activeSessionId = activeSes.id;
-      } catch {}
+        session = await getActiveCashSession(
+          ticket.branchId,
+          currentBranch.name,
+          currentOperator.name,
+          branchCashFunds[ticket.branchId] ?? 1000,
+          currentOperator.id
+        );
+        setActiveCashSession(session);
+      } catch {
+        session = null;
+      }
     }
 
     const enrichedTicket: SaleTicket = {
       ...ticket,
       sucursal_id: ticket.branchId,
-      sesion_caja_id: activeSessionId || ticket.sesion_caja_id
+      sesion_caja_id: session?.id || ticket.sesion_caja_id
     };
 
-    // 1. Optimistically add to local sales tickets
     setSalesTickets((prev) => [enrichedTicket, ...prev]);
 
-    // 2. Persist ticket to Firebase Firestore (/ventas & /sales)
     try {
       await saveSaleTicketToFirestore(enrichedTicket);
     } catch (err) {
       console.error('Error saving sale ticket to Firestore:', err);
     }
 
-    // 3. Register inventory movements for sold products
     const branchName = ALL_BRANCHES.find((b) => b.id === enrichedTicket.branchId)?.name || enrichedTicket.branchId;
     const saleMovements: InventoryMovement[] = [];
+    const qtyByProduct = new Map<string, number>();
+    const imeisByProduct = new Map<string, string[]>();
 
     enrichedTicket.items.forEach((item) => {
-      const prodId = item.product?.id || '';
-      if (
-        prodId === 'prod-recarga-gen' ||
-        prodId === 'prod-abono-gen' ||
-        prodId === 'prod-reparacion-gen'
-      ) {
-        return;
+      if (isNonInventorySaleItem(item)) return;
+      const catalog = products.find((p) => p.id === item.product.id)
+        || products.find((p) => item.metadata?.imei && (
+          p.imeiList?.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase())
+          || p.imei?.toUpperCase() === item.metadata!.imei!.toUpperCase()
+          || Object.values(p.branchImeiMap || {}).some((list) => list.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase()))
+        ));
+      const prod = catalog || item.product;
+      const prodId = prod.id;
+      qtyByProduct.set(prodId, (qtyByProduct.get(prodId) || 0) + (item.quantity || 1));
+      if (item.metadata?.imei) {
+        imeisByProduct.set(prodId, [...(imeisByProduct.get(prodId) || []), item.metadata.imei]);
       }
-      const prod = products.find((p) => p.id === prodId) || item.product;
-      const prodName = prod?.name || 'Artículo';
-      const prodCode = prod?.code || 'S/C';
 
-      const mov: InventoryMovement = {
-        id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      saleMovements.push({
+        id: newUniqueId('mov'),
         timestamp: new Date().toISOString(),
         type: 'venta',
-        productId: prod?.id || prodId,
-        productCode: prodCode,
-        productName: prodName,
-        category: prod?.category,
-        inventoryType: prod?.inventoryType,
-        quantity: -item.quantity,
+        productId: prodId,
+        productCode: prod.code || 'S/C',
+        productName: catalog?.name || prod.name || 'Artículo',
+        category: prod.category,
+        inventoryType: prod.inventoryType,
+        quantity: -(item.quantity || 1),
         targetBranchId: enrichedTicket.branchId,
         targetBranchName: branchName,
         operatorName: enrichedTicket.operatorName || currentOperator.name,
         operatorId: currentOperator.id,
         ticketId: enrichedTicket.folio || enrichedTicket.id,
         unitPrice: item.unitPrice,
-        details: `Venta POS en Ticket #${enrichedTicket.folio || enrichedTicket.id.slice(-6)}: ${item.quantity} pza(s) vendida(s) en ${branchName}`,
+        details: `Venta POS en Ticket #${enrichedTicket.folio || enrichedTicket.id}: ${item.quantity} pza(s) en ${branchName}`,
         imeis: item.metadata?.imei ? [item.metadata.imei] : undefined
-      };
-      saleMovements.push(mov);
+      });
     });
 
     if (saleMovements.length > 0) {
@@ -322,42 +336,27 @@ export default function Dashboard({
       );
     }
 
-    // 4. Update product stock and remove sold IMEIs in state and in Firestore
     setProducts((prevProducts) =>
       prevProducts.map((p) => {
-        // Find matching item in ticket
-        const itemInTicket = enrichedTicket.items.find(
-          (i) => i.product.id === p.id || (i.metadata?.imei && (p.imeiList?.includes(i.metadata.imei) || p.imei === i.metadata.imei))
-        );
+        const qty = qtyByProduct.get(p.id) || 0;
+        const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => im.toUpperCase());
+        if (qty <= 0 && soldImeis.length === 0) return p;
 
-        if (!itemInTicket) return p;
-
-        // Skip non-stock virtual items
-        if (p.id === 'prod-recarga-gen' || p.id === 'prod-abono-gen' || p.id === 'prod-reparacion-gen') {
-          return p;
-        }
-
-        const currentBStock = p.branchStock || {
-          'b-bodega': 0,
-          'b-navojoa': 0,
-          'b-huatabampo': 0
-        };
-
+        const currentBStock = p.branchStock || { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
         const currentBranchQty = currentBStock[enrichedTicket.branchId] || 0;
-        const newBranchQty = Math.max(0, currentBranchQty - itemInTicket.quantity);
+        const deductQty = qty || soldImeis.length;
+        const newBranchQty = Math.max(0, currentBranchQty - deductQty);
         const newBranchStock = { ...currentBStock, [enrichedTicket.branchId]: newBranchQty };
-        const newTotalStock = Math.max(0, p.stock - itemInTicket.quantity);
+        const newTotalStock = Math.max(0, (p.stock || 0) - deductQty);
 
-        // Deduct sold IMEI if applicable
-        const soldImei = itemInTicket.metadata?.imei;
         let updatedImeiMap = p.branchImeiMap ? { ...p.branchImeiMap } : {};
-
-        if (soldImei && updatedImeiMap[enrichedTicket.branchId]) {
-          updatedImeiMap[enrichedTicket.branchId] = updatedImeiMap[enrichedTicket.branchId].filter((im) => im.toUpperCase() !== soldImei.toUpperCase());
+        if (soldImeis.length > 0) {
+          const currentList = updatedImeiMap[enrichedTicket.branchId] || [];
+          updatedImeiMap[enrichedTicket.branchId] = currentList.filter((im) => !soldImeis.includes(im.toUpperCase()));
         }
 
         const updatedImeiList = p.imeiList
-          ? (soldImei ? p.imeiList.filter((im) => im.toUpperCase() !== soldImei.toUpperCase()) : p.imeiList)
+          ? (soldImeis.length ? p.imeiList.filter((im) => !soldImeis.includes(im.toUpperCase())) : p.imeiList)
           : undefined;
 
         const updatedProduct: Product = {
@@ -366,26 +365,79 @@ export default function Dashboard({
           branchStock: newBranchStock,
           branchImeiMap: Object.keys(updatedImeiMap).length > 0 ? updatedImeiMap : p.branchImeiMap,
           imeiList: updatedImeiList,
-          imei: updatedImeiList && updatedImeiList.length > 0 ? updatedImeiList[0] : (soldImei && p.imei?.toUpperCase() === soldImei.toUpperCase() ? '' : p.imei)
+          imei: updatedImeiList && updatedImeiList.length > 0
+            ? updatedImeiList[0]
+            : (p.imei && soldImeis.includes(p.imei.toUpperCase()) ? '' : p.imei)
         };
 
-        // Persist updated product stock to Firestore
         saveProductToFirestore(updatedProduct).catch((err) =>
           console.error('Error updating product stock in Firestore:', err)
         );
-
         return updatedProduct;
       })
     );
+
+    const nowIso = new Date().toISOString();
+    for (const item of enrichedTicket.items) {
+      const meta = item.metadata;
+      if (meta?.saleType === 'credito' && (meta.remainingBalance || 0) > 0 && meta.imei) {
+        const account: CreditAccount = {
+          id: newUniqueId('cred'),
+          clientName: meta.clientName || 'Cliente',
+          clientPhone: meta.clientPhone,
+          imei: meta.imei,
+          deviceModel: meta.deviceModel || item.product.name,
+          fullPrice: money(meta.fullPrice || 0),
+          downPayment: money(meta.downPayment || item.totalPrice || 0),
+          remainingBalance: money(meta.remainingBalance || 0),
+          financingPlatform: meta.financingPlatform || 'Crédito',
+          branchId: enrichedTicket.branchId,
+          branchName,
+          operatorName: enrichedTicket.operatorName,
+          originTicketId: enrichedTicket.id,
+          status: 'activo',
+          createdAt: nowIso,
+          updatedAt: nowIso
+        };
+        setCreditAccounts((prev) => [account, ...prev]);
+        saveCreditAccountToFirestore(account).catch((err) => console.error('Error saving credit account:', err));
+      }
+
+      if (meta?.saleType === 'abono' && meta.creditAccountId) {
+        applyCreditAbonoToAccount(meta.creditAccountId, item.totalPrice || item.unitPrice || 0)
+          .then((updated) => {
+            if (!updated) return;
+            setCreditAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+          })
+          .catch((err) => console.error('Error applying credit payment:', err));
+      }
+    }
+  };
+
+  const handleAddRepairRecord = (record: RepairRecord) => {
+    setRepairRecords((prev) => [record, ...prev.filter((r) => r.id !== record.id)]);
+    saveRepairRecordToFirestore(record).catch((err) => console.error('Error saving repair record:', err));
+  };
+
+  const handleUpdateRepairRecord = (record: RepairRecord) => {
+    setRepairRecords((prev) => prev.map((r) => (r.id === record.id ? record : r)));
+    saveRepairRecordToFirestore(record).catch((err) => console.error('Error updating repair record:', err));
   };
 
   // Add Expense Handler
   const handleAddExpense = async (expense: Expense) => {
-    let activeSessionId = expense.sesion_caja_id;
+    let activeSessionId = expense.sesion_caja_id || activeCashSession?.id;
     if (!activeSessionId && expense.branchId !== 'b-bodega') {
       try {
-        const activeSes = await getActiveCashSession(expense.branchId, currentBranch.name, currentOperator.name);
+        const activeSes = await getActiveCashSession(
+          expense.branchId,
+          currentBranch.name,
+          currentOperator.name,
+          branchCashFunds[expense.branchId] ?? 1000,
+          currentOperator.id
+        );
         activeSessionId = activeSes.id;
+        setActiveCashSession(activeSes);
       } catch {}
     }
 
@@ -426,51 +478,57 @@ export default function Dashboard({
 
   // Finalize Corte X Handler (Saves snapshot, closes session and flags shift tickets/expenses as closed)
   const handleFinalizeCorteX = async (corteRecord: CorteXRecord) => {
-    // 0. Bloqueo para Bodega: Bodega es almacén central, no es sucursal de venta y no genera corte
     if (currentBranch.id === 'b-bodega' || corteRecord.branchId === 'b-bodega') {
-      console.warn('[CorteX] La Bodega Central no es una sucursal de venta y no genera cortes de caja.');
+      console.warn('[CorteX] La Bodega Central no genera cortes de caja.');
       return;
     }
-
-    // 1. Bloqueo para Administrador (solo operadores generan cortes de caja)
-    if (currentOperator.role === 'admin') {
-      console.warn('[CorteX] Los administradores no pueden generar cortes de caja.');
-      return;
-    }
-
-    // 2. Bloqueo de duplicados: 1 corte por sucursal por día con ID estricto
-    const todayIso = safeDateIsoKey(new Date());
-    const strictCorteId = `CTX_${currentBranch.id}_${todayIso}`;
-    const todayFmt = safeFormatDate(new Date());
-    const alreadyHasCorteToday = cortesX.some(
-      (c) => c.id === strictCorteId || (c.branchId === currentBranch.id && 
-      (safeDateIsoKey(c.timestamp) === todayIso || c.dateStr === todayFmt || safeDateIsoKey(c.dateStr) === todayIso))
-    );
-
-    if (alreadyHasCorteToday) {
-      console.warn(`[CorteX] Ya existe un corte registrado el día de hoy para la sucursal ${currentBranch.name}.`);
-      return;
-    }
-
-    const unclosedTickets = salesTickets.filter((t) => 
-      t.branchId === currentBranch.id && (!t.corteXId || corteRecord.ticketIds?.includes(t.id))
-    );
-    const unclosedExpenses = expenses.filter((e) => 
-      e.branchId === currentBranch.id && (!e.corteXId || corteRecord.expenseIds?.includes(e.id))
-    );
 
     try {
-      // 1. Obtener la sesión activa para esta sucursal
-      const activeSession = await getActiveCashSession(currentBranch.id, currentBranch.name, currentOperator.name, corteRecord.initialCashFund);
+      const session = await getActiveCashSession(
+        currentBranch.id,
+        currentBranch.name,
+        currentOperator.name,
+        corteRecord.initialCashFund,
+        currentOperator.id
+      );
 
-      // 2. Ejecutar cierre y cálculo atómico en servidor/Firestore
+      const sessionFilter = {
+        branchId: currentBranch.id,
+        sessionId: session.id,
+        sessionOpenedAt: session.fecha_apertura
+      };
+
+      const idSet = new Set(corteRecord.ticketIds || []);
+      const expIdSet = new Set(corteRecord.expenseIds || []);
+
+      const unclosedTickets = salesTickets.filter((t) => {
+        if (t.branchId !== currentBranch.id) return false;
+        if (t.corteXId && t.corteXId !== session.id) return false;
+        if (idSet.size > 0) return idSet.has(t.id);
+        return belongsToOpenSession(t, sessionFilter);
+      });
+
+      const unclosedExpenses = expenses.filter((e) => {
+        if (e.branchId !== currentBranch.id) return false;
+        if (e.corteXId && e.corteXId !== session.id) return false;
+        if (expIdSet.size > 0) return expIdSet.has(e.id);
+        return belongsToOpenSession(
+          { branchId: e.branchId, corteXId: e.corteXId, sesion_caja_id: e.sesion_caja_id, timestamp: e.timestamp },
+          sessionFilter
+        );
+      });
+
+      const counted = Number.isFinite(corteRecord.countedCash)
+        ? Number(corteRecord.countedCash)
+        : corteRecord.expectedCashInDrawer;
+
       const result = await executeCorteSesionCajaTransaction({
-        sesionId: activeSession.id,
+        sesionId: session.id,
         sucursalId: currentBranch.id,
         sucursalNombre: currentBranch.name,
         operadorCierre: { uid: currentOperator.id, nombre: currentOperator.name },
-        efectivoContado: corteRecord.expectedCashInDrawer || (corteRecord.cashSales + corteRecord.initialCashFund - corteRecord.totalExpenses),
-        fondoDejado: corteRecord.cashFundLeftForNextShift ?? 1000,
+        efectivoContado: counted,
+        fondoDejado: corteRecord.cashFundLeftForNextShift ?? 0,
         notas: corteRecord.closingNotes || '',
         ticketsSnapshot: unclosedTickets,
         expensesSnapshot: unclosedExpenses
@@ -484,17 +542,26 @@ export default function Dashboard({
       setSalesTickets((prev) =>
         prev.map((t) =>
           closedTicketIds.has(t.id)
-            ? { ...t, corteXId: savedCorte.id, sesion_caja_id: activeSession.id, corteXClosedAt: savedCorte.timestamp }
+            ? { ...t, corteXId: savedCorte.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte.timestamp }
             : t
         )
       );
       setExpenses((prev) =>
         prev.map((e) =>
           closedExpenseIds.has(e.id)
-            ? { ...e, corteXId: savedCorte.id, sesion_caja_id: activeSession.id, corteXClosedAt: savedCorte.timestamp }
+            ? { ...e, corteXId: savedCorte.id, sesion_caja_id: session.id, corteXClosedAt: savedCorte.timestamp }
             : e
         )
       );
+
+      const nextSession = await getActiveCashSession(
+        currentBranch.id,
+        currentBranch.name,
+        currentOperator.name,
+        savedCorte.cashFundLeftForNextShift ?? 0,
+        currentOperator.id
+      );
+      setActiveCashSession(nextSession);
     } catch (err) {
       console.error('Error finalizing Corte X and Sesion in Firestore:', err);
     }
@@ -516,13 +583,15 @@ export default function Dashboard({
   };
 
   const handleClearAllNotifications = () => {
-    setNotifications((prev) => 
-      prev.filter((n) => {
-        const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
-        const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
-        return !(matchesBranch && matchesOperator);
-      })
-    );
+    const toClear = notifications.filter((n) => {
+      const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
+      const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
+      return matchesBranch && matchesOperator;
+    });
+    setNotifications((prev) => prev.filter((n) => !toClear.some((c) => c.id === n.id)));
+    toClear.forEach((n) => {
+      deleteNotificationFromFirestore(n.id).catch((err) => console.error('Error dismissing notification:', err));
+    });
   };
 
   const handleAddNotification = (newNotif: Omit<AppNotification, 'id' | 'createdAt' | 'read'>) => {
@@ -583,6 +652,11 @@ export default function Dashboard({
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
             cortesX={cortesX}
             initialCashFund={branchCashFunds[currentBranch.id]}
+            activeCashSession={activeCashSession}
+            creditAccounts={creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo')}
+            repairRecords={repairRecords.filter((r) => r.branchId === currentBranch.id)}
+            onAddRepairRecord={handleAddRepairRecord}
+            onUpdateRepairRecord={handleUpdateRepairRecord}
             onFinalizeCorteX={handleFinalizeCorteX}
             onLogout={onLogout}
           />

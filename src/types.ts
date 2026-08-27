@@ -121,8 +121,9 @@ export interface CartItemMetadata {
   carrier?: string;
   rechargeAmount?: number;
 
-  // For Equipment / Cell Phone Sales (Contado or Crédito)
-  saleType?: 'contado' | 'credito';
+  // For Equipment / Cell Phone Sales (Contado or Crédito) and later abonos
+  saleType?: 'contado' | 'credito' | 'abono';
+  creditAccountId?: string;
   clientName?: string;
   clientPhone?: string;
   deviceModel?: string;
@@ -147,6 +148,25 @@ export interface CartItemMetadata {
   caseModel?: string; // e.g. iPhone 13 Pro Max, Samsung A54, Redmi Note 12, etc.
 }
 
+
+export interface CreditAccount {
+  id: string;
+  clientName: string;
+  clientPhone?: string;
+  imei: string;
+  deviceModel: string;
+  fullPrice: number;
+  downPayment: number;
+  remainingBalance: number;
+  financingPlatform: string;
+  branchId: string;
+  branchName?: string;
+  operatorName: string;
+  originTicketId: string;
+  status: 'activo' | 'liquidado';
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface RepairRecord {
   id: string; // Folio e.g. REP-1001
@@ -282,6 +302,8 @@ export interface CorteXRecord {
   totalExpenses: number;
   netIncome: number;
   expectedCashInDrawer: number;
+  countedCash?: number;
+  cashDifference?: number;
   ticketIds: string[];
   expenseIds: string[];
   ticketsSnapshot?: SaleTicket[];

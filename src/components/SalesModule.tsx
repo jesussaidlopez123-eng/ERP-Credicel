@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { classifySaleItem } from '../lib/saleClassification';
 import { cleanDuplicateCortesFromFirestore, clearTestSalesAndExpensesFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import CorteXModal from './CorteXModal';
@@ -381,14 +382,13 @@ export default function SalesModule({
             if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
 
             (t.items || []).forEach(item => {
-              const pName = (item.product?.name || '').toLowerCase();
-              const cat = item.product?.category;
               const tot = item.totalPrice || 0;
               const qty = item.quantity || 1;
-              if (pName.includes('abono') || cat === 'abono_credito') { aboTot += tot; aboCnt += qty; }
-              else if (pName.includes('enganche') || cat === 'equipo_credito') { engTot += tot; engCnt += qty; }
-              else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) { repTot += tot; repCnt += qty; }
-              else if (cat === 'recarga' || pName.includes('recarga')) { recTot += tot; recCnt += qty; }
+              const key = classifySaleItem(item);
+              if (key === 'abonos') { aboTot += tot; aboCnt += qty; }
+              else if (key === 'enganches') { engTot += tot; engCnt += qty; }
+              else if (key === 'reparaciones') { repTot += tot; repCnt += qty; }
+              else if (key === 'recargas') { recTot += tot; recCnt += qty; }
               else { accTot += tot; accCnt += qty; }
             });
           });
@@ -472,14 +472,13 @@ export default function SalesModule({
           if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
 
           (t.items || []).forEach(item => {
-            const pName = (item.product?.name || '').toLowerCase();
-            const cat = item.product?.category;
             const tot = item.totalPrice || 0;
             const qty = item.quantity || 1;
-            if (pName.includes('abono') || cat === 'abono_credito') { aboTot += tot; aboCnt += qty; }
-            else if (pName.includes('enganche') || cat === 'equipo_credito') { engTot += tot; engCnt += qty; }
-            else if (pName.includes('anticipo') || cat === 'servicio' || item.metadata?.repairType) { repTot += tot; repCnt += qty; }
-            else if (cat === 'recarga' || pName.includes('recarga')) { recTot += tot; recCnt += qty; }
+            const key = classifySaleItem(item);
+            if (key === 'abonos') { aboTot += tot; aboCnt += qty; }
+            else if (key === 'enganches') { engTot += tot; engCnt += qty; }
+            else if (key === 'reparaciones') { repTot += tot; repCnt += qty; }
+            else if (key === 'recargas') { recTot += tot; recCnt += qty; }
             else { accTot += tot; accCnt += qty; }
           });
         });

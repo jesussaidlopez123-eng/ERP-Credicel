@@ -28,6 +28,8 @@ import {
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { saveBranchFundToFirestore } from '../lib/firebase';
+import { belongsToOpenSession, classifySaleItem } from '../lib/saleClassification';
+import { money } from '../lib/ids';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -42,6 +44,8 @@ interface CorteXModalProps {
   onLogout?: () => void;
   cortesX?: CorteXRecord[];
   onSelectExistingCorte?: (corteRecord: CorteXRecord) => void;
+  activeSessionId?: string;
+  sessionOpenedAt?: string;
 }
 
 interface ConceptDetail {
@@ -87,7 +91,9 @@ export default function CorteXModal({
   existingCorteRecord,
   onFinalizeCorteX,
   onLogout,
-  cortesX = []
+  cortesX = [],
+  activeSessionId,
+  sessionOpenedAt
 }: CorteXModalProps) {
 
   // Tabs: Arqueo, Ticket 58mm preview, or Copiar Lista
@@ -113,6 +119,7 @@ export default function CorteXModal({
   // Shift Finalization state
   const [isClosingShiftDialog, setIsClosingShiftDialog] = useState(false);
   const [nextCashFundInput, setNextCashFundInput] = useState<string>('');
+  const [countedCashInput, setCountedCashInput] = useState<string>('');
   const [shiftClosureNotes, setShiftClosureNotes] = useState<string>('');
   const [shouldPrintOnClose, setShouldPrintOnClose] = useState<boolean>(true);
   const [isFinishingShift, setIsFinishingShift] = useState<boolean>(false);
@@ -198,13 +205,29 @@ export default function CorteXModal({
       );
     }
   } else {
-    const todayIso = safeDateIsoKey(new Date());
-    branchTickets = (tickets || []).filter((t) => 
-      t && t.branchId === effectiveBranchId && !t.corteXId && safeDateIsoKey(t.timestamp) === todayIso
-    );
-    branchExpenses = (expenses || []).filter((e) => 
-      e && e.branchId === effectiveBranchId && !e.corteXId && safeDateIsoKey(e.timestamp || e.date) === todayIso
-    );
+    branchTickets = (tickets || []).filter((t) => {
+      if (!t || t.branchId !== effectiveBranchId || t.corteXId) return false;
+      if (activeSessionId) {
+        return belongsToOpenSession(t, {
+          branchId: effectiveBranchId,
+          sessionId: activeSessionId,
+          sessionOpenedAt: sessionOpenedAt || ''
+        });
+      }
+      const todayIso = safeDateIsoKey(new Date());
+      return !!todayIso && safeDateIsoKey(t.timestamp) === todayIso;
+    });
+    branchExpenses = (expenses || []).filter((e) => {
+      if (!e || e.branchId !== effectiveBranchId || e.corteXId) return false;
+      if (activeSessionId) {
+        return belongsToOpenSession(
+          { branchId: e.branchId, corteXId: e.corteXId, sesion_caja_id: e.sesion_caja_id, timestamp: e.timestamp },
+          { branchId: effectiveBranchId, sessionId: activeSessionId, sessionOpenedAt: sessionOpenedAt || '' }
+        );
+      }
+      const todayIso = safeDateIsoKey(new Date());
+      return !!todayIso && safeDateIsoKey(e.timestamp || e.date) === todayIso;
+    });
   }
 
   // Payment totals
@@ -242,9 +265,11 @@ export default function CorteXModal({
     if (!ticket) return;
     const ticketTotal = typeof ticket.total === 'number' ? ticket.total : parseFloat((ticket.total as any) || '0') || 0;
     const paymentMethod = ticket.paymentMethod || 'Efectivo';
-    if (paymentMethod === 'Efectivo') cashSalesTotal += ticketTotal;
-    if (paymentMethod === 'Tarjeta') cardSalesTotal += ticketTotal;
-    if (paymentMethod === 'Transferencia') transferSalesTotal += ticketTotal;
+    if (ticketTotal > 0) {
+      if (paymentMethod === 'Efectivo') cashSalesTotal += ticketTotal;
+      if (paymentMethod === 'Tarjeta') cardSalesTotal += ticketTotal;
+      if (paymentMethod === 'Transferencia') transferSalesTotal += ticketTotal;
+    }
 
     const items = Array.isArray(ticket.items) ? ticket.items : [];
     items.forEach((item, itemIdx) => {
@@ -259,34 +284,29 @@ export default function CorteXModal({
       const unitPrice = typeof item?.unitPrice === 'number' ? item.unitPrice : (qty > 0 ? itemTotal / qty : itemTotal);
       const timeStr = safeFormatTime(ticket.timestamp);
 
-      let catKey = 'accesorios';
+      const catKey = classifySaleItem(item);
       let categoryLabel = 'Accesorios y Productos';
 
-      if (pNameLower.includes('abono')) {
+      if (catKey === 'abonos') {
         totalAbonos += itemTotal;
         countAbonos += qty;
-        catKey = 'abonos';
         categoryLabel = 'Abonos a Crédito';
-      } else if (pNameLower.includes('enganche') || (cat === 'equipo_credito' && !pNameLower.includes('abono'))) {
+      } else if (catKey === 'enganches') {
         totalEnganches += itemTotal;
         countEnganches += qty;
-        catKey = 'enganches';
         categoryLabel = 'Enganches de Celular';
-      } else if (pNameLower.includes('anticipo') || pNameLower.includes('liquidaci') || pNameLower.includes('saldo final') || cat === 'servicio' || item?.metadata?.repairType) {
+      } else if (catKey === 'reparaciones') {
         totalReparaciones += itemTotal;
         countReparaciones += qty;
-        catKey = 'reparaciones';
         categoryLabel = 'Taller / Reparaciones';
-      } else if (cat === 'recarga' || pNameLower.includes('recarga')) {
+      } else if (catKey === 'recargas') {
         totalRecargas += itemTotal;
         countRecargas += qty;
-        catKey = 'recargas';
-        categoryLabel = 'Recargas Tiempo Aire';
+        categoryLabel = 'Recargas';
       } else {
         totalAccesoriosProductos += itemTotal;
         countAccesoriosProductos += qty;
-        catKey = 'accesorios';
-        categoryLabel = 'Accesorios y Productos';
+        categoryLabel = 'Productos / Equipos';
       }
 
       let conceptName = pName;
@@ -435,9 +455,7 @@ export default function CorteXModal({
 
   const currentDateStr = isHistoric ? existingCorteRecord.dateStr : safeFormatDate(new Date());
   const currentTimeStr = isHistoric ? existingCorteRecord.timeStr : safeFormatTime(new Date());
-  const todayIso = safeDateIsoKey(new Date());
-  const strictCorteId = `CTX_${effectiveBranchId}_${todayIso}`;
-  const corteFolio = isHistoric ? existingCorteRecord.id : strictCorteId;
+  const corteFolio = isHistoric ? existingCorteRecord.id : (activeSessionId || `SES-${effectiveBranchId}-${Date.now().toString(36).toUpperCase()}`);
 
   const toggleCategory = (cat: string) => {
     setExpandedCategories(prev => ({
@@ -510,13 +528,14 @@ export default function CorteXModal({
       ? storedBranchFund 
       : Math.min(1000, Math.max(0, expectedCashInDrawer));
     setNextCashFundInput(defaultLeftFund.toFixed(2));
+    setCountedCashInput(expectedCashInDrawer.toFixed(2));
     setShiftClosureNotes('');
     setShouldPrintOnClose(true);
     setIsClosingShiftDialog(true);
   };
 
-  const handleFinalizeShift = async (fundLeft: number, notes: string, printTicket: boolean) => {
-    const cashWithdrawn = Math.max(0, expectedCashInDrawer - fundLeft);
+  const handleFinalizeShift = async (fundLeft: number, notes: string, printTicket: boolean, countedCash: number) => {
+    const cashWithdrawn = Math.max(0, money(countedCash) - fundLeft);
     setClosedShiftFundSnapshot({ fundLeft, cashWithdrawn, notes });
     setIsFinishingShift(true);
     setIsClosingShiftDialog(false);
@@ -551,6 +570,8 @@ export default function CorteXModal({
       totalExpenses: totalExpenses,
       netIncome: netIncome,
       expectedCashInDrawer: expectedCashInDrawer,
+      countedCash: money(countedCash),
+      cashDifference: money(countedCash - expectedCashInDrawer),
       ticketIds: branchTickets.map((t) => t.id),
       expenseIds: branchExpenses.map((e) => e.id),
       ticketsSnapshot: branchTickets,
@@ -1743,11 +1764,43 @@ export default function CorteXModal({
               {/* Drawer Cash Summary */}
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1.5">
                 <div className="flex justify-between items-center text-slate-700">
-                  <span>Efectivo Total en Caja:</span>
+                  <span>Efectivo esperado en caja:</span>
                   <strong className="text-base font-black text-slate-900 font-mono">
                     ${expectedCashInDrawer.toFixed(2)}
                   </strong>
                 </div>
+                <p className="text-[10px] text-slate-500">Fondo inicial + ventas en efectivo − gastos.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-black text-slate-800 uppercase">
+                  Efectivo contado en el cajón:
+                </label>
+                <div className="relative">
+                  <DollarSign className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={countedCashInput}
+                    onChange={(e) => setCountedCashInput(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 text-sm font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-mono"
+                    placeholder={expectedCashInDrawer.toFixed(2)}
+                  />
+                </div>
+                {(() => {
+                  const counted = parseFloat(countedCashInput);
+                  if (isNaN(counted)) return null;
+                  const diff = counted - expectedCashInDrawer;
+                  if (Math.abs(diff) < 0.005) {
+                    return <p className="text-[11px] text-emerald-700 font-bold">Arqueo cuadrado.</p>;
+                  }
+                  return (
+                    <p className={`text-[11px] font-bold ${diff > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {diff > 0 ? 'Sobrante' : 'Faltante'}: ${Math.abs(diff).toFixed(2)}
+                    </p>
+                  );
+                })()}
               </div>
 
               {/* Fund Left Input */}
@@ -1769,7 +1822,9 @@ export default function CorteXModal({
                 </div>
                 {(() => {
                   const fund = parseFloat(nextCashFundInput) || 0;
-                  const withdraw = Math.max(0, expectedCashInDrawer - fund);
+                  const counted = parseFloat(countedCashInput);
+                  const base = isNaN(counted) ? expectedCashInDrawer : counted;
+                  const withdraw = Math.max(0, base - fund);
                   return (
                     <p className="text-[11px] text-slate-600">
                       Efectivo a retirar / resguardar: <strong className="font-bold text-slate-900 font-mono">${withdraw.toFixed(2)}</strong>
@@ -1821,10 +1876,12 @@ export default function CorteXModal({
                 type="button"
                 onClick={() => {
                   const finalFund = parseFloat(nextCashFundInput);
+                  const counted = parseFloat(countedCashInput);
                   handleFinalizeShift(
                     isNaN(finalFund) || finalFund < 0 ? 0 : finalFund,
                     shiftClosureNotes,
-                    shouldPrintOnClose
+                    shouldPrintOnClose,
+                    isNaN(counted) || counted < 0 ? expectedCashInDrawer : counted
                   );
                 }}
                 className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center gap-2"

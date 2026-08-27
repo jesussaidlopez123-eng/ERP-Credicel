@@ -20,6 +20,7 @@ export default function Login({
   branches = ALL_BRANCHES 
 }: LoginProps) {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string>('o1');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -33,11 +34,12 @@ export default function Login({
   // Automatically resolve the branch assigned to this operator in Administration
   const assignedBranch: Branch = React.useMemo(() => {
     if (!selectedOperator) return safeBranches[0];
-    const assignedBranchId = selectedOperator.branchIds && selectedOperator.branchIds.length > 0 
-      ? selectedOperator.branchIds[0] 
-      : safeBranches[0]?.id;
-    return safeBranches.find((b) => b.id === assignedBranchId) || safeBranches[0];
-  }, [selectedOperator, safeBranches]);
+    const allowed = (selectedOperator.branchIds || []).filter(Boolean);
+    const preferred = selectedBranchId && allowed.includes(selectedBranchId)
+      ? selectedBranchId
+      : (allowed.find((id) => id !== 'b-bodega') || allowed[0] || safeBranches[0]?.id);
+    return safeBranches.find((b) => b.id === preferred) || safeBranches[0];
+  }, [selectedOperator, safeBranches, selectedBranchId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +63,12 @@ export default function Login({
     }
 
     // Strict Password Validation against configured operator password
-    const expectedPassword = operator.password !== undefined ? operator.password : '123';
+    const expectedPassword = operator.password;
+
+    if (!expectedPassword) {
+      setError('Este operador no tiene contraseña configurada. Pide al administrador que la asigne.');
+      return;
+    }
 
     if (password !== expectedPassword) {
       setError(`❌ Contraseña incorrecta para '${operator.name}'. Verifique sus credenciales.`);
@@ -126,6 +133,7 @@ export default function Login({
                   value={selectedOperatorId}
                   onChange={(e) => {
                     setSelectedOperatorId(e.target.value);
+                    setSelectedBranchId('');
                     setPassword('');
                     setError('');
                   }}
@@ -145,23 +153,40 @@ export default function Login({
 
             {/* Automatically Display Assigned Branch */}
             {selectedOperator && (
-              <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl space-y-1">
+              <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
                     <Store className="w-3.5 h-3.5 text-blue-600" />
-                    Sucursal Asignada:
+                    Sucursal de trabajo:
                   </span>
                   {getRoleBadge(selectedOperator.role)}
                 </div>
-                
-                <div className="flex items-center justify-between gap-2 pt-0.5">
-                  <span className="text-sm font-black text-blue-950">
-                    {assignedBranch?.name || 'Sucursal Asignada'}
-                  </span>
-                  <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-lg">
-                    {assignedBranch?.id || 'SUCURSAL'}
-                  </span>
-                </div>
+
+                {(selectedOperator.branchIds || []).length > 1 ? (
+                  <select
+                    value={assignedBranch?.id || ''}
+                    onChange={(e) => setSelectedBranchId(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-sm font-black text-blue-950"
+                  >
+                    {(selectedOperator.branchIds || []).map((id) => {
+                      const b = safeBranches.find((br) => br.id === id);
+                      return (
+                        <option key={id} value={id}>
+                          {b?.name || id}
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <span className="text-sm font-black text-blue-950">
+                      {assignedBranch?.name || 'Sucursal Asignada'}
+                    </span>
+                    <span className="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-lg">
+                      {assignedBranch?.id || 'SUCURSAL'}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

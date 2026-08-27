@@ -3,34 +3,31 @@
  * Prevents RangeError: Invalid time value when handling legacy or Firestore dates
  */
 
-export function parseSafeDate(val: any): Date {
-  if (!val) return new Date();
+export function tryParseDate(val: any): Date | null {
+  if (val === null || val === undefined || val === '') return null;
   if (val instanceof Date) {
-    return isNaN(val.getTime()) ? new Date() : val;
+    return isNaN(val.getTime()) ? null : val;
   }
-  // Handle Firestore Timestamp or similar objects with toDate()
   if (val && typeof val.toDate === 'function') {
     try {
       const d = val.toDate();
-      return d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : null;
     } catch {
-      // fallback
+      return null;
     }
   }
-  // Handle objects with seconds (Firestore plain JSON timestamp representation)
   if (val && typeof val.seconds === 'number') {
     const d = new Date(val.seconds * 1000);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   }
   if (typeof val === 'number') {
     const d = new Date(val);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   }
   if (typeof val === 'string') {
     const trimmed = val.trim();
-    if (!trimmed) return new Date();
+    if (!trimmed) return null;
 
-    // 1. Handle standard pure date YYYY-MM-DD (treat as local midday to avoid UTC midnight date rollback)
     const ymdMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (ymdMatch) {
       const year = parseInt(ymdMatch[1], 10);
@@ -40,7 +37,6 @@ export function parseSafeDate(val: any): Date {
       if (!isNaN(d.getTime())) return d;
     }
 
-    // 2. Handle DD/MM/YYYY or DD/MM/YYYY HH:mm:ss
     if (trimmed.includes('/')) {
       const parts = trimmed.split(/[\s,]+/);
       const datePart = parts[0];
@@ -66,73 +62,57 @@ export function parseSafeDate(val: any): Date {
       }
     }
 
-    // 3. Direct standard ISO / RFC parse
     const directDate = new Date(trimmed);
     if (!isNaN(directDate.getTime())) return directDate;
-
-    // 4. Handle pure time string like "14:30:15" or "02:30:15 p. m."
-    if (trimmed.includes(':') && !trimmed.includes('-') && !trimmed.includes('/')) {
-      const today = new Date();
-      return today;
-    }
   }
 
-  return new Date();
+  return null;
+}
+
+export function parseSafeDate(val: any): Date {
+  return tryParseDate(val) ?? new Date();
 }
 
 export function safeIsoString(val: any): string {
   try {
-    const d = parseSafeDate(val);
+    const d = tryParseDate(val) ?? new Date();
     return d.toISOString();
   } catch {
     return new Date().toISOString();
   }
 }
 
+/** Calendar key YYYY-MM-DD. Returns empty string when the value is not a real date (never invents "today"). */
 export function safeDateIsoKey(val: any): string {
-  try {
-    const d = parseSafeDate(val);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  } catch {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
+  const d = tryParseDate(val);
+  if (!d) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function safeFormatDate(val: any): string {
-  try {
-    const d = parseSafeDate(val);
-    return d.toLocaleDateString('es-MX', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-  } catch {
-    return new Date().toLocaleDateString('es-MX');
-  }
+  const d = tryParseDate(val);
+  if (!d) return '--/--/----';
+  return d.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
 }
 
 export function safeFormatTime(val: any): string {
   if (typeof val === 'string') {
     const trimmed = val.trim();
-    // If it's already a pure time string like "14:30:15" or "02:30 p. m."
     if (trimmed.includes(':') && !trimmed.includes('-') && !trimmed.includes('/')) {
       return trimmed;
     }
   }
-  try {
-    const d = parseSafeDate(val);
-    return d.toLocaleTimeString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
-    return '--:--';
-  }
+  const d = tryParseDate(val);
+  if (!d) return '--:--';
+  return d.toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }

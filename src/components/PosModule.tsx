@@ -28,7 +28,7 @@ import {
   RotateCcw,
   Printer
 } from 'lucide-react';
-import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord } from '../types';
+import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
 import RechargeModal from './RechargeModal';
 import CreditDeviceModal from './CreditDeviceModal';
 import ExpenseModal from './ExpenseModal';
@@ -41,6 +41,8 @@ import PaymentCheckoutModal from './PaymentCheckoutModal';
 import CreditPaymentModal from './CreditPaymentModal';
 import CaseModelModal from './CaseModelModal';
 import { RepairPriceItem } from '../types';
+import { newTicketId } from '../lib/ids';
+import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
 
 interface PosModuleProps {
   products: Product[];
@@ -66,6 +68,11 @@ interface PosModuleProps {
   onLogout?: () => void;
   cortesX?: CorteXRecord[];
   initialCashFund?: number;
+  activeCashSession?: SesionCaja | null;
+  creditAccounts?: CreditAccount[];
+  repairRecords?: RepairRecord[];
+  onAddRepairRecord?: (record: RepairRecord) => void;
+  onUpdateRepairRecord?: (record: RepairRecord) => void;
 }
 
 
@@ -92,7 +99,12 @@ export default function PosModule({
   onFinalizeCorteX,
   onLogout,
   cortesX = [],
-  initialCashFund
+  initialCashFund,
+  activeCashSession = null,
+  creditAccounts = [],
+  repairRecords: repairRecordsProp,
+  onAddRepairRecord,
+  onUpdateRepairRecord
 }: PosModuleProps) {
 
   // Cart state
@@ -131,7 +143,7 @@ export default function PosModule({
   const [isCreditDeviceModalOpen, setIsCreditDeviceModalOpen] = useState(false);
   const [selectedCreditProduct, setSelectedCreditProduct] = useState<Product | null>(null);
 
-  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>(() => {
+  const [localRepairRecords, setLocalRepairRecords] = useState<RepairRecord[]>(() => {
     try {
       const saved = localStorage.getItem(`erp_repair_records_${currentBranch.id}`);
       if (saved) {
@@ -143,13 +155,16 @@ export default function PosModule({
     return [];
   });
 
+  const repairRecords = repairRecordsProp ?? localRepairRecords;
+
   useEffect(() => {
+    if (repairRecordsProp) return;
     try {
-      localStorage.setItem(`erp_repair_records_${currentBranch.id}`, JSON.stringify(repairRecords));
+      localStorage.setItem(`erp_repair_records_${currentBranch.id}`, JSON.stringify(localRepairRecords));
     } catch (e) {
       console.error('Error saving repair records', e);
     }
-  }, [repairRecords, currentBranch.id]);
+  }, [localRepairRecords, currentBranch.id, repairRecordsProp]);
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
   const [internalExpenseOpen, setInternalExpenseOpen] = useState(false);
   const [internalCorteXOpen, setInternalCorteXOpen] = useState(false);
@@ -207,55 +222,24 @@ export default function PosModule({
 
     const queryUpper = query.toUpperCase();
 
-    // 1. Direct IMEI Lookup across all products
-    let foundProductByImei: Product | null = null;
-    let foundImeiString: string = '';
-    let foundInBranchId: string = '';
-
-    for (const p of products) {
-      if (p.inventoryType === 'equipo' || p.category === 'equipo_credito') {
-        // Check current branch IMEIs first
-        const bImeis = p.branchImeiMap?.[currentBranch.id] || [];
-        if (bImeis.some((im) => im.toUpperCase() === queryUpper)) {
-          foundProductByImei = p;
-          foundImeiString = queryUpper;
-          foundInBranchId = currentBranch.id;
-          break;
-        }
-
-        // Check other branches
-        if (p.branchImeiMap) {
-          for (const [bId, list] of Object.entries(p.branchImeiMap)) {
-            if (list.some((im) => im.toUpperCase() === queryUpper)) {
-              foundProductByImei = p;
-              foundImeiString = queryUpper;
-              foundInBranchId = bId;
-            }
-          }
-        } else if (p.imeiList?.some((im) => im.toUpperCase() === queryUpper) || p.imei?.toUpperCase() === queryUpper) {
-          foundProductByImei = p;
-          foundImeiString = queryUpper;
-          foundInBranchId = currentBranch.id;
-        }
-      }
+    const imeiLookup = findImeiInInventory(products, queryUpper, currentBranch.id);
+    if (imeiLookup.status === 'other_branch') {
+      setScanFeedback({
+        type: 'error',
+        text: `❌ SUCURSAL INCORRECTA: El IMEI "${queryUpper}" pertenece a ${branchDisplayShort(imeiLookup.branchId)}. Realice el traspaso formal a ${currentBranch.name}.`
+      });
+      setScannerInput('');
+      setTimeout(() => setScanFeedback(null), 4000);
+      return;
     }
-
-    if (foundProductByImei) {
-      if (foundInBranchId !== currentBranch.id) {
-        const branchName = foundInBranchId === 'b-bodega' ? 'Bodega' : foundInBranchId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo';
-        setScanFeedback({
-          type: 'error',
-          text: `❌ SUCURSAL INCORRECTA: El IMEI "${foundImeiString}" pertenece a ${branchName}. Realice el traspaso formal a ${currentBranch.name}.`
-        });
-      } else {
-        playBeepSound();
-        setSelectedCreditProduct(foundProductByImei);
-        setIsCreditDeviceModalOpen(true);
-        setScanFeedback({
-          type: 'success',
-          text: `¡IMEI Validado!: ${foundProductByImei.name}. Seleccione Contado o Crédito.`
-        });
-      }
+    if (imeiLookup.status === 'found') {
+      playBeepSound();
+      setSelectedCreditProduct(imeiLookup.product);
+      setIsCreditDeviceModalOpen(true);
+      setScanFeedback({
+        type: 'success',
+        text: `¡IMEI Validado!: ${imeiLookup.product.name}. Seleccione Contado o Crédito.`
+      });
       setScannerInput('');
       setTimeout(() => setScanFeedback(null), 4000);
       return;
@@ -472,6 +456,11 @@ export default function PosModule({
     }
 
     // Standard products (Accessories, fixed price services, etc.)
+    if (isOutOfStockProduct(product)) {
+      setScanFeedback({ type: 'error', text: `Sin stock en ${currentBranch.name} para ${product.name}.` });
+      setTimeout(() => setScanFeedback(null), 3500);
+      return;
+    }
     addToCart(product, product.price);
   };
 
@@ -479,7 +468,28 @@ export default function PosModule({
     addToCart(product, product.price, { caseModel: modelName }, quantity);
   };
 
+  const isOutOfStockProduct = (p: Product): boolean => {
+    if (VIRTUAL_POS_PRODUCT_IDS.has(p.id)) return false;
+    if (p.category === 'recarga' || p.category === 'servicio') return false;
+    return getBranchStockQty(p, currentBranch.id) <= 0;
+  };
+
   const addToCart = (product: Product, unitPrice: number, metadata?: CartItemMetadata, initialQty: number = 1) => {
+    if (!isVirtualPosProduct(product) && product.category !== 'recarga' && product.category !== 'servicio' && !metadata?.repairType && metadata?.saleType !== 'abono') {
+      const available = getBranchStockQty(product, currentBranch.id);
+      const alreadyInCart = cart
+        .filter((i) => i.product.id === product.id && !i.metadata?.imei)
+        .reduce((sum, i) => sum + i.quantity, 0);
+      if (alreadyInCart + initialQty > available) {
+        setScanFeedback({
+          type: 'error',
+          text: `Stock insuficiente en ${currentBranch.name}. Disponible: ${available}.`
+        });
+        setTimeout(() => setScanFeedback(null), 3500);
+        return;
+      }
+    }
+
     setCart((prevCart) => {
       // If it's a phone case with a model specified, group by same product AND same caseModel
       if (metadata?.caseModel) {
@@ -556,16 +566,24 @@ export default function PosModule({
     setCart((prev) =>
       prev
         .map((item) => {
-          if (item.cartItemId === cartItemId) {
-            const newQty = item.quantity + delta;
-            if (newQty <= 0) return null;
-            return {
-              ...item,
-              quantity: newQty,
-              totalPrice: newQty * item.unitPrice
-            };
+          if (item.cartItemId !== cartItemId) return item;
+          const newQty = item.quantity + delta;
+          if (newQty <= 0) return null;
+          if (
+            delta > 0 &&
+            !isVirtualPosProduct(item.product) &&
+            item.product.category !== 'recarga' &&
+            item.product.category !== 'servicio' &&
+            !item.metadata?.imei
+          ) {
+            const available = getBranchStockQty(item.product, currentBranch.id);
+            if (newQty > available) return item;
           }
-          return item;
+          return {
+            ...item,
+            quantity: newQty,
+            totalPrice: newQty * item.unitPrice
+          };
         })
         .filter((item): item is CartItem => item !== null)
     );
@@ -597,7 +615,7 @@ export default function PosModule({
     changeVal: number
   ) => {
     const newTicket: SaleTicket = {
-      id: `TCK-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: newTicketId(),
       timestamp: new Date().toISOString(),
       branchId: currentBranch.id,
       operatorName: currentOperator.name,
@@ -823,16 +841,18 @@ export default function PosModule({
               const isEquipoCredito = p.category === 'equipo_credito' || p.inventoryType === 'equipo';
               const isReparacion = p.id === 'prod-reparacion-gen' || (p.category === 'servicio' && p.price === 0);
 
-              const branchStockQty = p.branchStock?.[currentBranch.id] !== undefined
-                ? p.branchStock[currentBranch.id]
-                : p.stock;
+              const branchStockQty = getBranchStockQty(p, currentBranch.id);
 
-              const isOutOfStock = !isRecarga && !isReparacion && p.id !== 'prod-abono-gen' && branchStockQty <= 0;
+              const isOutOfStock = isOutOfStockProduct(p);
 
               return (
                 <button
                   key={p.id}
-                  onClick={() => handleProductClick(p)}
+                  onClick={() => {
+                    if (isOutOfStock) return;
+                    handleProductClick(p);
+                  }}
+                  disabled={isOutOfStock}
                   className={`group relative flex flex-col justify-between p-3.5 rounded-xl border text-left transition-all duration-150 shadow-2xs hover:shadow-md active:scale-[0.98] min-h-[125px] cursor-pointer ${
                     isRecarga 
                       ? 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50'
@@ -1108,6 +1128,7 @@ export default function PosModule({
       <CreditPaymentModal
         isOpen={isCreditPaymentModalOpen}
         onClose={() => setIsCreditPaymentModalOpen(false)}
+        creditAccounts={creditAccounts}
         onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
       />
 
@@ -1126,8 +1147,14 @@ export default function PosModule({
         isOpen={isRepairModalOpen}
         onClose={() => setIsRepairModalOpen(false)}
         repairRecords={repairRecords}
-        onAddRepairRecord={(record) => setRepairRecords((prev) => [record, ...prev])}
-        onUpdateRepairRecord={(record) => setRepairRecords((prev) => prev.map((r) => r.id === record.id ? record : r))}
+        onAddRepairRecord={(record) => {
+          if (onAddRepairRecord) onAddRepairRecord(record);
+          else setLocalRepairRecords((prev) => [record, ...prev]);
+        }}
+        onUpdateRepairRecord={(record) => {
+          if (onUpdateRepairRecord) onUpdateRepairRecord(record);
+          else setLocalRepairRecords((prev) => prev.map((r) => (r.id === record.id ? record : r)));
+        }}
         onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
@@ -1155,6 +1182,8 @@ export default function PosModule({
         currentOperator={currentOperator}
         cortesX={cortesX}
         initialCashFund={initialCashFund}
+        activeSessionId={activeCashSession?.id}
+        sessionOpenedAt={activeCashSession?.fecha_apertura}
         onFinalizeCorteX={onFinalizeCorteX}
         onLogout={onLogout}
       />

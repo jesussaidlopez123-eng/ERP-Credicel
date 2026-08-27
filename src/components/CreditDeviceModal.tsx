@@ -18,6 +18,7 @@ import {
   Printer
 } from 'lucide-react';
 import { Product, CartItemMetadata, Branch } from '../types';
+import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
 
 interface CreditDeviceModalProps {
   isOpen: boolean;
@@ -57,42 +58,22 @@ export default function CreditDeviceModal({
     (p) => 
       (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && 
       p.id !== 'prod-equipo-credito-gen' &&
-      p.id !== 'prod-abono-gen'
+      p.id !== 'prod-abono-gen' &&
+      getBranchStockQty(p, activeBranchId) > 0
   );
 
   const selectedEquipment = availableEquipos.find((p) => p.id === selectedProdId);
 
   // Helper function to check IMEI in system
   const checkImeiInSystem = (cleanImei: string) => {
-    if (!cleanImei || cleanImei.length < 8) return { found: false, product: null, otherBranch: null };
-
-    let foundProduct: Product | null = null;
-    let otherBranchName: string | null = null;
-
-    for (const p of products) {
-      if (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') {
-        const branchImeis = p.branchImeiMap?.[activeBranchId] || [];
-        const allImeis = p.imeiList || (p.imei ? [p.imei] : []);
-
-        if (branchImeis.some((im) => im.toUpperCase() === cleanImei)) {
-          foundProduct = p;
-          break;
-        }
-
-        // Check in other branches
-        if (p.branchImeiMap) {
-          for (const [bId, imList] of Object.entries(p.branchImeiMap)) {
-            if (imList.some((im) => im.toUpperCase() === cleanImei)) {
-              otherBranchName = bId === 'b-bodega' ? 'Bodega' : bId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo';
-            }
-          }
-        } else if (allImeis.some((im) => im.toUpperCase() === cleanImei)) {
-          foundProduct = p;
-        }
-      }
+    const lookup = findImeiInInventory(products, cleanImei, activeBranchId);
+    if (lookup.status === 'found') {
+      return { found: true, product: lookup.product, otherBranch: null as string | null };
     }
-
-    return { found: !!foundProduct, product: foundProduct, otherBranch: otherBranchName };
+    if (lookup.status === 'other_branch') {
+      return { found: false, product: null, otherBranch: branchDisplayShort(lookup.branchId) };
+    }
+    return { found: false, product: null, otherBranch: null as string | null };
   };
 
   const cleanImeiInput = imei.trim().toUpperCase();
