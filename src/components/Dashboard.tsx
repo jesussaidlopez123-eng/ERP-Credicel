@@ -74,10 +74,12 @@ import {
   commitInventoryMovements,
   commitProduct,
   commitSale,
+  forgetLocalSale,
   localCortes,
   localExpenses,
   localSales,
   mergeWithLocal,
+  pruneOldLocalRecords,
   saleAlreadyCommitted,
   sortByTimestampDesc
 } from '../lib/syncQueue';
@@ -293,6 +295,9 @@ export default function Dashboard({
         if (cortes.length > 0) {
           setCortesX((prev) => sortByTimestampDesc(mergeWithLocal(prev, cortes)));
         }
+        void pruneOldLocalRecords().catch((err) =>
+          console.warn('[Local] No se pudo limpiar el historial viejo:', err)
+        );
       } catch (err) {
         console.warn('[Local] No se pudo leer el respaldo del equipo:', err);
       }
@@ -514,6 +519,11 @@ export default function Dashboard({
       } catch (err) {
         console.error('Error en cierre automático 23:00:', err);
         const dateKey = getHermosilloClock().dateKey;
+        const branchTicketsToday = salesTicketsRef.current.filter(
+          (t) =>
+            normalizeBranchId(t.branchId) === normalizeBranchId(currentBranch.id) &&
+            hermosilloDateKey(t.timestamp) === dateKey
+        );
         await enqueue({
           kind: 'corteClose',
           groupKey: normalizeBranchId(currentBranch.id),
@@ -529,6 +539,8 @@ export default function Dashboard({
             fechaCierreIso: `${dateKey}T23:00:00-07:00`,
             preferredSessionId: activeCashSession?.id,
             dateKey,
+            // Sin ventas ni turno que cerrar, no inventamos un corte vacío.
+            createIfMissing: branchTicketsToday.length > 0,
             ticketsSnapshot: salesTicketsRef.current.filter(
               (t) => normalizeBranchId(t.branchId) === normalizeBranchId(currentBranch.id)
             ),
@@ -806,6 +818,9 @@ export default function Dashboard({
   const handleDeleteSaleTicket = async (ticket: SaleTicket | string, reason?: string) => {
     const ticketId = typeof ticket === 'string' ? ticket : ticket.id;
     setSalesTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    // Sin esto el ticket cancelado reaparecía al recargar, desde el respaldo local.
+    localOnlyRef.current.sales = localOnlyRef.current.sales.filter((t) => t.id !== ticketId);
+    await forgetLocalSale(ticketId);
     await deleteSaleTicketFromFirestore(ticket, {
       reason: reason || 'Error de captura de operador',
       operatorName: currentOperator.name

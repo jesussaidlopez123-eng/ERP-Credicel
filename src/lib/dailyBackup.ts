@@ -117,6 +117,20 @@ export function buildDailyBackup(params: {
   };
 }
 
+/**
+ * Un documento de Firestore no puede pasar de ~1 MB. En un día muy movido el
+ * detalle completo no cabe, así que a la nube sube el resumen con la lista de
+ * folios; el detalle completo se queda en el equipo y en el archivo descargable
+ * (las ventas ya viven una por una en `ventas`, no se pierde nada).
+ */
+const MAX_EMBEDDED_ROWS = 250;
+
+export function backupForCloud(backup: DailyBackup): DailyBackup & { truncated?: boolean } {
+  const tooBig = backup.tickets.length + backup.expenses.length > MAX_EMBEDDED_ROWS;
+  if (!tooBig) return backup;
+  return { ...backup, tickets: [], expenses: [], cortes: [], truncated: true };
+}
+
 export async function saveDailyBackup(backup: DailyBackup): Promise<void> {
   await putRecord<DailyBackup>({
     kind: 'backup',
@@ -132,7 +146,7 @@ export async function saveDailyBackup(backup: DailyBackup): Promise<void> {
     groupKey: `respaldo-${backup.branchId}`,
     id: `backup-${backup.id}`,
     label: `Respaldo ${backup.branchName} ${backup.dateKey}`,
-    payload: backup
+    payload: backupForCloud(backup)
   });
 
   void drainOutbox().catch(() => {});

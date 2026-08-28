@@ -43,9 +43,12 @@ export function loadCachedList<T>(name: string): T[] {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+/** Tope del caché rápido: localStorage es chico y llenarlo tira escrituras. */
+const CACHE_MAX_ROWS = 400;
+
 export function saveCachedList<T>(name: string, rows: T[]): void {
   if (!Array.isArray(rows)) return;
-  writeJson(`${PREFIX}_${name}`, rows);
+  writeJson(`${PREFIX}_${name}`, rows.slice(0, CACHE_MAX_ROWS));
 }
 
 export function loadCachedProducts(fallback: Product[]): Product[] {

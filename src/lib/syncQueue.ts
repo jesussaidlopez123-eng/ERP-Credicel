@@ -11,8 +11,8 @@ import { normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
-import { LocalRecord, getRecord, listRecords, putRecord } from './localDb';
-import { drainOutbox, enqueue } from './outbox';
+import { LocalRecord, RecordKind, deleteRecord, getRecord, listRecords, putRecord } from './localDb';
+import { drainOutbox, enqueue, listPendingOutbox } from './outbox';
 import {
   EXPENSES_COLLECTION,
   GASTOS_COLLECTION,
@@ -242,4 +242,41 @@ export function sortByTimestampDesc<T extends { timestamp?: string }>(rows: T[])
   return rows
     .slice()
     .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+}
+
+/** Un ticket cancelado no debe revivir desde el respaldo del equipo. */
+export async function forgetLocalSale(ticketId: string): Promise<void> {
+  await deleteRecord('sale', ticketId);
+}
+
+const LOCAL_RETENTION_DAYS = 45;
+
+/**
+ * Suelta lo viejo del equipo para que la caja no se llene con meses de historia.
+ * Nunca borra algo que siga esperando en la cola.
+ */
+export async function pruneOldLocalRecords(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - LOCAL_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoffKey = hermosilloDateKey(cutoff.toISOString());
+  if (!cutoffKey) return 0;
+
+  const pending = await listPendingOutbox();
+  const protectedIds = new Set<string>();
+  pending.forEach((row) => {
+    const raw = row.id.split('-').slice(1).join('-');
+    if (raw) protectedIds.add(raw);
+  });
+
+  const kinds: RecordKind[] = ['sale', 'expense', 'corte', 'backup'];
+  let removed = 0;
+  for (const kind of kinds) {
+    const rows = await listRecords(kind);
+    for (const row of rows) {
+      if (!row.dateKey || row.dateKey >= cutoffKey) continue;
+      if (protectedIds.has(row.id)) continue;
+      await deleteRecord(kind, row.id);
+      removed += 1;
+    }
+  }
+  return removed;
 }

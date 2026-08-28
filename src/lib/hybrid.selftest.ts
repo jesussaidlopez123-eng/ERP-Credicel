@@ -122,6 +122,82 @@ for (let seq = 1; seq <= 200; seq++) {
 }
 assert.equal(folios.size, 200, 'los folios del bloque no se repiten');
 
+// ---- limpieza del historial viejo, sin tocar lo pendiente ----
+const { pruneOldLocalRecords, forgetLocalSale } = await import('./syncQueue.ts');
+
+await putRecord({
+  kind: 'sale',
+  id: 'TCK-VIEJO',
+  branchId: 'b-navojoa',
+  dateKey: '2020-01-01',
+  data: { id: 'TCK-VIEJO', total: 10 },
+  updatedAt: '2020-01-01T12:00:00-07:00'
+});
+await putRecord({
+  kind: 'sale',
+  id: 'TCK-VIEJO-PENDIENTE',
+  branchId: 'b-navojoa',
+  dateKey: '2020-01-01',
+  data: { id: 'TCK-VIEJO-PENDIENTE', total: 10 },
+  updatedAt: '2020-01-01T12:00:00-07:00'
+});
+await enqueue({
+  kind: 'prueba',
+  groupKey: 'b-navojoa',
+  id: 'sale-TCK-VIEJO-PENDIENTE',
+  payload: { nombre: 'pendiente-viejo' }
+});
+
+await pruneOldLocalRecords();
+assert.equal(
+  await getRecord('sale', 'TCK-VIEJO'),
+  null,
+  'lo viejo ya confirmado se suelta para no llenar el equipo'
+);
+assert.ok(
+  await getRecord('sale', 'TCK-VIEJO-PENDIENTE'),
+  'lo viejo que sigue en la cola nunca se borra'
+);
+assert.ok(await getRecord('sale', 'TCK-1'), 'lo reciente se conserva');
+
+await forgetLocalSale('TCK-1');
+assert.equal(
+  await getRecord('sale', 'TCK-1'),
+  null,
+  'un ticket cancelado no revive desde el respaldo local'
+);
+
+// ---- respaldo diario: no rebasar el tamaño de un documento ----
+const { backupForCloud } = await import('./dailyBackup.ts');
+const baseBackup = {
+  id: 'b-navojoa-2026-08-28',
+  branchId: 'b-navojoa',
+  branchName: 'Navojoa',
+  dateKey: '2026-08-28',
+  generatedAt: trustedIso(),
+  deviceId: getDeviceId(),
+  deviceLabel: 'Caja',
+  ticketCount: 3,
+  expenseCount: 0,
+  totalSales: 300,
+  cashSales: 300,
+  cardSales: 0,
+  transferSales: 0,
+  totalExpenses: 0,
+  corteIds: [],
+  ticketIds: ['a', 'b', 'c'],
+  expenseIds: [],
+  tickets: [],
+  expenses: [],
+  cortes: [],
+  checksum: 'X'
+};
+const chico = backupForCloud({ ...baseBackup, tickets: new Array(10).fill({ id: 'x' }) } as never);
+assert.equal(chico.tickets.length, 10, 'un día normal sube con su detalle');
+const grande = backupForCloud({ ...baseBackup, tickets: new Array(600).fill({ id: 'x' }) } as never);
+assert.equal(grande.truncated, true, 'un día enorme sube como resumen');
+assert.equal(grande.ticketIds.length, 3, 'el resumen conserva la lista de folios');
+
 // ---- firma del respaldo ----
 const firmaA = computeChecksum(['t1', 't2'], ['g1'], 1307);
 const firmaB = computeChecksum(['t2', 't1'], ['g1'], 1307);
