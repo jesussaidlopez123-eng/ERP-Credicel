@@ -46,16 +46,36 @@ async function readLease(branchId: string, dateKey: string): Promise<FolioLease 
   return lease;
 }
 
+/**
+ * Dos llamadas al mismo tiempo (montaje doble, dos pestañas) apartaban dos
+ * bloques y el contador del día saltaba de 25 en 25 sin vender nada.
+ */
+const inflightLeases = new Map<string, Promise<FolioLease | null>>();
+
 async function acquireLease(branchId: string, dateKey: string): Promise<FolioLease | null> {
-  try {
-    const block = await leaseFolioBlock(branchId, dateKey, FOLIO_BLOCK_SIZE);
-    const lease: FolioLease = { branchId, dateKey, next: block.start, end: block.end };
-    await setMeta(leaseKey(branchId, dateKey), lease);
-    return lease;
-  } catch (err) {
-    console.warn('[Folios] No se pudo apartar bloque de folios (se sigue sin internet):', err);
-    return null;
-  }
+  const key = leaseKey(branchId, dateKey);
+  const pending = inflightLeases.get(key);
+  if (pending) return pending;
+
+  const work = (async (): Promise<FolioLease | null> => {
+    // Otra llamada pudo dejar bloque disponible mientras esperábamos.
+    const existing = await readLease(branchId, dateKey);
+    if (existing && existing.next <= existing.end) return existing;
+    try {
+      const block = await leaseFolioBlock(branchId, dateKey, FOLIO_BLOCK_SIZE);
+      const lease: FolioLease = { branchId, dateKey, next: block.start, end: block.end };
+      await setMeta(key, lease);
+      return lease;
+    } catch (err) {
+      console.warn('[Folios] No se pudo apartar bloque de folios (se sigue sin internet):', err);
+      return null;
+    }
+  })().finally(() => {
+    if (inflightLeases.get(key) === work) inflightLeases.delete(key);
+  });
+
+  inflightLeases.set(key, work);
+  return work;
 }
 
 async function nextProvisional(branchId: string, dateKey: string): Promise<string> {
