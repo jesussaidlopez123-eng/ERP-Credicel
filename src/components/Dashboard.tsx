@@ -254,6 +254,24 @@ export default function Dashboard({
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);
 
+  // Folios apartados por adelantado: sin esto, una caja que pierde la red
+  // tendría que emitir folios provisionales.
+  useEffect(() => {
+    if (currentBranch.id === 'b-bodega') return;
+    const warm = () => {
+      void warmUpFolios(currentBranch.id).catch((err) =>
+        console.warn('[Folios] No se pudo apartar el bloque de folios:', err)
+      );
+    };
+    warm();
+    const interval = window.setInterval(warm, 5 * 60 * 1000);
+    window.addEventListener('online', warm);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('online', warm);
+    };
+  }, [currentBranch.id]);
+
   // Al abrir, recuperamos del disco lo que este equipo alcanzó a guardar.
   useEffect(() => {
     let cancelled = false;
@@ -582,7 +600,7 @@ export default function Dashboard({
   };
 
   // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)
-  const handleCompleteSale = async (ticket: SaleTicket) => {
+  const handleCompleteSale = async (ticket: SaleTicket): Promise<SaleTicket | void> => {
     if (saleInFlightIdsRef.current.has(ticket.id)) {
       return;
     }
@@ -773,6 +791,8 @@ export default function Dashboard({
           .catch((err) => console.error('Error applying credit payment:', err));
       }
     }
+
+    return enrichedTicket;
     } catch (err) {
       console.error('Error completing sale:', err);
       throw err instanceof Error

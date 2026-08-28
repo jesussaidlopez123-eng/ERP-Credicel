@@ -51,7 +51,7 @@ interface PosModuleProps {
   currentOperator: Operator;
   salesTickets: SaleTicket[];
   expenses: Expense[];
-  onCompleteSale: (ticket: SaleTicket) => void | Promise<void>;
+  onCompleteSale: (ticket: SaleTicket) => void | Promise<void | SaleTicket>;
   onAddExpense: (expense: Expense) => void;
   isCorteXOpen?: boolean;
   setIsCorteXOpen?: (open: boolean) => void;
@@ -635,9 +635,10 @@ export default function PosModule({
       : ticket;
     pendingTicketRef.current = toSave;
     try {
-      await Promise.resolve(onCompleteSale(toSave));
+      const saved = await Promise.resolve(onCompleteSale(toSave));
       pendingTicketRef.current = null;
-      setCompletedTicket(toSave);
+      // El ticket impreso debe llevar el folio corto que asignó la caja.
+      setCompletedTicket(saved && typeof saved === 'object' ? saved : toSave);
       setIsTicketReceiptOpen(true);
       clearCart();
       return true;
