@@ -83,7 +83,7 @@ import {
   saleAlreadyCommitted,
   sortByTimestampDesc
 } from '../lib/syncQueue';
-import { allocateFolio, warmUpFolios } from '../lib/folioAllocator';
+import { allocateFolio, clearFolioLeaseCooldown, warmUpFolios } from '../lib/folioAllocator';
 import { ensureDailyBackup } from '../lib/dailyBackup';
 import { observeTrustedIso } from '../lib/clockGuard';
 import SyncStatusChip from './SyncStatusChip';
@@ -260,17 +260,19 @@ export default function Dashboard({
   // tendría que emitir folios provisionales.
   useEffect(() => {
     if (currentBranch.id === 'b-bodega') return;
-    const warm = () => {
+    const warm = (immediate = false) => {
+      if (immediate) clearFolioLeaseCooldown();
       void warmUpFolios(currentBranch.id).catch((err) =>
         console.warn('[Folios] No se pudo apartar el bloque de folios:', err)
       );
     };
     warm();
-    const interval = window.setInterval(warm, 5 * 60 * 1000);
-    window.addEventListener('online', warm);
+    const interval = window.setInterval(() => warm(), 5 * 60 * 1000);
+    const onOnline = () => warm(true);
+    window.addEventListener('online', onOnline);
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener('online', warm);
+      window.removeEventListener('online', onOnline);
     };
   }, [currentBranch.id]);
 
@@ -663,7 +665,7 @@ export default function Dashboard({
         sesion_caja_id: session?.id || ticket.sesion_caja_id
       };
       if (!enrichedTicket.folio) {
-        enrichedTicket.folio = await allocateFolio(enrichedTicket.branchId);
+        enrichedTicket.folio = await allocateFolio(enrichedTicket.branchId, enrichedTicket.timestamp);
       }
 
       await commitSale(enrichedTicket);

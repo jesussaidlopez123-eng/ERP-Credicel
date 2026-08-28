@@ -12,12 +12,26 @@
 import { branchFolioCode, normalizeBranchId } from '../data/initialBranches';
 import { formatTicketFolio } from './ids';
 import { getMeta, setMeta } from './localDb';
+import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey } from './clockGuard';
 import { getDeviceCode } from './deviceId';
 import { leaseFolioBlock } from './firebase';
 
 export const FOLIO_BLOCK_SIZE = 25;
 const REFILL_THRESHOLD = 5;
+
+export type FolioLeaseProvider = (
+  branchId: string,
+  dateKey: string,
+  size: number
+) => Promise<{ start: number; end: number }>;
+
+let leaseProvider: FolioLeaseProvider = leaseFolioBlock;
+
+/** Permite sustituir el contador de la nube al simular un día de operación. */
+export function setFolioLeaseProvider(fn: FolioLeaseProvider): void {
+  leaseProvider = fn;
+}
 
 interface FolioLease {
   branchId: string;
@@ -52,22 +66,38 @@ async function readLease(branchId: string, dateKey: string): Promise<FolioLease 
  */
 const inflightLeases = new Map<string, Promise<FolioLease | null>>();
 
+/**
+ * Sin internet, pedir bloque falla. Volver a intentarlo en cada venta metía la
+ * espera de red en el cobro; con esto se emite folio provisional de inmediato y
+ * se reintenta más tarde.
+ */
+const LEASE_RETRY_COOLDOWN_MS = 60_000;
+const leaseCooldown = new Map<string, number>();
+
 async function acquireLease(branchId: string, dateKey: string): Promise<FolioLease | null> {
   const key = leaseKey(branchId, dateKey);
   const pending = inflightLeases.get(key);
   if (pending) return pending;
+
+  const cooldownUntil = leaseCooldown.get(key) || 0;
+  if (Date.now() < cooldownUntil) return null;
 
   const work = (async (): Promise<FolioLease | null> => {
     // Otra llamada pudo dejar bloque disponible mientras esperábamos.
     const existing = await readLease(branchId, dateKey);
     if (existing && existing.next <= existing.end) return existing;
     try {
-      const block = await leaseFolioBlock(branchId, dateKey, FOLIO_BLOCK_SIZE);
+      const block = await leaseProvider(branchId, dateKey, FOLIO_BLOCK_SIZE);
       const lease: FolioLease = { branchId, dateKey, next: block.start, end: block.end };
       await setMeta(key, lease);
+      leaseCooldown.delete(key);
       return lease;
     } catch (err) {
-      console.warn('[Folios] No se pudo apartar bloque de folios (se sigue sin internet):', err);
+      leaseCooldown.set(key, Date.now() + LEASE_RETRY_COOLDOWN_MS);
+      console.warn(
+        '[Folios] Sin bloque de folios; se emiten folios provisionales por un minuto.',
+        err instanceof Error ? err.message : err
+      );
       return null;
     }
   })().finally(() => {
@@ -76,6 +106,11 @@ async function acquireLease(branchId: string, dateKey: string): Promise<FolioLea
 
   inflightLeases.set(key, work);
   return work;
+}
+
+/** El botón "Subir ahora" y el evento de reconexión no deben esperar el minuto. */
+export function clearFolioLeaseCooldown(): void {
+  leaseCooldown.clear();
 }
 
 async function nextProvisional(branchId: string, dateKey: string): Promise<string> {
@@ -91,10 +126,13 @@ async function nextProvisional(branchId: string, dateKey: string): Promise<strin
 
 /**
  * Entrega el siguiente folio de la sucursal. Nunca falla ni bloquea el cobro.
+ *
+ * El folio se numera con el día del ticket, no con el del reloj al momento de
+ * pedirlo, para que folio y corte hablen siempre del mismo día.
  */
-export async function allocateFolio(branchId: string): Promise<string> {
+export async function allocateFolio(branchId: string, ticketIso?: string): Promise<string> {
   const normBId = normalizeBranchId(branchId);
-  const dateKey = trustedDateKey();
+  const dateKey = hermosilloDateKey(ticketIso) || trustedDateKey();
 
   let lease = await readLease(normBId, dateKey);
   if (!lease || lease.next > lease.end) {
@@ -117,8 +155,10 @@ async function maybeRefillLease(branchId: string, dateKey: string): Promise<void
   if (!lease) return;
   const left = lease.end - lease.next + 1;
   if (left > REFILL_THRESHOLD) return;
+  const key = leaseKey(branchId, dateKey);
+  if (Date.now() < (leaseCooldown.get(key) || 0)) return;
   try {
-    const block = await leaseFolioBlock(branchId, dateKey, FOLIO_BLOCK_SIZE);
+    const block = await leaseProvider(branchId, dateKey, FOLIO_BLOCK_SIZE);
     // Solo extendemos si el bloque nuevo continúa después del actual.
     if (block.start === lease.end + 1) {
       await setMeta<FolioLease>(leaseKey(branchId, dateKey), { ...lease, end: block.end });
@@ -131,14 +171,14 @@ async function maybeRefillLease(branchId: string, dateKey: string): Promise<void
       });
     }
   } catch {
-    // sin conexión: seguimos con lo que queda del bloque
+    leaseCooldown.set(key, Date.now() + LEASE_RETRY_COOLDOWN_MS);
   }
 }
 
 /** Aparta folios al abrir la caja para poder vender aunque luego se caiga la red. */
-export async function warmUpFolios(branchId: string): Promise<void> {
+export async function warmUpFolios(branchId: string, atIso?: string): Promise<void> {
   const normBId = normalizeBranchId(branchId);
-  const dateKey = trustedDateKey();
+  const dateKey = hermosilloDateKey(atIso) || trustedDateKey();
   const lease = await readLease(normBId, dateKey);
   if (lease && lease.next <= lease.end) return;
   await acquireLease(normBId, dateKey);

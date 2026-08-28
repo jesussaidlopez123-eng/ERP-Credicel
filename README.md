@@ -69,7 +69,22 @@ Roles: **Administrador** (todo el menú), **Encargado** (punto de venta, inventa
 - `npm run build` — build de producción
 - `npm run preview` — previsualizar el build
 - `npm run lint` — chequeo de TypeScript
-- `npm test` — pruebas del día de caja y del modo híbrido (cola, folios, respaldo)
+- `npm test` — pruebas del día de caja, del modo híbrido y la simulación completa
+- `npm run simulate` — simula un día de operación con la nube cayéndose a media tarde
+
+### Simulación del día
+
+`npm run simulate` corre el código real de captura (almacén local, cola, folios y
+respaldo) contra una nube de mentiras que imita a Firestore, incluido su tope de
+1 MB por documento y el error de cuota agotada. El día simulado incluye: venta
+normal por la mañana, caída de la nube a las 13:00, 16 registros capturados sin
+red, recarga de la página, doble cobro del mismo ticket, reloj del equipo
+atrasado 3 horas, cierre de turno sin nube, agotamiento del bloque de folios y
+la reconexión a las 23:10.
+
+Verifica que no se pierda ninguna venta, que el corte cuadre con las ventas
+reales, que ningún folio se repita, que reintentar el corte no lo duplique y
+que el cobro no espere a la red cuando no hay señal.
 
 ## Datos
 

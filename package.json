@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/lib/shiftHours.selftest.ts && tsx src/lib/hybrid.selftest.ts"
+    "test": "tsx src/lib/shiftHours.selftest.ts && tsx src/lib/hybrid.selftest.ts && tsx scripts/simulate-day.ts",
+    "simulate": "tsx scripts/simulate-day.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
