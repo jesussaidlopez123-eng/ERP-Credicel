@@ -19,6 +19,32 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Compras:** los pedidos se guardan en la nube. Al marcar **Entregado**, la mercancía entra a inventario de Bodega (si el código o nombre coincide con un producto).
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 
+## Sistema híbrido: primero el equipo, luego la nube
+
+El objetivo es simple: **no perder ninguna venta del día**, aunque se caiga el internet o la nube llegue a su límite.
+
+**Cómo se guarda una venta**
+
+1. Al cobrar, el ticket se escribe en el **disco de esa computadora** (IndexedDB). Si esto funcionó, la venta ya está a salvo.
+2. El ticket entra a una **cola de envío**. Ahí espera su turno.
+3. Un trabajador va subiendo la cola a Firestore: en orden, con reintentos y esperas crecientes.
+4. Nada se borra de la cola hasta que la nube confirma. Reintentar es inofensivo porque cada documento sube con su id fijo.
+
+**Orden de los datos.** La cola respeta el orden **por sucursal**: si un ticket de Navojoa no sube, su corte espera. Nunca se guarda un corte sin sus ventas. Huatabampo sigue subiendo aparte, sin trabarse.
+
+**Folios únicos sin internet.** Cada caja aparta un bloque de folios del contador de la nube (por ejemplo del 41 al 65) y va gastando ese bloque. Dos cajas nunca repiten número aunque una pierda la señal. Si un equipo nunca alcanzó a apartar bloque, emite un folio provisional con la clave de esa caja (`NAV-2808-K3M07`), que también es único y se distingue a simple vista.
+
+**Respaldo diario.** Cada sucursal arma una foto del día (ventas, gastos, corte, totales y una firma de verificación). Queda en el equipo, se sube a `dailyBackups` y se puede **descargar como archivo** desde el indicador del encabezado.
+
+**Blindajes**
+
+- **Reloj:** si la fecha de la computadora se atrasa, el sistema usa la última hora buena y avisa. Un equipo mal configurado no manda ventas al día equivocado.
+- **La nube vacía no borra la pantalla:** si Firestore no responde, se conserva lo del equipo.
+- **Cortes:** el sistema ya no borra cortes guardados; si hay que revertir uno, se marca como `reverted`.
+- **Navegador sin IndexedDB:** cae a un modo reducido y avisa que conviene subir el día antes de cerrar.
+
+**Indicador del encabezado.** Muestra `Respaldado`, `N por subir` o `Sin internet`. Al abrirlo se ve qué falta, cuántos folios quedan apartados, el botón **Subir ahora** y **Descargar** el respaldo del día.
+
 ## Requisitos
 
 - Node.js 20 o superior
@@ -43,6 +69,7 @@ Roles: **Administrador** (todo el menú), **Encargado** (punto de venta, inventa
 - `npm run build` — build de producción
 - `npm run preview` — previsualizar el build
 - `npm run lint` — chequeo de TypeScript
+- `npm test` — pruebas del día de caja y del modo híbrido (cola, folios, respaldo)
 
 ## Datos
 

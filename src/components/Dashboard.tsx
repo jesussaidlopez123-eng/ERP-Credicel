@@ -21,9 +21,7 @@ import {
   saveProductToFirestore,
   deleteProductFromFirestore,
   subscribeToSales,
-  saveSaleTicketToFirestore,
   subscribeToExpenses,
-  saveExpenseToFirestore,
   subscribeToRepairPrices,
   saveRepairPriceToFirestore,
   deleteRepairPriceFromFirestore,
@@ -33,16 +31,13 @@ import {
   subscribeToCortesX,
   subscribeToInventoryMovements,
   saveInventoryMovementToFirestore,
-  saveInventoryMovementsBatchToFirestore,
   subscribeToBranchFunds,
   getActiveCashSession,
   subscribeToOpenCashSession,
-  saleTicketExistsInFirestore,
   closeCashSessionIfDue,
   syncPosCashSession,
   closeOpenShiftForBranch,
   recoverMissingDailyCortes,
-  allocateSaleFolio,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
@@ -70,9 +65,26 @@ import {
   loadCachedProducts,
   rememberLastSession,
   removePendingCorte,
-  saveCachedList,
-  savePendingCorte
+  saveCachedList
 } from '../lib/localCloudCache';
+import { enqueue, startOutboxWorker } from '../lib/outbox';
+import {
+  commitCorte,
+  commitExpense,
+  commitInventoryMovements,
+  commitProduct,
+  commitSale,
+  localCortes,
+  localExpenses,
+  localSales,
+  mergeWithLocal,
+  saleAlreadyCommitted,
+  sortByTimestampDesc
+} from '../lib/syncQueue';
+import { allocateFolio, warmUpFolios } from '../lib/folioAllocator';
+import { ensureDailyBackup } from '../lib/dailyBackup';
+import { observeTrustedIso } from '../lib/clockGuard';
+import SyncStatusChip from './SyncStatusChip';
 
 interface DashboardProps {
   currentBranch: Branch;
@@ -122,8 +134,16 @@ export default function Dashboard({
   const nightCloseRanRef = useRef(false);
   const salesTicketsRef = useRef(salesTickets);
   const expensesRef = useRef(expenses);
+  const cortesRef = useRef(cortesX);
+  /** Lo capturado en este equipo que la nube todavía no confirma. */
+  const localOnlyRef = useRef<{ sales: SaleTicket[]; expenses: Expense[]; cortes: CorteXRecord[] }>({
+    sales: [],
+    expenses: [],
+    cortes: []
+  });
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
+  cortesRef.current = cortesX;
 
   const markCloudDown = (message?: string) => {
     setCloudSynced(false);
@@ -156,7 +176,8 @@ export default function Dashboard({
     const unsubSales = subscribeToSales(
       (sales) => {
         setSalesTickets((prev) => {
-          const next = keepIfCloudEmpty(sales, prev);
+          const fromCloud = keepIfCloudEmpty(sales, prev);
+          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.sales));
           saveCachedList('sales', next);
           return next;
         });
@@ -167,7 +188,8 @@ export default function Dashboard({
     const unsubExpenses = subscribeToExpenses(
       (exps) => {
         setExpenses((prev) => {
-          const next = keepIfCloudEmpty(exps, prev);
+          const fromCloud = keepIfCloudEmpty(exps, prev);
+          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.expenses));
           saveCachedList('expenses', next);
           return next;
         });
@@ -184,7 +206,8 @@ export default function Dashboard({
     const unsubCortes = subscribeToCortesX(
       (cortes) => {
         setCortesX((prev) => {
-          const next = keepIfCloudEmpty(cortes, prev);
+          const fromCloud = keepIfCloudEmpty(cortes, prev);
+          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.cortes));
           saveCachedList('cortes', next);
           return next;
         });
@@ -228,39 +251,100 @@ export default function Dashboard({
     };
   }, []);
 
+  // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
+  useEffect(() => startOutboxWorker(), []);
+
+  // Al abrir, recuperamos del disco lo que este equipo alcanzó a guardar.
   useEffect(() => {
     let cancelled = false;
-    const flushPending = async () => {
-      const pending = loadAllPendingCortes();
-      for (const item of pending) {
+    const hydrate = async () => {
+      try {
+        const [sales, exps, cortes] = await Promise.all([
+          localSales(),
+          localExpenses(),
+          localCortes()
+        ]);
+        if (cancelled) return;
+        localOnlyRef.current = { sales, expenses: exps, cortes };
+        if (sales.length > 0) {
+          setSalesTickets((prev) => sortByTimestampDesc(mergeWithLocal(prev, sales)));
+        }
+        if (exps.length > 0) {
+          setExpenses((prev) => sortByTimestampDesc(mergeWithLocal(prev, exps)));
+        }
+        if (cortes.length > 0) {
+          setCortesX((prev) => sortByTimestampDesc(mergeWithLocal(prev, cortes)));
+        }
+      } catch (err) {
+        console.warn('[Local] No se pudo leer el respaldo del equipo:', err);
+      }
+    };
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Cortes que quedaron pendientes con el esquema anterior pasan a la cola.
+  useEffect(() => {
+    let cancelled = false;
+    const migrateAndRecover = async () => {
+      for (const item of loadAllPendingCortes()) {
+        if (cancelled) return;
         try {
-          const result = await closeOpenShiftForBranch({
-            branchId: item.branchId,
-            branchName: item.branchName,
-            operatorUid: item.operatorUid || currentOperator.id,
-            operatorName: item.operatorName || currentOperator.name,
-            efectivoContado: item.efectivoContado,
-            fondoDejado: item.fondoDejado,
-            notas: item.notas,
-            fechaCierreIso: item.fechaCierreIso,
-            preferredSessionId: item.preferredSessionId,
-            dateKey: item.dateKey,
-            ticketsSnapshot: item.tickets,
-            expensesSnapshot: item.expenses
-          });
-          if (cancelled) return;
-          if (result.corteRecord?.id) {
-            removePendingCorte(item.branchId, item.dateKey);
-            setCortesX((prev) => {
-              const next = [result.corteRecord, ...prev.filter((c) => c.id !== result.corteRecord.id)];
-              saveCachedList('cortes', next);
-              return next;
-            });
-          }
+          await commitCorte(
+            {
+              id: item.preferredSessionId || `${item.branchId}-${item.dateKey}`,
+              timestamp: item.fechaCierreIso,
+              dateStr: item.dateKey,
+              timeStr: '',
+              branchId: item.branchId,
+              branchName: item.branchName,
+              operatorName: item.operatorName,
+              initialCashFund: 0,
+              cashSales: 0,
+              cardSales: 0,
+              transferSales: 0,
+              totalSales: 0,
+              totalExpenses: 0,
+              netIncome: 0,
+              expectedCashInDrawer: item.efectivoContado,
+              ticketIds: item.tickets.map((t) => t.id),
+              expenseIds: item.expenses.map((e) => e.id),
+              breakdown: {
+                accesoriosTotal: 0,
+                accesoriosCount: 0,
+                abonosTotal: 0,
+                abonosCount: 0,
+                enganchesTotal: 0,
+                enganchesCount: 0,
+                reparacionesTotal: 0,
+                reparacionesCount: 0,
+                recargasTotal: 0,
+                recargasCount: 0
+              }
+            },
+            {
+              branchId: item.branchId,
+              branchName: item.branchName,
+              operatorUid: item.operatorUid || currentOperator.id,
+              operatorName: item.operatorName || currentOperator.name,
+              efectivoContado: item.efectivoContado,
+              fondoDejado: item.fondoDejado,
+              notas: item.notas,
+              fechaCierreIso: item.fechaCierreIso,
+              preferredSessionId: item.preferredSessionId,
+              dateKey: item.dateKey,
+              ticketsSnapshot: item.tickets,
+              expensesSnapshot: item.expenses
+            }
+          );
+          removePendingCorte(item.branchId, item.dateKey);
         } catch (err) {
-          console.warn('[CorteX] Pendiente de corte no se pudo subir aún:', err);
+          console.warn('[CorteX] No se pudo migrar el corte pendiente:', err);
         }
       }
+
       try {
         await recoverMissingDailyCortes({
           operatorUid: currentOperator.id,
@@ -272,11 +356,31 @@ export default function Dashboard({
         console.warn('[CorteX] Recuperación de cortes del día:', err);
       }
     };
-    void flushPending();
+    void migrateAndRecover();
     return () => {
       cancelled = true;
     };
   }, [currentOperator.id, currentOperator.name]);
+
+  // Respaldo del día: se rearma solo conforme entran ventas y gastos.
+  useEffect(() => {
+    if (currentBranch.id === 'b-bodega') return;
+    const run = () => {
+      void ensureDailyBackup({
+        branchId: currentBranch.id,
+        branchName: currentBranch.name,
+        tickets: salesTicketsRef.current,
+        expenses: expensesRef.current,
+        cortes: cortesRef.current
+      }).catch((err) => console.warn('[Respaldo] No se pudo guardar el respaldo del día:', err));
+    };
+    const timer = window.setTimeout(run, 4000);
+    const interval = window.setInterval(run, 120_000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
+  }, [currentBranch.id, currentBranch.name]);
 
   const isAdmin = currentOperator.role === 'admin';
   const isCashierOnly = currentOperator.role === 'cashier';
@@ -304,6 +408,7 @@ export default function Dashboard({
         if (cancelled) return;
         setActiveCashSession(result.session);
         rememberLastSession(currentBranch.id, result.session);
+        void warmUpFolios(currentBranch.id);
         setTillLocked(result.tillLocked);
         if (result.closeFailed) {
           setSessionError(
@@ -391,24 +496,28 @@ export default function Dashboard({
       } catch (err) {
         console.error('Error en cierre automático 23:00:', err);
         const dateKey = getHermosilloClock().dateKey;
-        savePendingCorte({
-          branchId: currentBranch.id,
-          branchName: currentBranch.name,
-          operatorUid: currentOperator.id,
-          operatorName: currentOperator.name,
-          dateKey,
-          efectivoContado: 0,
-          fondoDejado: branchCashFunds[currentBranch.id] ?? 1000,
-          notas: 'Cierre automático 23:00 pendiente de subir a la nube.',
-          fechaCierreIso: `${dateKey}T23:00:00-07:00`,
-          preferredSessionId: activeCashSession?.id,
-          tickets: salesTicketsRef.current.filter(
-            (t) => normalizeBranchId(t.branchId) === normalizeBranchId(currentBranch.id)
-          ),
-          expenses: expensesRef.current.filter(
-            (e) => normalizeBranchId(e.branchId) === normalizeBranchId(currentBranch.id)
-          ),
-          savedAt: new Date().toISOString()
+        await enqueue({
+          kind: 'corteClose',
+          groupKey: normalizeBranchId(currentBranch.id),
+          id: `corte-${normalizeBranchId(currentBranch.id)}-${dateKey}`,
+          label: `Cierre 11 p.m. ${currentBranch.name} ${dateKey}`,
+          payload: {
+            branchId: currentBranch.id,
+            branchName: currentBranch.name,
+            operatorUid: currentOperator.id,
+            operatorName: currentOperator.name,
+            fondoDejado: branchCashFunds[currentBranch.id] ?? 1000,
+            notas: 'Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.',
+            fechaCierreIso: `${dateKey}T23:00:00-07:00`,
+            preferredSessionId: activeCashSession?.id,
+            dateKey,
+            ticketsSnapshot: salesTicketsRef.current.filter(
+              (t) => normalizeBranchId(t.branchId) === normalizeBranchId(currentBranch.id)
+            ),
+            expensesSnapshot: expensesRef.current.filter(
+              (e) => normalizeBranchId(e.branchId) === normalizeBranchId(currentBranch.id)
+            )
+          }
         });
         nightCloseRanRef.current = false;
         setNightClosing(false);
@@ -491,24 +600,29 @@ export default function Dashboard({
         throw new CashTillLockedError();
       }
 
-      if (await saleTicketExistsInFirestore(ticket.id)) {
+      if (await saleAlreadyCommitted(ticket.id)) {
         return;
       }
 
       let session = activeCashSession;
-      if ((!session || session.sucursal_id !== ticket.branchId || session.estado !== 'ABIERTA') && ticket.branchId !== 'b-bodega') {
-        session = await getActiveCashSession(
-          ticket.branchId,
-          currentBranch.name,
-          currentOperator.name,
-          branchCashFunds[ticket.branchId] ?? 1000,
-          currentOperator.id
-        );
-        setActiveCashSession(session);
-      }
-
-      if (!session?.id && ticket.branchId !== 'b-bodega') {
-        throw new Error('No hay turno de caja abierto. Recarga e inicia sesión antes de cobrar.');
+      if (
+        (!session || session.sucursal_id !== ticket.branchId || session.estado !== 'ABIERTA') &&
+        ticket.branchId !== 'b-bodega'
+      ) {
+        try {
+          session = await getActiveCashSession(
+            ticket.branchId,
+            currentBranch.name,
+            currentOperator.name,
+            branchCashFunds[ticket.branchId] ?? 1000,
+            currentOperator.id
+          );
+          setActiveCashSession(session);
+        } catch (sessionErr) {
+          if (sessionErr instanceof CashTillLockedError) throw sessionErr;
+          // Sin nube seguimos cobrando: el turno se resuelve al subir la venta.
+          console.warn('Turno no confirmado en la nube; la venta se guarda en el equipo.', sessionErr);
+        }
       }
 
       const enrichedTicket: SaleTicket = {
@@ -519,20 +633,20 @@ export default function Dashboard({
         sesion_caja_id: session?.id || ticket.sesion_caja_id
       };
       if (!enrichedTicket.folio) {
-        try {
-          enrichedTicket.folio = await allocateSaleFolio(enrichedTicket.branchId);
-        } catch (folioErr) {
-          console.warn('No se pudo asignar folio corto; se usa el id interno.', folioErr);
-          enrichedTicket.folio = enrichedTicket.id;
-        }
+        enrichedTicket.folio = await allocateFolio(enrichedTicket.branchId);
       }
 
-      await saveSaleTicketToFirestore(enrichedTicket);
+      await commitSale(enrichedTicket);
+      localOnlyRef.current.sales = [
+        enrichedTicket,
+        ...localOnlyRef.current.sales.filter((t) => t.id !== enrichedTicket.id)
+      ];
       setSalesTickets((prev) => {
         const next = [enrichedTicket, ...prev.filter((t) => t.id !== enrichedTicket.id)];
         saveCachedList('sales', next);
         return next;
       });
+      observeTrustedIso(enrichedTicket.timestamp);
       if (session) rememberLastSession(ticket.branchId, session);
 
     const branchName = ALL_BRANCHES.find((b) => b.id === enrichedTicket.branchId)?.name || enrichedTicket.branchId;
@@ -578,8 +692,8 @@ export default function Dashboard({
 
     if (saleMovements.length > 0) {
       setInventoryMovements((prev) => [...saleMovements, ...prev]);
-      saveInventoryMovementsBatchToFirestore(saleMovements).catch((err) =>
-        console.error('Error saving sale inventory movements batch:', err)
+      commitInventoryMovements(saleMovements).catch((err) =>
+        console.error('Error encolando movimientos de inventario:', err)
       );
     }
 
@@ -617,8 +731,8 @@ export default function Dashboard({
             : (p.imei && soldImeis.includes(p.imei.toUpperCase()) ? '' : p.imei)
         };
 
-        saveProductToFirestore(updatedProduct).catch((err) =>
-          console.error('Error updating product stock in Firestore:', err)
+        commitProduct(updatedProduct).catch((err) =>
+          console.error('Error encolando el descuento de inventario:', err)
         );
         return updatedProduct;
       })
@@ -715,12 +829,16 @@ export default function Dashboard({
       sesion_caja_id: activeSessionId || expense.sesion_caja_id
     };
 
+    await commitExpense(enrichedExpense);
+    localOnlyRef.current.expenses = [
+      enrichedExpense,
+      ...localOnlyRef.current.expenses.filter((e) => e.id !== enrichedExpense.id)
+    ];
     setExpenses((prev) => {
-      const next = [enrichedExpense, ...prev];
+      const next = [enrichedExpense, ...prev.filter((e) => e.id !== enrichedExpense.id)];
       saveCachedList('expenses', next);
       return next;
     });
-    saveExpenseToFirestore(enrichedExpense).catch((err) => console.error('Error saving expense:', err));
   };
 
   // Inventory Handlers
@@ -735,12 +853,12 @@ export default function Dashboard({
       }
       return [...prev, newProd];
     });
-    saveProductToFirestore(newProd).catch((err) => console.error('Error saving new product:', err));
+    commitProduct(newProd).catch((err) => console.error('Error encolando el producto nuevo:', err));
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === updatedProd.id ? updatedProd : p)));
-    saveProductToFirestore(updatedProd).catch((err) => console.error('Error updating product:', err));
+    commitProduct(updatedProd).catch((err) => console.error('Error encolando el cambio de producto:', err));
   };
 
   const handleReceivePurchase = async (draft: PurchaseDraft) => {
@@ -834,57 +952,83 @@ export default function Dashboard({
         ? corteRecord.expensesSnapshot
         : expenses.filter((e) => normalizeBranchId(e.branchId) === targetBranchId);
 
-    const persistPending = () => {
-      savePendingCorte({
-        branchId: targetBranchId,
-        branchName: targetBranchName,
-        operatorUid: currentOperator.id,
-        operatorName: currentOperator.name,
-        dateKey,
-        efectivoContado: counted,
-        fondoDejado: corteRecord.cashFundLeftForNextShift ?? 0,
-        notas: corteRecord.closingNotes || '',
-        fechaCierreIso: corteRecord.timestamp || new Date().toISOString(),
-        preferredSessionId,
-        tickets: localTickets,
-        expenses: localExpenses,
-        savedAt: new Date().toISOString()
-      });
+    const closeParams = {
+      branchId: targetBranchId,
+      branchName: targetBranchName,
+      operatorUid: currentOperator.id,
+      operatorName: currentOperator.name,
+      efectivoContado: counted,
+      fondoDejado: corteRecord.cashFundLeftForNextShift ?? 0,
+      notas: corteRecord.closingNotes || '',
+      ticketsSnapshot: localTickets,
+      expensesSnapshot: localExpenses,
+      fechaCierreIso: corteRecord.timestamp,
+      preferredSessionId,
+      dateKey,
+      initialFund: corteRecord.initialCashFund
     };
 
     try {
-      const result = await closeOpenShiftForBranch({
+      // El corte queda guardado en el equipo y en la cola antes de tocar la red:
+      // aunque la nube falle, el turno ya está cerrado y nada se pierde.
+      const localCorte: CorteXRecord = {
+        ...corteRecord,
         branchId: targetBranchId,
         branchName: targetBranchName,
-        operatorUid: currentOperator.id,
-        operatorName: currentOperator.name,
-        efectivoContado: counted,
-        fondoDejado: corteRecord.cashFundLeftForNextShift ?? 0,
-        notas: corteRecord.closingNotes || '',
+        sesion_caja_id: preferredSessionId || corteRecord.sesion_caja_id,
         ticketsSnapshot: localTickets,
-        expensesSnapshot: localExpenses,
-        fechaCierreIso: corteRecord.timestamp,
-        preferredSessionId,
+        expensesSnapshot: localExpenses
+      };
+      await commitCorte(localCorte, closeParams);
+      localOnlyRef.current.cortes = [
+        localCorte,
+        ...localOnlyRef.current.cortes.filter((c) => c.id !== localCorte.id)
+      ];
+      setCortesX((prev) => {
+        const next = [localCorte, ...prev.filter((c) => c.id !== localCorte.id)];
+        saveCachedList('cortes', next);
+        return next;
+      });
+      removePendingCorte(targetBranchId, dateKey);
+
+      await ensureDailyBackup({
+        branchId: targetBranchId,
+        branchName: targetBranchName,
         dateKey,
-        initialFund: corteRecord.initialCashFund
+        tickets: salesTicketsRef.current,
+        expenses: expensesRef.current,
+        cortes: [localCorte, ...cortesRef.current]
       });
 
-      const savedCorte = result.corteRecord;
-      const sessionId = result.sesion?.id || preferredSessionId || savedCorte?.id;
-      if (savedCorte?.id) {
-        setCortesX((prev) => {
-          const next = [savedCorte, ...prev.filter((c) => c.id !== savedCorte.id)];
-          saveCachedList('cortes', next);
-          return next;
-        });
-        removePendingCorte(targetBranchId, dateKey);
+      let savedCorte: CorteXRecord | null = null;
+      let sessionId = preferredSessionId || localCorte.id;
+      try {
+        const result = await closeOpenShiftForBranch(closeParams);
+        savedCorte = result.corteRecord || null;
+        sessionId = result.sesion?.id || sessionId;
+        if (savedCorte?.id) {
+          const confirmed = savedCorte;
+          localOnlyRef.current.cortes = localOnlyRef.current.cortes.filter(
+            (c) => c.id !== confirmed.id && c.id !== localCorte.id
+          );
+          setCortesX((prev) => {
+            const next = [confirmed, ...prev.filter((c) => c.id !== confirmed.id && c.id !== localCorte.id)];
+            saveCachedList('cortes', next);
+            return next;
+          });
+        }
+      } catch (cloudErr) {
+        console.warn('[CorteX] El corte quedó guardado aquí y subirá solo:', cloudErr);
+        setSessionError(
+          'El corte quedó guardado en este equipo. Se subirá a la nube en cuanto vuelva la conexión; no borre los datos del navegador.'
+        );
       }
 
       const closedTicketIds = new Set(
-        (savedCorte?.ticketIds?.length ? savedCorte.ticketIds : localTickets.map((t) => t.id))
+        savedCorte?.ticketIds?.length ? savedCorte.ticketIds : localTickets.map((t) => t.id)
       );
       const closedExpenseIds = new Set(
-        (savedCorte?.expenseIds?.length ? savedCorte.expenseIds : localExpenses.map((e) => e.id))
+        savedCorte?.expenseIds?.length ? savedCorte.expenseIds : localExpenses.map((e) => e.id)
       );
       setSalesTickets((prev) => {
         const next = prev.map((t) =>
@@ -916,26 +1060,30 @@ export default function Dashboard({
       });
 
       if (canOpenNewCashSession() && normalizeBranchId(currentBranch.id) === targetBranchId) {
-        const nextSession = await getActiveCashSession(
-          targetBranchId,
-          targetBranchName,
-          currentOperator.name,
-          savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
-          currentOperator.id
-        );
-        setActiveCashSession(nextSession);
-        rememberLastSession(targetBranchId, nextSession);
-        setTillLocked(false);
+        try {
+          const nextSession = await getActiveCashSession(
+            targetBranchId,
+            targetBranchName,
+            currentOperator.name,
+            savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
+            currentOperator.id
+          );
+          setActiveCashSession(nextSession);
+          rememberLastSession(targetBranchId, nextSession);
+          setTillLocked(false);
+        } catch (nextErr) {
+          console.warn('[CorteX] No se pudo abrir el siguiente turno todavía:', nextErr);
+          setActiveCashSession(null);
+        }
       } else {
         setActiveCashSession(null);
         setTillLocked(true);
       }
     } catch (err) {
-      console.error('Error finalizing Corte X and Sesion in Firestore:', err);
-      persistPending();
+      console.error('Error al guardar el corte en el equipo:', err);
       throw err instanceof Error
         ? err
-        : new Error('No se pudo cerrar el corte en la nube. Quedó guardado en este equipo para subirlo al volver la conexión.');
+        : new Error('No se pudo guardar el corte en este equipo. Anote los totales antes de cerrar el navegador.');
     } finally {
       corteInFlightRef.current = false;
     }
@@ -1156,6 +1304,12 @@ export default function Dashboard({
                 Caja cerrada 11:00 p.m.
               </span>
             )}
+            <SyncStatusChip
+              currentBranch={currentBranch}
+              salesTickets={salesTickets}
+              expenses={expenses}
+              cortesX={cortesX}
+            />
           </div>
 
           <div className="relative">

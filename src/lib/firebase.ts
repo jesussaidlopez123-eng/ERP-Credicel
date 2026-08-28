@@ -36,6 +36,7 @@ import {
   sessionNeedsAutomaticCorte
 } from './shiftHours';
 import { loadLastSessionId } from './localCloudCache';
+import { registerOutboxExecutor } from './outbox';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -2002,4 +2003,91 @@ export async function savePurchaseDraftToFirestore(draft: PurchaseDraft) {
 export async function deletePurchaseDraftFromFirestore(draftId: string) {
   await deleteDoc(doc(db, PURCHASE_DRAFTS_COLLECTION, draftId));
 }
+
+// ----------------------------------------------------
+// 10. RESPALDO DIARIO Y COLA DE ENVÍO
+// ----------------------------------------------------
+export const DAILY_BACKUPS_COLLECTION = 'dailyBackups';
+
+/**
+ * Aparta un rango de folios para este equipo. Devuelve el primero y el último.
+ * Mientras el equipo tenga rango, puede cobrar sin internet sin repetir folio.
+ */
+export async function leaseFolioBlock(
+  branchId: string,
+  dateKey: string,
+  size: number
+): Promise<{ start: number; end: number }> {
+  const normBId = normalizeBranchId(branchId);
+  const code = branchFolioCode(normBId);
+  const block = Math.max(1, Math.floor(size));
+  const counterRef = doc(db, FOLIO_COUNTERS_COLLECTION, `${code}-${dateKey}`);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const last = Number(snap.data()?.lastSeq || 0);
+    const start = last + 1;
+    const end = last + block;
+    tx.set(
+      counterRef,
+      {
+        branchId: normBId,
+        dateKey,
+        lastSeq: end,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
+    return { start, end };
+  });
+}
+
+export interface QueuedDocWrite {
+  collection: string;
+  id: string;
+  data: Record<string, unknown>;
+  merge?: boolean;
+}
+
+export async function commitDocWrites(writes: QueuedDocWrite[]): Promise<void> {
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < writes.length; i += CHUNK_SIZE) {
+    const chunk = writes.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    chunk.forEach((w) => {
+      const ref = doc(db, w.collection, w.id);
+      if (w.merge === false) batch.set(ref, w.data);
+      else batch.set(ref, w.data, { merge: true });
+    });
+    await batch.commit();
+  }
+}
+
+export async function saveDailyBackupToFirestore(backup: {
+  id: string;
+  branchId: string;
+  dateKey: string;
+  [key: string]: unknown;
+}): Promise<void> {
+  await setDoc(doc(db, DAILY_BACKUPS_COLLECTION, backup.id), cleanForFirestore(backup), {
+    merge: true
+  });
+}
+
+registerOutboxExecutor('docWrite', async (payload) => {
+  const { writes } = payload as { writes: QueuedDocWrite[] };
+  if (!Array.isArray(writes) || writes.length === 0) return;
+  await commitDocWrites(writes);
+});
+
+registerOutboxExecutor('corteClose', async (payload) => {
+  const params = payload as Parameters<typeof closeOpenShiftForBranch>[0];
+  if (!params?.branchId) return;
+  await closeOpenShiftForBranch(params);
+});
+
+registerOutboxExecutor('dailyBackup', async (payload) => {
+  const backup = payload as { id: string; branchId: string; dateKey: string };
+  if (!backup?.id) return;
+  await saveDailyBackupToFirestore(backup);
+});
 
