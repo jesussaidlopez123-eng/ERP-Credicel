@@ -34,11 +34,11 @@ export default function Sidebar({
   onCloseMobile
 }: SidebarProps) {
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
-    { id: 'pos', label: 'Punto de venta', icon: <ShoppingCart className="w-4 h-4" /> },
+    { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'inventory', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
     { id: 'purchases', label: 'Compras', icon: <ShoppingBag className="w-4 h-4" /> },
-    { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'executive', label: 'Dirección', icon: <Building2 className="w-4 h-4" /> },
+    { id: 'pos', label: 'Punto de venta', icon: <ShoppingCart className="w-4 h-4" /> },
     { id: 'settings', label: 'Usuarios', icon: <Settings className="w-4 h-4" /> },
   ];
 
