@@ -147,9 +147,37 @@ export function msUntilCashClose(now: Date = new Date()): number {
   return Math.max(15_000, minutesLeft * 60 * 1000);
 }
 
+export function previousHermosilloDateKey(now: Date = new Date()): string {
+  const today = getHermosilloClock(now).dateKey;
+  const noon = new Date(`${today}T12:00:00-07:00`);
+  return getHermosilloClock(new Date(noon.getTime() - 24 * 60 * 60 * 1000)).dateKey;
+}
+
+export function daysNeedingCatchUpClose(now: Date = new Date()): string[] {
+  const days = [previousHermosilloDateKey(now)];
+  if (isAfterCashClose(now)) days.unshift(getHermosilloClock(now).dateKey);
+  return days;
+}
+
+export function isActiveCorteRecord(
+  corte: {
+    reverted?: boolean;
+    timestamp?: string;
+    dateStr?: string;
+    closingNotes?: string;
+    operatorName?: string;
+  } | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!corte || corte.reverted) return false;
+  return !isPrematureAutoCorteRecord(corte, now);
+}
+
 export class CashTillLockedError extends Error {
   constructor() {
-    super('La caja cierra a las 11:00 p.m. El corte del día ya quedó registrado. El siguiente turno abre después de medianoche.');
+    super(
+      'Después de las 11:00 p.m. ya no se cobran ventas. Si el corte no se guardó, ábralo y ciérrelo; el siguiente turno abre después de medianoche.'
+    );
     this.name = 'CashTillLockedError';
   }
 }

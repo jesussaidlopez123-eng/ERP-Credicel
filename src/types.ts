@@ -311,6 +311,8 @@ export interface CorteXRecord {
   expenseIds: string[];
   ticketsSnapshot?: SaleTicket[];
   expensesSnapshot?: Expense[];
+  reverted?: boolean;
+  revertedAt?: string;
   breakdown: {
     accesoriosTotal: number;
     accesoriosCount: number;

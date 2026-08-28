@@ -13,7 +13,8 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Recargar la página:** pide de nuevo la contraseña. Las ventas ya cobradas, gastos y el turno de caja viven en la nube. El ticket que **aún no cobras** se recupera en ese mismo equipo.
 - **Otra computadora o celular, misma sucursal:** se engancha al **mismo turno**. No abre una caja nueva. Lo que ya se cobró aparece en ambos. El carrito sin cobrar se queda solo en el equipo donde se armó.
 - **Otra sucursal:** Navojoa y Huatabampo tienen turnos independientes.
-- **Cierre 11:00 p.m. (hora Sonora):** si dejan la sesión abierta, a las 11:00 p.m. el sistema registra el corte, marca las ventas de esa caja y cierra la sesión. El siguiente turno abre después de medianoche. Un turno de **hoy** no se marca cerrado antes de las 11:00 p.m.; si eso llegó a pasar, al entrar de nuevo se reabre el mismo turno.
+- **Cierre 11:00 p.m. (hora Sonora):** si dejan la sesión abierta, a las 11:00 p.m. el sistema registra el corte, marca las ventas de esa caja y cierra la sesión. **Si ya pasaron las 11:00 p.m. y el corte no se guardó**, aún se puede cerrar el turno (Corte → Cerrar). No se abre una caja nueva de ventas hasta después de medianoche. Si la nube no responde, el corte queda en ese equipo y se sube al volver la conexión.
+- Un turno de **hoy** no se marca cerrado antes de las 11:00 p.m. El sistema **ya no borra** cortes guardados.
 - **Folio de ticket:** al cobrar se asigna un folio corto del día, por ejemplo `NAV-2708-042`. El id interno no se imprime.
 - **Compras:** los pedidos se guardan en la nube. Al marcar **Entregado**, la mercancía entra a inventario de Bodega (si el código o nombre coincide con un producto).
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.

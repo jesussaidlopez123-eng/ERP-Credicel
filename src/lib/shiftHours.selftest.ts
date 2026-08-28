@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import {
   AUTO_CORTE_NOTE,
   automaticCloseIso,
+  daysNeedingCatchUpClose,
   getHermosilloClock,
   hermosilloDateKey,
+  isActiveCorteRecord,
   isPrematureAutoCorte,
   isPrematureAutoCorteRecord,
   parseSessionInstant,
+  previousHermosilloDateKey,
   sessionCloseDeadline,
   sessionNeedsAutomaticCorte
 } from './shiftHours.ts';
@@ -56,5 +59,19 @@ const autoRecord = {
 };
 assert.equal(isPrematureAutoCorteRecord(autoRecord, morning), true);
 assert.equal(isPrematureAutoCorteRecord(autoRecord, evening), false);
+
+const prev = previousHermosilloDateKey(new Date(`${todayKey}T18:00:00-07:00`));
+assert.match(prev, /^\d{4}-\d{2}-\d{2}$/);
+assert.notEqual(prev, todayKey);
+
+const beforeClose = daysNeedingCatchUpClose(morning);
+assert.equal(beforeClose.includes(todayKey), false);
+assert.equal(beforeClose.includes(prev), true);
+const afterClose = daysNeedingCatchUpClose(evening);
+assert.equal(afterClose[0], todayKey);
+
+assert.equal(isActiveCorteRecord({ reverted: true, timestamp: `${todayKey}T23:00:00-07:00` }, evening), false);
+assert.equal(isActiveCorteRecord(autoRecord, evening), true);
+assert.equal(isActiveCorteRecord(autoRecord, morning), false);
 
 console.log('shiftHours self-test ok');

@@ -31,7 +31,7 @@ import { saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
 import { printThermalFromElement } from '../lib/printWindow';
-import { isPrematureAutoCorteRecord } from '../lib/shiftHours';
+import { isActiveCorteRecord } from '../lib/shiftHours';
 import { normalizeBranchId } from '../data/initialBranches';
 
 interface CorteXModalProps {
@@ -148,13 +148,13 @@ export default function CorteXModal({
         (c) =>
           c &&
           normalizeBranchId(c.branchId) === normalizeBranchId(effectiveBranchId) &&
-          !isPrematureAutoCorteRecord(c)
+          isActiveCorteRecord(c)
       )
       .flatMap((c) => [c.id, c.sesion_caja_id || ''].filter(Boolean))
   );
   const todaySavedCorte = !isHistoric
     ? (cortesX || []).find((c) => {
-        if (!c || isPrematureAutoCorteRecord(c)) return false;
+        if (!c || !isActiveCorteRecord(c)) return false;
         if (normalizeBranchId(c.branchId) !== normalizeBranchId(effectiveBranchId)) return false;
         const sameDay =
           safeDateIsoKey(c.timestamp) === todayDateIsoKey ||
@@ -171,7 +171,7 @@ export default function CorteXModal({
   const previousBranchCortes = (cortesX || []).filter(c => 
     c &&
     normalizeBranchId(c.branchId) === normalizeBranchId(effectiveBranchId) &&
-    !isPrematureAutoCorteRecord(c) &&
+    isActiveCorteRecord(c) &&
     (!existingCorteRecord || c.id !== existingCorteRecord.id) &&
     (!activeSessionId || (c.id !== activeSessionId && c.sesion_caja_id !== activeSessionId))
   );
@@ -620,7 +620,7 @@ export default function CorteXModal({
         setIsFinishingShift(false);
         setIsClosingShiftDialog(true);
         setFinishStatusMessage('');
-        setCopiedNotification('No se pudo guardar el corte. El turno sigue abierto; inténtalo de nuevo.');
+        setCopiedNotification('No se pudo guardar el corte en la nube. Quedó en este equipo; inténtelo de nuevo o deje la ventana abierta.');
         setTimeout(() => setCopiedNotification(null), 5000);
         return;
       }

@@ -26,13 +26,16 @@ import {
   CashTillLockedError,
   automaticCloseIso,
   canOpenNewCashSession,
+  daysNeedingCatchUpClose,
   formatHermosilloDate,
   formatHermosilloTime,
   getHermosilloClock,
   hermosilloDateKey,
+  isAfterCashClose,
   isPrematureAutoCorte,
   sessionNeedsAutomaticCorte
 } from './shiftHours';
+import { loadLastSessionId } from './localCloudCache';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -249,6 +252,9 @@ async function resolveActiveCashSession(
         return newSession;
       });
     } catch (err) {
+      if (err instanceof CashTillLockedError || (err as { name?: string })?.name === 'CashTillLockedError') {
+        throw err;
+      }
       lastError.push(err);
       console.error('[Firestore] Error getting active cash session:', err);
       await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
@@ -472,21 +478,30 @@ export async function executeCorteSesionCajaTransaction(params: {
     const already = { ...(existingSnap.data() as SesionCaja), id: existingSnap.id };
     if (already.estado === 'CERRADA') {
       const corteSnap = await getDoc(doc(db, CORTE_X_COLLECTION, sesionId));
-      const corteRecord = corteSnap.exists()
+      const existingCorte = corteSnap.exists()
         ? ({ ...(corteSnap.data() as CorteXRecord), id: corteSnap.id } as CorteXRecord)
-        : ({} as CorteXRecord);
-      return { success: true, sesion: already, corteRecord };
+        : null;
+      if (existingCorte && !existingCorte.reverted) {
+        return { success: true, sesion: already, corteRecord: existingCorte };
+      }
+      // Sesión cerrada sin documento de corte: hay que escribirlo, no devolver vacío.
     }
   }
 
-  const cloudDocs = await loadUnclosedDocsForSession(
-    sesionId,
-    normBId,
-    ticketsSnapshot,
-    expensesSnapshot
-  );
-  const ticketsForCorte = cloudDocs.tickets;
-  const expensesForCorte = cloudDocs.expenses;
+  let ticketsForCorte = ticketsSnapshot;
+  let expensesForCorte = expensesSnapshot;
+  try {
+    const cloudDocs = await loadUnclosedDocsForSession(
+      sesionId,
+      normBId,
+      ticketsSnapshot,
+      expensesSnapshot
+    );
+    ticketsForCorte = cloudDocs.tickets;
+    expensesForCorte = cloudDocs.expenses;
+  } catch (err) {
+    console.warn('[Firestore] No se pudieron leer tickets de la nube al cerrar; se usa el corte de esta pantalla.', err);
+  }
 
   const fechaCierre = fechaCierreIso || new Date().toISOString();
   const dateStr = formatHermosilloDate(fechaCierre);
@@ -701,6 +716,22 @@ async function restoreOpenSessionPointer(session: SesionCaja): Promise<void> {
   );
 }
 
+async function markCorteReverted(sessionId: string): Promise<void> {
+  if (!sessionId) return;
+  try {
+    const ref = doc(db, CORTE_X_COLLECTION, sessionId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    await setDoc(
+      ref,
+      { reverted: true, revertedAt: new Date().toISOString() },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('[Firestore] No se pudo marcar el corte como revertido:', err);
+  }
+}
+
 async function reopenClosedSession(session: SesionCaja): Promise<void> {
   await updateDoc(doc(db, SESIONES_CAJA_COLLECTION, session.id), {
     estado: 'ABIERTA',
@@ -711,17 +742,14 @@ async function reopenClosedSession(session: SesionCaja): Promise<void> {
   });
   await restoreOpenSessionPointer(session);
   await unstampAndRetargetDocs(session.id);
-  try {
-    await deleteDoc(doc(db, CORTE_X_COLLECTION, session.id));
-  } catch {
-    // corte may already be missing
-  }
+  await markCorteReverted(session.id);
 }
 
 /**
  * If an automatic 23:00 corte ran before 23:00 Sonora on the same calendar day
  * the till opened, put that shift back to ABIERTA so Navojoa/Huatabampo keep
- * working the real turno instead of seeing "Corte Guardado".
+ * working the real turno. Does not scan the whole session history and never
+ * deletes corte documents.
  */
 export async function reopenPrematureAutoCorteIfNeeded(branchId: string): Promise<boolean> {
   try {
@@ -729,61 +757,20 @@ export async function reopenPrematureAutoCorteIfNeeded(branchId: string): Promis
     if (normBId === 'b-bodega') return false;
     if (!canOpenNewCashSession()) return false;
 
-    const today = getHermosilloClock().dateKey;
-    const closedSnap = await getDocs(
-      query(collection(db, SESIONES_CAJA_COLLECTION), where('sucursal_id', '==', normBId))
-    );
-    const premature = closedSnap.docs
-      .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
-      .filter((s) => isPrematureAutoCorte(s) && (hermosilloDateKey(s.fecha_apertura) === today || !hermosilloDateKey(s.fecha_apertura)))
-      .sort((a, b) => (b.fecha_cierre || b.fecha_apertura || '').localeCompare(a.fecha_cierre || a.fecha_apertura || ''));
-
-    if (premature.length === 0) return false;
-
     const fund = await readBranchFundAmount(normBId, 1000);
     const live = await findExistingOpenSession(normBId, fund);
-    const primary = premature[0];
+    if (live) return false;
 
-    if (live && live.id !== primary.id) {
-      const liveDocs = await loadUnclosedDocsForSession(live.id, normBId);
-      const liveIsEmpty = liveDocs.tickets.length === 0 && liveDocs.expenses.length === 0;
-      if (liveIsEmpty) {
-        await updateDoc(doc(db, SESIONES_CAJA_COLLECTION, live.id), {
-          estado: 'CERRADA',
-          fecha_cierre: new Date().toISOString(),
-          arqueo_cierre: {
-            efectivo_contado_declarado: 0,
-            diferencia_sobrante_faltante: 0,
-            fondo_dejado_siguiente_turno: fund,
-            efectivo_retirado_entregar: 0,
-            notas_observaciones: 'Sesión vacía unificada al revertir cierre automático prematuro'
-          }
-        });
-        await reopenClosedSession(primary);
-      } else {
-        for (const closed of premature) {
-          await unstampAndRetargetDocs(closed.id, live.id);
-          try {
-            await deleteDoc(doc(db, CORTE_X_COLLECTION, closed.id));
-          } catch {
-            // ignore
-          }
-        }
-        await restoreOpenSessionPointer(live);
-      }
-    } else {
-      await reopenClosedSession(primary);
-      for (const extra of premature.slice(1)) {
-        await unstampAndRetargetDocs(extra.id, primary.id);
-        try {
-          await deleteDoc(doc(db, CORTE_X_COLLECTION, extra.id));
-        } catch {
-          // ignore
-        }
-      }
-    }
+    const stateSnap = await getDoc(doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId));
+    const pointedId = String(stateSnap.data()?.openSessionId || '');
+    if (!pointedId) return false;
+    const sesSnap = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, pointedId));
+    if (!sesSnap.exists()) return false;
+    const session = { ...(sesSnap.data() as SesionCaja), id: sesSnap.id };
+    if (!isPrematureAutoCorte(session)) return false;
 
-    console.log(`[Firestore] Se reabrió el corte automático prematuro de ${normBId} (${primary.id})`);
+    await reopenClosedSession(session);
+    console.log(`[Firestore] Se reabrió el corte automático prematuro de ${normBId} (${session.id})`);
     return true;
   } catch (err) {
     console.warn('[Firestore] reopenPrematureAutoCorteIfNeeded:', err);
@@ -802,12 +789,190 @@ export async function healPrematureAutoCortesForCommercialBranches(): Promise<vo
   );
 }
 
+function localDocsForCashDay(
+  branchId: string,
+  dateKey: string,
+  localTickets: SaleTicket[] = [],
+  localExpenses: Expense[] = []
+): { tickets: SaleTicket[]; expenses: Expense[] } {
+  const normBId = normalizeBranchId(branchId);
+  return {
+    tickets: localTickets.filter((t) => {
+      if (!t?.id) return false;
+      if (normalizeBranchId(t.branchId || t.sucursal_id || '') !== normBId) return false;
+      if (hermosilloDateKey(t.timestamp) !== dateKey) return false;
+      return true;
+    }),
+    expenses: localExpenses.filter((e) => {
+      if (!e?.id) return false;
+      if (normalizeBranchId(e.branchId || e.sucursal_id || '') !== normBId) return false;
+      if (hermosilloDateKey(e.timestamp || e.date) !== dateKey) return false;
+      return true;
+    })
+  };
+}
+
+async function readSessionById(sessionId: string): Promise<SesionCaja | null> {
+  if (!sessionId) return null;
+  try {
+    const snap = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, sessionId));
+    if (!snap.exists()) return null;
+    return { ...(snap.data() as SesionCaja), id: snap.id };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finds the shift to close after 23:00 without opening a new one.
+ */
+export async function findSessionForCorteClose(
+  branchId: string,
+  dateKey?: string,
+  preferredSessionId?: string
+): Promise<SesionCaja | null> {
+  const normBId = normalizeBranchId(branchId);
+  if (normBId === 'b-bodega') return null;
+  const key = dateKey || getHermosilloClock().dateKey;
+
+  const preferred = await readSessionById(preferredSessionId || loadLastSessionId(normBId));
+  if (preferred && normalizeBranchId(preferred.sucursal_id) === normBId) {
+    const openedKey = hermosilloDateKey(preferred.fecha_apertura);
+    if (!openedKey || openedKey === key) return preferred;
+  }
+
+  const fund = await readBranchFundAmount(normBId, 1000);
+  try {
+    const open = await findExistingOpenSession(normBId, fund);
+    if (open && (!key || hermosilloDateKey(open.fecha_apertura) === key || !hermosilloDateKey(open.fecha_apertura))) {
+      return open;
+    }
+  } catch (err) {
+    console.warn('[Firestore] No se pudo leer la sesión abierta al cerrar:', err);
+  }
+
+  try {
+    const snap = await getDocs(
+      query(collection(db, SESIONES_CAJA_COLLECTION), where('sucursal_id', '==', normBId))
+    );
+    const ofDay = snap.docs
+      .map((d) => ({ ...(d.data() as SesionCaja), id: d.id }))
+      .filter((s) => hermosilloDateKey(s.fecha_apertura) === key)
+      .sort((a, b) => (b.fecha_apertura || '').localeCompare(a.fecha_apertura || ''));
+    if (ofDay.length > 0) {
+      const openOfDay = ofDay.find((s) => s.estado === 'ABIERTA');
+      return openOfDay || ofDay[0];
+    }
+  } catch (err) {
+    console.warn('[Firestore] No se pudo buscar la sesión del día al cerrar:', err);
+  }
+
+  return preferred;
+}
+
+async function ensureSessionForClose(
+  branchId: string,
+  branchName: string,
+  operator: { uid: string; nombre: string },
+  dateKey: string,
+  preferredSessionId?: string,
+  initialFund = 0,
+  createIfMissing = true
+): Promise<SesionCaja> {
+  const existing = await findSessionForCorteClose(branchId, dateKey, preferredSessionId);
+  if (existing) return existing;
+  if (!createIfMissing) {
+    throw new Error('No hay turno de caja de ese día para cerrar.');
+  }
+
+  const openedAt = new Date(`${dateKey}T09:00:00-07:00`);
+  const newSesionId = newSessionId(branchId, openedAt);
+  const session: SesionCaja = {
+    id: newSesionId,
+    sucursal_id: branchId,
+    sucursal_nombre: branchName || getBranchDisplayName(branchId),
+    operador_apertura: operator,
+    estado: 'ABIERTA',
+    fecha_apertura: openedAt.toISOString(),
+    monto_inicial_efectivo: money(initialFund)
+  };
+  await setDoc(doc(db, SESIONES_CAJA_COLLECTION, newSesionId), cleanForFirestore(session));
+  return session;
+}
+
+/**
+ * Cierra el turno de una sucursal aunque ya pasaron las 11:00 p.m. o la sesión
+ * quedó CERRADA sin documento de corte. No abre un turno nuevo de ventas.
+ */
+export async function closeOpenShiftForBranch(params: {
+  branchId: string;
+  branchName?: string;
+  operatorUid: string;
+  operatorName: string;
+  efectivoContado?: number;
+  fondoDejado?: number;
+  notas?: string;
+  ticketsSnapshot?: SaleTicket[];
+  expensesSnapshot?: Expense[];
+  fechaCierreIso?: string;
+  preferredSessionId?: string;
+  dateKey?: string;
+  initialFund?: number;
+  createIfMissing?: boolean;
+}): Promise<{ success: boolean; sesion: SesionCaja; corteRecord: CorteXRecord }> {
+  const normBId = normalizeBranchId(params.branchId);
+  if (normBId === 'b-bodega') {
+    throw new Error('Bodega no genera cortes de caja.');
+  }
+
+  const dateKey =
+    params.dateKey ||
+    hermosilloDateKey(params.fechaCierreIso) ||
+    getHermosilloClock().dateKey;
+  const displayName = params.branchName || getBranchDisplayName(normBId);
+  const fund = await readBranchFundAmount(normBId, params.initialFund ?? params.fondoDejado ?? 1000);
+  const session = await ensureSessionForClose(
+    normBId,
+    displayName,
+    { uid: params.operatorUid, nombre: params.operatorName },
+    dateKey,
+    params.preferredSessionId,
+    fund,
+    params.createIfMissing !== false
+  );
+
+  const localDay = localDocsForCashDay(
+    normBId,
+    hermosilloDateKey(session.fecha_apertura) || dateKey,
+    params.ticketsSnapshot,
+    params.expensesSnapshot
+  );
+  const totals = summarizeTickets(localDay.tickets);
+  const totalExpenses = money(localDay.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
+  const expected = money(Number(session.monto_inicial_efectivo || fund) + totals.cashSales - totalExpenses);
+
+  return executeCorteSesionCajaTransaction({
+    sesionId: session.id,
+    sucursalId: normBId,
+    sucursalNombre: session.sucursal_nombre || displayName,
+    operadorCierre: { uid: params.operatorUid, nombre: params.operatorName },
+    efectivoContado: params.efectivoContado ?? expected,
+    fondoDejado: params.fondoDejado ?? fund,
+    notas: params.notas || '',
+    ticketsSnapshot: localDay.tickets,
+    expensesSnapshot: localDay.expenses,
+    fechaCierreIso: params.fechaCierreIso
+  });
+}
+
 export async function closeCashSessionIfDue(params: {
   branchId: string;
   branchName?: string;
   operatorUid: string;
   operatorName: string;
   initialFund?: number;
+  ticketsSnapshot?: SaleTicket[];
+  expensesSnapshot?: Expense[];
 }): Promise<{ closed: boolean; session: SesionCaja | null; corteRecord?: CorteXRecord }> {
   const normBId = normalizeBranchId(params.branchId);
   if (normBId === 'b-bodega') {
@@ -815,17 +980,29 @@ export async function closeCashSessionIfDue(params: {
   }
 
   const fund = await readBranchFundAmount(normBId, params.initialFund ?? 1000);
-  const existing = await findExistingOpenSession(normBId, fund);
+  let existing: SesionCaja | null = null;
+  try {
+    existing = await findExistingOpenSession(normBId, fund);
+  } catch (err) {
+    console.warn('[Firestore] closeCashSessionIfDue no pudo leer la sesión abierta:', err);
+  }
   if (!existing) return { closed: false, session: null };
   if (!sessionNeedsAutomaticCorte(existing)) {
     return { closed: false, session: existing };
   }
 
-  const cloudDocs = await loadUnclosedDocsForSession(existing.id, normBId);
-  const totals = summarizeTickets(cloudDocs.tickets);
-  const totalExpenses = money(
-    cloudDocs.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
-  );
+  let tickets = params.ticketsSnapshot || [];
+  let expenses = params.expensesSnapshot || [];
+  try {
+    const cloudDocs = await loadUnclosedDocsForSession(existing.id, normBId, tickets, expenses);
+    tickets = cloudDocs.tickets;
+    expenses = cloudDocs.expenses;
+  } catch (err) {
+    console.warn('[Firestore] closeCashSessionIfDue sin lectura de tickets en la nube:', err);
+  }
+
+  const totals = summarizeTickets(tickets);
+  const totalExpenses = money(expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
   const expected = money(Number(existing.monto_inicial_efectivo || 0) + totals.cashSales - totalExpenses);
 
   const result = await executeCorteSesionCajaTransaction({
@@ -836,12 +1013,63 @@ export async function closeCashSessionIfDue(params: {
     efectivoContado: expected,
     fondoDejado: fund,
     notas: AUTO_CORTE_NOTE,
-    ticketsSnapshot: cloudDocs.tickets,
-    expensesSnapshot: cloudDocs.expenses,
+    ticketsSnapshot: tickets,
+    expensesSnapshot: expenses,
     fechaCierreIso: automaticCloseIso(existing.fecha_apertura)
   });
 
   return { closed: true, session: result.sesion, corteRecord: result.corteRecord };
+}
+
+export async function recoverMissingDailyCortes(params: {
+  operatorUid: string;
+  operatorName: string;
+  ticketsSnapshot?: SaleTicket[];
+  expensesSnapshot?: Expense[];
+}): Promise<void> {
+  const days = daysNeedingCatchUpClose();
+  for (const branch of COMMERCIAL_BRANCHES) {
+    for (const dateKey of days) {
+      const localDay = localDocsForCashDay(
+        branch.id,
+        dateKey,
+        params.ticketsSnapshot,
+        params.expensesSnapshot
+      );
+      const unstampedTickets = localDay.tickets.filter((t) => !t.corteXId);
+      const unstampedExpenses = localDay.expenses.filter((e) => !e.corteXId);
+      try {
+        const fund = await readBranchFundAmount(branch.id, 1000);
+        const open = await findExistingOpenSession(branch.id, fund);
+        const needsAuto = !!(open && sessionNeedsAutomaticCorte(open));
+        const finishedDay = dateKey !== getHermosilloClock().dateKey || isAfterCashClose();
+        if (!needsAuto && unstampedTickets.length === 0 && unstampedExpenses.length === 0) {
+          continue;
+        }
+        if (!finishedDay && !needsAuto) continue;
+        await closeOpenShiftForBranch({
+          branchId: branch.id,
+          branchName: branch.name,
+          operatorUid: params.operatorUid,
+          operatorName: params.operatorName,
+          ticketsSnapshot: unstampedTickets,
+          expensesSnapshot: unstampedExpenses,
+          dateKey,
+          notas: AUTO_CORTE_NOTE,
+          fechaCierreIso: `${dateKey}T23:00:00-07:00`,
+          fondoDejado: fund,
+          createIfMissing: unstampedTickets.length > 0 || unstampedExpenses.length > 0,
+          efectivoContado: money(
+            Number(open?.monto_inicial_efectivo || fund) +
+              summarizeTickets(unstampedTickets).cashSales -
+              money(unstampedExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0))
+          )
+        });
+      } catch (err) {
+        console.warn(`[Firestore] No se pudo recuperar el corte de ${branch.id} ${dateKey}:`, err);
+      }
+    }
+  }
 }
 
 export async function syncPosCashSession(params: {
@@ -850,11 +1078,52 @@ export async function syncPosCashSession(params: {
   operatorUid: string;
   operatorName: string;
   initialFund?: number;
-}): Promise<{ session: SesionCaja | null; tillLocked: boolean; autoClosed: boolean }> {
-  await reopenPrematureAutoCorteIfNeeded(params.branchId);
+  ticketsSnapshot?: SaleTicket[];
+  expensesSnapshot?: Expense[];
+}): Promise<{ session: SesionCaja | null; tillLocked: boolean; autoClosed: boolean; closeFailed?: boolean }> {
+  if (canOpenNewCashSession()) {
+    await reopenPrematureAutoCorteIfNeeded(params.branchId);
+  }
   const due = await closeCashSessionIfDue(params);
   if (!canOpenNewCashSession()) {
-    return { session: null, tillLocked: true, autoClosed: due.closed };
+    let autoClosed = due.closed;
+    let closeFailed = false;
+    if (!due.closed) {
+      const localDay = localDocsForCashDay(
+        params.branchId,
+        getHermosilloClock().dateKey,
+        params.ticketsSnapshot,
+        params.expensesSnapshot
+      );
+      const hasWork = localDay.tickets.length > 0 || localDay.expenses.length > 0 || due.session?.estado === 'ABIERTA';
+      if (hasWork) {
+        try {
+          const recovered = await closeOpenShiftForBranch({
+            branchId: params.branchId,
+            branchName: params.branchName,
+            operatorUid: params.operatorUid,
+            operatorName: params.operatorName,
+            ticketsSnapshot: params.ticketsSnapshot,
+            expensesSnapshot: params.expensesSnapshot,
+            notas: AUTO_CORTE_NOTE,
+            fechaCierreIso: automaticCloseIso(due.session?.fecha_apertura || new Date().toISOString()),
+            initialFund: params.initialFund
+          });
+          autoClosed = !!recovered.corteRecord?.id;
+        } catch (err) {
+          console.warn('[Firestore] No se pudo guardar el corte después de las 11:00 p.m.:', err);
+          closeFailed = true;
+        }
+      }
+    }
+    let stillOpen: SesionCaja | null = null;
+    try {
+      const fund = await readBranchFundAmount(params.branchId, params.initialFund ?? 1000);
+      stillOpen = await findExistingOpenSession(params.branchId, fund);
+    } catch {
+      stillOpen = due.session?.estado === 'ABIERTA' ? due.session : null;
+    }
+    return { session: stillOpen, tillLocked: true, autoClosed, closeFailed };
   }
   const session = await getActiveCashSession(
     params.branchId,
@@ -886,9 +1155,8 @@ export function subscribeToProducts(
     (snapshot) => {
       if (snapshot.empty) {
         console.warn(
-          '[Firestore] La colección products está vacía. No se siembran productos de demo para no pisar un catálogo de producción.',
+          '[Firestore] La colección products está vacía. No se reemplaza el catálogo local.',
         );
-        onProductsUpdate([]);
         return;
       }
       const loaded: Product[] = [];
@@ -949,7 +1217,11 @@ function subscribeMergedCollection<T extends { id: string }>(
 ) {
   let primary: T[] = [];
   let secondary: T[] = [];
+  let primaryReady = false;
+  let secondaryFetched = false;
+
   const emit = () => {
+    if (!primaryReady) return;
     const map = new Map<string, T>();
     secondary.forEach((row) => {
       if (row?.id) map.set(row.id, row);
@@ -958,36 +1230,60 @@ function subscribeMergedCollection<T extends { id: string }>(
       if (row?.id) map.set(row.id, row);
     });
     const loaded = Array.from(map.values());
-    loaded.sort((a, b) => String((b as { timestamp?: string }).timestamp || '').localeCompare(String((a as { timestamp?: string }).timestamp || '')));
+    loaded.sort((a, b) =>
+      String((b as { timestamp?: string }).timestamp || '').localeCompare(
+        String((a as { timestamp?: string }).timestamp || '')
+      )
+    );
     onUpdate(loaded);
+  };
+
+  const pullSecondaryOnce = () => {
+    if (secondaryFetched) return;
+    secondaryFetched = true;
+    if (primary.length > 0) {
+      emit();
+      return;
+    }
+    getDocs(collection(db, secondaryName))
+      .then((snapshot) => {
+        secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+        emit();
+      })
+      .catch((err) => {
+        console.warn(`[Firestore] one-shot ${secondaryName} failed:`, err);
+        emit();
+      });
   };
 
   const unsubPrimary = onSnapshot(
     collection(db, primaryName),
     (snapshot) => {
       primary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+      primaryReady = true;
       emit();
+      pullSecondaryOnce();
     },
     (err) => {
       console.error(`[Firestore] subscribe ${primaryName} error:`, err);
       if (onError) onError(err);
-    }
-  );
-  const unsubSecondary = onSnapshot(
-    collection(db, secondaryName),
-    (snapshot) => {
-      secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
-      emit();
-    },
-    (err) => {
-      console.error(`[Firestore] subscribe ${secondaryName} error:`, err);
-      if (onError) onError(err);
+      if (primaryReady) return;
+      getDocs(collection(db, secondaryName))
+        .then((snapshot) => {
+          secondaryFetched = true;
+          secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+          if (secondary.length === 0) return;
+          primaryReady = true;
+          emit();
+        })
+        .catch((secondaryErr) => {
+          console.warn(`[Firestore] one-shot ${secondaryName} failed:`, secondaryErr);
+        });
     }
   );
 
   return () => {
     unsubPrimary();
-    unsubSecondary();
   };
 }
 
@@ -1258,7 +1554,7 @@ export function subscribeToCortesX(
     (snapshot) => {
       const loaded: CorteXRecord[] = [];
       snapshot.forEach((d) => {
-        loaded.push(d.data() as CorteXRecord);
+        loaded.push({ ...(d.data() as CorteXRecord), id: d.id });
       });
       loaded.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
       onCortesUpdate(loaded);
