@@ -12,7 +12,7 @@
  * orden y la ubicación de cada registro, y que los folios nunca se repitan.
  */
 import assert from 'node:assert/strict';
-import { CartItem, Expense, SaleTicket } from '../src/types.ts';
+import { CartItem, Expense, RepairRecord, SaleTicket } from '../src/types.ts';
 
 // ----------------------------------------------------
 // Almacenamiento del "equipo"
@@ -50,10 +50,19 @@ const storage = new MemoryStorage();
 
 const { registerOutboxExecutor, drainOutbox, retryPendingNow, listPendingOutbox, refreshStatus } =
   await import('../src/lib/outbox.ts');
-const { commitSale, commitExpense, commitCorte, localSales, localExpenses, localCortes } =
-  await import('../src/lib/syncQueue.ts');
+const {
+  commitSale,
+  commitExpense,
+  commitCorte,
+  commitRepairRecord,
+  localSales,
+  localExpenses,
+  localCortes,
+  localRepairs
+} = await import('../src/lib/syncQueue.ts');
 const {
   allocateFolio,
+  allocateRepairFolio,
   warmUpFolios,
   setFolioLeaseProvider,
   isProvisionalFolio,
@@ -339,6 +348,39 @@ revisar(
   'Con la nube caída no debía escribirse nada nuevo en la nube'
 );
 
+paso('14:00 Entran tres celulares a taller, con la nube caída.');
+const equipos: RepairRecord[] = [];
+for (const [i, cliente] of ['Ana Ruiz', 'Beto Sánchez', 'Carla Domínguez'].entries()) {
+  const recibidoIso = hora(14, i * 10);
+  const folioTaller = await allocateRepairFolio(BRANCH, recibidoIso);
+  equipos.push(
+    await commitRepairRecord({
+      id: folioTaller,
+      clientName: cliente,
+      clientPhone: `644000000${i}`,
+      deviceModel: `Equipo ${i + 1}`,
+      passcodePattern: `PIN 000${i}`,
+      issueDescription: 'Pantalla estrellada',
+      totalCost: 800,
+      advancePayment: 300,
+      pendingBalance: 500,
+      status: 'en_taller',
+      receivedAt: recibidoIso,
+      receivedAtIso: recibidoIso,
+      operatorName: 'Jesus Villa',
+      branchId: BRANCH
+    })
+  );
+}
+const foliosTaller = equipos.map((r) => r.id);
+console.log(`   equipos recibidos sin nube: ${foliosTaller.join(', ')}`);
+revisar((await localRepairs()).length === 3, 'Los 3 equipos debían quedar guardados en el aparato');
+revisar(new Set(foliosTaller).size === 3, 'Los folios de taller no debían repetirse');
+revisar(
+  cloud.col('repairRecords').size === 0,
+  'Con la nube caída no debía escribirse el taller en la nube'
+);
+
 paso('15:00 Recargan la página (se reinicia la app, mismo equipo).');
 const discoTrasCaida = storage.snapshot();
 storage.restore(discoTrasCaida);
@@ -347,6 +389,16 @@ const recuperadosGastos = await localExpenses();
 console.log(`   al reabrir: ${recuperadas.length} ventas y ${recuperadosGastos.length} gastos en el equipo`);
 revisar(recuperadas.length === 35, 'Al recargar debían seguir las 35 ventas');
 revisar(recuperadosGastos.length === 3, 'Al recargar debían seguir los 3 gastos');
+
+paso('15:30 Se entrega un equipo cobrando su saldo; el cobro se cancela a medias.');
+const equipoEntregado = equipos[0];
+// El cajero manda el saldo al carrito, pero el cliente se arrepiente: no hay
+// cobro, así que el equipo debe seguir en taller y con saldo.
+const tallerTrasCancelar = (await localRepairs()).find((r) => r.id === equipoEntregado.id);
+revisar(
+  tallerTrasCancelar?.status === 'en_taller' && tallerTrasCancelar.pendingBalance === 500,
+  'Un cobro que no se completa no debe marcar el equipo como entregado'
+);
 
 paso('16:00 El cajero cobra la misma venta dos veces por error (doble clic).');
 const repetida = await venta({ h: 16, total: 99, id: 'TCK-SIM-REPETIDA' });
@@ -539,6 +591,56 @@ console.log(`   primer folio tras reconectar: ${folioTrasReconexion}`);
 revisar(
   !isProvisionalFolio(folioTrasReconexion),
   'Al reconectar debía volver a emitir folios numerados'
+);
+
+paso('Revisión del taller tras volver la nube.');
+const tallerNube = cloud.all('repairRecords');
+console.log(`   equipos de taller en la nube: ${tallerNube.length}`);
+revisar(tallerNube.length === 3, `Los 3 equipos debían subir a la nube (subieron ${tallerNube.length})`);
+revisar(
+  tallerNube.every((r) => r.clientPhone && r.passcodePattern && r.issueDescription),
+  'El registro de taller debía subir completo (teléfono, contraseña y falla)'
+);
+
+paso('23:30 Se entrega un equipo y se da de baja otro por captura equivocada.');
+const entregadoIso = hora(23, 30);
+await commitRepairRecord({
+  ...equipos[0],
+  status: 'entregado',
+  pendingBalance: 0,
+  deliveredAt: entregadoIso,
+  deliveredAtIso: entregadoIso,
+  deliveredByName: 'Jesus Villa',
+  deliveryTicketId: 'NAV-1509-099'
+});
+await commitRepairRecord({
+  ...equipos[1],
+  status: 'cancelado',
+  cancelledAt: entregadoIso,
+  cancelledByName: 'Cesar Avendaño',
+  cancelReason: 'Captura equivocada: el cliente no dejó el equipo'
+});
+await drainOutbox();
+
+const tallerFinal = await localRepairs();
+const entregados = tallerFinal.filter((r) => r.status === 'entregado');
+const cancelados = tallerFinal.filter((r) => r.status === 'cancelado');
+const enTaller = tallerFinal.filter((r) => r.status === 'en_taller');
+console.log(`   en taller: ${enTaller.length} · entregados: ${entregados.length} · dados de baja: ${cancelados.length}`);
+revisar(tallerFinal.length === 3, 'Ningún registro de taller debía desaparecer');
+revisar(entregados.length === 1 && cancelados.length === 1 && enTaller.length === 1, 'Los estados del taller debían quedar como se capturaron');
+revisar(
+  entregados[0].deliveredByName === 'Jesus Villa' && !!entregados[0].deliveredAtIso,
+  'La entrega debía guardar quién entregó y cuándo'
+);
+revisar(
+  cancelados[0].cancelReason?.includes('Captura equivocada') === true,
+  'La baja debía conservar el motivo y quién la hizo'
+);
+const canceladoEnNube = cloud.get('repairRecords', equipos[1].id) as { status?: string } | undefined;
+revisar(
+  canceladoEnNube?.status === 'cancelado',
+  'La baja es lógica: el registro sigue en la nube marcado como cancelado'
 );
 
 paso('Revisión del respaldo diario en la nube.');

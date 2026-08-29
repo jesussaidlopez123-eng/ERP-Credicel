@@ -17,6 +17,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - Un turno de **hoy** no se marca cerrado antes de las 11:00 p.m. El sistema **ya no borra** cortes guardados.
 - **Folio de ticket:** al cobrar se asigna un folio corto del día, por ejemplo `NAV-2708-042`. El id interno no se imprime.
 - **Compras:** los pedidos se guardan en la nube. Al marcar **Entregado**, la mercancía entra a inventario de Bodega (si el código o nombre coincide con un producto).
+- **Taller:** el equipo del cliente queda registrado con folio en cuanto se guarda, aunque no haya internet. Un equipo con saldo se marca **entregado solo cuando el cobro se completa**, así un cobro cancelado no deja el celular como entregado. Los registros no desaparecen: los entregados y los dados de baja pasan a **Historial**, con la información completa y exportable.
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 
 ## Sistema híbrido: primero el equipo, luego la nube

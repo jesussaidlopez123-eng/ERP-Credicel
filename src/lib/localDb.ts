@@ -20,6 +20,7 @@ export type RecordKind =
   | 'corte'
   | 'session'
   | 'movement'
+  | 'repair'
   | 'backup';
 
 export interface LocalRecord<T = unknown> {

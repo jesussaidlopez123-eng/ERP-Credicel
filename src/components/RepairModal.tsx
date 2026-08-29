@@ -1,17 +1,48 @@
-import React, { useState } from 'react';
-import { Wrench, User, Phone, Smartphone, DollarSign, FileText, CheckCircle2, Search, X, Lock, Clock, PackageCheck, AlertCircle, Printer } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  Wrench,
+  User,
+  Phone,
+  Smartphone,
+  DollarSign,
+  FileText,
+  CheckCircle2,
+  Search,
+  X,
+  Lock,
+  Clock,
+  PackageCheck,
+  History,
+  Ban,
+  Trash2,
+  ShieldCheck,
+  Download
+} from 'lucide-react';
 import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket } from '../types';
+import { allocateRepairFolio } from '../lib/folioAllocator';
+import { trustedIso } from '../lib/clockGuard';
+import { safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { formatMoney, money } from '../lib/ids';
 
 interface RepairModalProps {
   isOpen: boolean;
   onClose: () => void;
   repairRecords: RepairRecord[];
-  onAddRepairRecord: (record: RepairRecord) => void;
-  onUpdateRepairRecord: (record: RepairRecord) => void;
+  onAddRepairRecord: (record: RepairRecord) => void | Promise<void>;
+  onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
+  onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
   onAddToCart: (product: Product, amount: number, metadata?: CartItemMetadata) => void;
   currentBranch: Branch;
   currentOperator: Operator;
   onEmitDirectTicket?: (ticket: SaleTicket) => void | Promise<void>;
+  isAdmin?: boolean;
+}
+
+type TabId = 'recepcion' | 'entrega' | 'historial';
+
+function stampLabel(iso: string | undefined, fallback: string | undefined): string {
+  if (iso) return `${safeFormatDate(iso)} ${safeFormatTime(iso)}`;
+  return fallback || '—';
 }
 
 export default function RepairModal({
@@ -20,15 +51,15 @@ export default function RepairModal({
   repairRecords,
   onAddRepairRecord,
   onUpdateRepairRecord,
+  onCancelRepairRecord,
   onAddToCart,
   currentBranch,
   currentOperator,
-  onEmitDirectTicket
+  onEmitDirectTicket,
+  isAdmin = false
 }: RepairModalProps) {
-  // Active Tab: 'recepcion' (Dejar Celular) or 'entrega' (Entregar Celular)
-  const [activeTab, setActiveTab] = useState<'recepcion' | 'entrega'>('recepcion');
+  const [activeTab, setActiveTab] = useState<TabId>('recepcion');
 
-  // FORM FIELDS FOR RECEPCION (Dejar Celular)
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [deviceModel, setDeviceModel] = useState('');
@@ -36,138 +67,71 @@ export default function RepairModal({
   const [issueDescription, setIssueDescription] = useState('');
   const [totalCost, setTotalCost] = useState<string>('');
   const [advancePayment, setAdvancePayment] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  // SEARCH FILTER FOR ENTREGA
   const [searchFilter, setSearchFilter] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyScope, setHistoryScope] = useState<'entregados' | 'cancelados' | 'todos'>('entregados');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+
+  const pendingRepairs = useMemo(() => {
+    const q = searchFilter.toLowerCase().trim();
+    return repairRecords
+      .filter((r) => r.status !== 'entregado' && r.status !== 'cancelado')
+      .filter((r) => {
+        if (!q) return true;
+        return (
+          r.id.toLowerCase().includes(q) ||
+          r.clientName.toLowerCase().includes(q) ||
+          r.deviceModel.toLowerCase().includes(q) ||
+          r.clientPhone.includes(q)
+        );
+      })
+      .sort((a, b) =>
+        String(b.receivedAtIso || b.receivedAt || '').localeCompare(
+          String(a.receivedAtIso || a.receivedAt || '')
+        )
+      );
+  }, [repairRecords, searchFilter]);
+
+  const historyRecords = useMemo(() => {
+    const q = historySearch.toLowerCase().trim();
+    return repairRecords
+      .filter((r) => {
+        if (historyScope === 'entregados') return r.status === 'entregado';
+        if (historyScope === 'cancelados') return r.status === 'cancelado';
+        return r.status === 'entregado' || r.status === 'cancelado';
+      })
+      .filter((r) => {
+        if (!q) return true;
+        return (
+          r.id.toLowerCase().includes(q) ||
+          r.clientName.toLowerCase().includes(q) ||
+          r.deviceModel.toLowerCase().includes(q) ||
+          r.clientPhone.includes(q) ||
+          (r.issueDescription || '').toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) =>
+        String(b.deliveredAtIso || b.cancelledAt || b.receivedAtIso || '').localeCompare(
+          String(a.deliveredAtIso || a.cancelledAt || a.receivedAtIso || '')
+        )
+      );
+  }, [repairRecords, historyScope, historySearch]);
+
+  const historyTotals = useMemo(() => {
+    const cobrado = historyRecords
+      .filter((r) => r.status === 'entregado')
+      .reduce((sum, r) => sum + (Number(r.totalCost) || 0), 0);
+    return { cobrado: money(cobrado), cuenta: historyRecords.length };
+  }, [historyRecords]);
 
   if (!isOpen) return null;
 
-  // Handle Reception Submit (Dejar Celular)
-  const handleRecepcionSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!clientName.trim()) {
-      alert('Por favor ingresa el nombre del cliente.');
-      return;
-    }
-    if (!clientPhone.trim() || clientPhone.replace(/\D/g, '').length < 10) {
-      alert('Por favor ingresa un teléfono de contacto válido de 10 dígitos.');
-      return;
-    }
-    if (!deviceModel.trim()) {
-      alert('Por favor ingresa el modelo o marca del equipo.');
-      return;
-    }
-    if (!issueDescription.trim()) {
-      alert('Por favor describe la falla o reparación a realizar.');
-      return;
-    }
-
-    const numTotal = parseFloat(totalCost) || 0;
-    const numAdvance = parseFloat(advancePayment) || 0;
-
-    if (numAdvance > numTotal) {
-      alert('El anticipo no puede ser mayor que el costo total de la reparación.');
-      return;
-    }
-
-    const folioId = `REP-${Math.floor(1000 + Math.random() * 9000)}`;
-    const pendingBalance = Math.max(0, numTotal - numAdvance);
-
-    const newRepair: RepairRecord = {
-      id: folioId,
-      clientName: clientName.trim(),
-      clientPhone: clientPhone.trim(),
-      deviceModel: deviceModel.trim(),
-      passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
-      issueDescription: issueDescription.trim(),
-      totalCost: numTotal,
-      advancePayment: numAdvance,
-      pendingBalance,
-      status: 'en_taller',
-      receivedAt: new Date().toLocaleDateString('es-MX', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
-      operatorName: currentOperator.name,
-      branchId: currentBranch.id
-    };
-
-    onAddRepairRecord(newRepair);
-
-    // If an advance payment was made, add it to POS cart so it charges and prints via standard checkout flow
-    if (numAdvance > 0) {
-      const repairProduct: Product = {
-        id: `prod-rep-${Date.now()}`,
-        code: folioId,
-        name: `Recepción Taller (${folioId}) - ${deviceModel.trim()}`,
-        category: 'servicio',
-        price: numAdvance,
-        stock: 1
-      };
-
-      onAddToCart(repairProduct, numAdvance, {
-        repairId: folioId,
-        clientName: clientName.trim(),
-        clientPhone: clientPhone.trim(),
-        deviceModel: deviceModel.trim(),
-        issueDescription: issueDescription.trim(),
-        passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
-        repairType: 'anticipo',
-        advancePayment: numAdvance,
-        totalRepairCost: numTotal,
-        pendingBalance: pendingBalance,
-        receivedAt: newRepair.receivedAt
-      });
-    } else {
-      // Recepción sin anticipo: Emitir directamente el ticket de recepción para el cliente
-      if (onEmitDirectTicket) {
-        const receptionTicket: SaleTicket = {
-          id: `TCK-REC-${folioId.replace('REP-', '')}`,
-          folio: `REC-${folioId.replace('REP-', '')}`,
-          timestamp: new Date().toISOString(),
-          branchId: currentBranch.id,
-          operatorName: currentOperator.name,
-          items: [{
-            cartItemId: `item-rep-rec-${Date.now()}`,
-            product: {
-              id: `prod-rep-${Date.now()}`,
-              code: folioId,
-              name: `Recepción a Taller (${folioId}) - ${deviceModel.trim()}`,
-              category: 'servicio',
-              price: 0,
-              stock: 1
-            },
-            quantity: 1,
-            unitPrice: 0,
-            totalPrice: 0,
-            metadata: {
-              repairId: folioId,
-              clientName: clientName.trim(),
-              clientPhone: clientPhone.trim(),
-              deviceModel: deviceModel.trim(),
-              issueDescription: issueDescription.trim(),
-              passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
-              repairType: 'anticipo',
-              advancePayment: 0,
-              totalRepairCost: numTotal,
-              pendingBalance: numTotal,
-              receivedAt: newRepair.receivedAt
-            }
-          }],
-          total: 0,
-          paymentMethod: 'Efectivo',
-          cashReceived: 0,
-          change: 0
-        };
-        onEmitDirectTicket(receptionTicket);
-      }
-    }
-
-    // Reset Form
+  const resetForm = () => {
     setClientName('');
     setClientPhone('');
     setDeviceModel('');
@@ -175,192 +139,345 @@ export default function RepairModal({
     setIssueDescription('');
     setTotalCost('');
     setAdvancePayment('');
-    onClose();
+    setFormError(null);
   };
 
-  // Handle Deliver Equipment (Cobrar Saldo y Entregar)
-  const handleDeliverEquipment = (record: RepairRecord) => {
-    const amountToCharge = record.pendingBalance;
+  const handleRecepcionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (saving) return;
+    setFormError(null);
 
-    if (amountToCharge <= 0) {
-      // Mark as delivered without charging balance (ya pagado previamente o sin costo)
-      const updatedRecord: RepairRecord = {
-        ...record,
-        status: 'entregado',
-        pendingBalance: 0,
-        deliveredAt: new Date().toLocaleDateString('es-MX', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+    if (!clientName.trim()) {
+      setFormError('Falta el nombre del cliente.');
+      return;
+    }
+    if (!clientPhone.trim() || clientPhone.replace(/\D/g, '').length < 10) {
+      setFormError('El teléfono de contacto debe traer 10 dígitos.');
+      return;
+    }
+    if (!deviceModel.trim()) {
+      setFormError('Falta el modelo o marca del equipo.');
+      return;
+    }
+    if (!issueDescription.trim()) {
+      setFormError('Falta describir la falla o el servicio.');
+      return;
+    }
+
+    const numTotal = money(parseFloat(totalCost) || 0);
+    const numAdvance = money(parseFloat(advancePayment) || 0);
+
+    if (numAdvance > numTotal) {
+      setFormError('El anticipo no puede ser mayor que el costo total.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const receivedIso = trustedIso();
+      const folioId = await allocateRepairFolio(currentBranch.id, receivedIso);
+      const pendingBalance = money(Math.max(0, numTotal - numAdvance));
+
+      const newRepair: RepairRecord = {
+        id: folioId,
+        clientName: clientName.trim(),
+        clientPhone: clientPhone.trim(),
+        deviceModel: deviceModel.trim(),
+        passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
+        issueDescription: issueDescription.trim(),
+        totalCost: numTotal,
+        advancePayment: numAdvance,
+        pendingBalance,
+        status: 'en_taller',
+        receivedAt: `${safeFormatDate(receivedIso)} ${safeFormatTime(receivedIso)}`,
+        receivedAtIso: receivedIso,
+        operatorName: currentOperator.name,
+        branchId: currentBranch.id
       };
-      onUpdateRepairRecord(updatedRecord);
 
-      // Emitir ticket de comprobante de entrega
-      if (onEmitDirectTicket) {
-        const deliveryTicket: SaleTicket = {
-          id: `TCK-ENT-${record.id.replace('REP-', '')}`,
-          folio: `ENT-${record.id.replace('REP-', '')}`,
-          timestamp: new Date().toISOString(),
+      // El registro se guarda antes de cobrar: si el cobro se cancela, el
+      // equipo del cliente ya quedó anotado en el taller.
+      await onAddRepairRecord(newRepair);
+
+      if (numAdvance > 0) {
+        const repairProduct: Product = {
+          id: `prod-rep-${folioId}`,
+          code: folioId,
+          name: `Recepción Taller (${folioId}) - ${deviceModel.trim()}`,
+          category: 'servicio',
+          price: numAdvance,
+          stock: 1
+        };
+
+        onAddToCart(repairProduct, numAdvance, {
+          repairId: folioId,
+          clientName: newRepair.clientName,
+          clientPhone: newRepair.clientPhone,
+          deviceModel: newRepair.deviceModel,
+          issueDescription: newRepair.issueDescription,
+          passcodePattern: newRepair.passcodePattern,
+          repairType: 'anticipo',
+          advancePayment: numAdvance,
+          totalRepairCost: numTotal,
+          pendingBalance,
+          receivedAt: newRepair.receivedAt
+        });
+      } else if (onEmitDirectTicket) {
+        await onEmitDirectTicket({
+          id: `TCK-REC-${folioId}`,
+          folio: `REC-${folioId.replace('REP-', '')}`,
+          timestamp: receivedIso,
           branchId: currentBranch.id,
           operatorName: currentOperator.name,
-          items: [{
-            cartItemId: `item-rep-deliv-${Date.now()}`,
-            product: {
-              id: `prod-rep-deliv-${Date.now()}`,
-              code: record.id,
-              name: `Entrega de Equipo (${record.id}) - ${record.deviceModel}`,
-              category: 'servicio',
-              price: 0,
-              stock: 1
-            },
-            quantity: 1,
-            unitPrice: 0,
-            totalPrice: 0,
-            metadata: {
-              repairId: record.id,
-              clientName: record.clientName,
-              clientPhone: record.clientPhone,
-              deviceModel: record.deviceModel,
-              issueDescription: record.issueDescription,
-              passcodePattern: record.passcodePattern,
-              repairType: 'saldo_final',
-              advancePayment: record.advancePayment,
-              totalRepairCost: record.totalCost,
-              pendingBalance: 0,
-              deliveredAt: updatedRecord.deliveredAt
+          items: [
+            {
+              cartItemId: `item-rep-rec-${folioId}`,
+              product: {
+                id: `prod-rep-${folioId}`,
+                code: folioId,
+                name: `Recepción a Taller (${folioId}) - ${deviceModel.trim()}`,
+                category: 'servicio',
+                price: 0,
+                stock: 1
+              },
+              quantity: 1,
+              unitPrice: 0,
+              totalPrice: 0,
+              metadata: {
+                repairId: folioId,
+                clientName: newRepair.clientName,
+                clientPhone: newRepair.clientPhone,
+                deviceModel: newRepair.deviceModel,
+                issueDescription: newRepair.issueDescription,
+                passcodePattern: newRepair.passcodePattern,
+                repairType: 'anticipo',
+                advancePayment: 0,
+                totalRepairCost: numTotal,
+                pendingBalance: numTotal,
+                receivedAt: newRepair.receivedAt
+              }
             }
-          }],
+          ],
           total: 0,
           paymentMethod: 'Efectivo',
           cashReceived: 0,
           change: 0
-        };
-        onEmitDirectTicket(deliveryTicket);
+        });
+      }
+
+      resetForm();
+      onClose();
+    } catch (err) {
+      console.error('Error registrando la recepción del equipo:', err);
+      setFormError(
+        'No se pudo registrar la recepción en este equipo. No entregues el celular sin folio; inténtalo de nuevo.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Con saldo pendiente el equipo NO se marca entregado aquí: se manda a cobro
+   * y la entrega se registra cuando el ticket queda pagado. Así un cobro
+   * cancelado no deja el celular como entregado y sin saldo.
+   */
+  const handleDeliverEquipment = async (record: RepairRecord) => {
+    const amountToCharge = money(record.pendingBalance);
+    const nowIso = trustedIso();
+
+    if (amountToCharge <= 0) {
+      const updatedRecord: RepairRecord = {
+        ...record,
+        status: 'entregado',
+        pendingBalance: 0,
+        deliveredAt: `${safeFormatDate(nowIso)} ${safeFormatTime(nowIso)}`,
+        deliveredAtIso: nowIso,
+        deliveredByName: currentOperator.name
+      };
+      await onUpdateRepairRecord(updatedRecord);
+
+      if (onEmitDirectTicket) {
+        await onEmitDirectTicket({
+          id: `TCK-ENT-${record.id}`,
+          folio: `ENT-${record.id.replace('REP-', '')}`,
+          timestamp: nowIso,
+          branchId: currentBranch.id,
+          operatorName: currentOperator.name,
+          items: [
+            {
+              cartItemId: `item-rep-deliv-${record.id}`,
+              product: {
+                id: `prod-rep-deliv-${record.id}`,
+                code: record.id,
+                name: `Entrega de Equipo (${record.id}) - ${record.deviceModel}`,
+                category: 'servicio',
+                price: 0,
+                stock: 1
+              },
+              quantity: 1,
+              unitPrice: 0,
+              totalPrice: 0,
+              metadata: {
+                repairId: record.id,
+                clientName: record.clientName,
+                clientPhone: record.clientPhone,
+                deviceModel: record.deviceModel,
+                issueDescription: record.issueDescription,
+                passcodePattern: record.passcodePattern,
+                repairType: 'saldo_final',
+                advancePayment: record.advancePayment,
+                totalRepairCost: record.totalCost,
+                pendingBalance: 0,
+                deliveredAt: updatedRecord.deliveredAt
+              }
+            }
+          ],
+          total: 0,
+          paymentMethod: 'Efectivo',
+          cashReceived: 0,
+          change: 0
+        });
       }
       onClose();
       return;
     }
 
-    // Add remaining balance to POS cart
-    const repairProduct: Product = {
-      id: `prod-rep-deliv-${Date.now()}`,
-      code: record.id,
-      name: `Saldo Liquidación (${record.id}) - ${record.deviceModel}`,
-      category: 'servicio',
-      price: amountToCharge,
-      stock: 1
-    };
-
-    onAddToCart(repairProduct, amountToCharge, {
-      repairId: record.id,
-      clientName: record.clientName,
-      clientPhone: record.clientPhone,
-      deviceModel: record.deviceModel,
-      issueDescription: record.issueDescription,
-      passcodePattern: record.passcodePattern,
-      repairType: 'saldo_final',
-      advancePayment: record.advancePayment,
-      totalRepairCost: record.totalCost,
-      pendingBalance: 0
-    });
-
-    // Update record status
-    const updatedRecord: RepairRecord = {
-      ...record,
-      status: 'entregado',
-      pendingBalance: 0,
-      deliveredAt: new Date().toLocaleDateString('es-MX', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    };
-    onUpdateRepairRecord(updatedRecord);
+    onAddToCart(
+      {
+        id: `prod-rep-deliv-${record.id}`,
+        code: record.id,
+        name: `Saldo Liquidación (${record.id}) - ${record.deviceModel}`,
+        category: 'servicio',
+        price: amountToCharge,
+        stock: 1
+      },
+      amountToCharge,
+      {
+        repairId: record.id,
+        clientName: record.clientName,
+        clientPhone: record.clientPhone,
+        deviceModel: record.deviceModel,
+        issueDescription: record.issueDescription,
+        passcodePattern: record.passcodePattern,
+        repairType: 'saldo_final',
+        advancePayment: record.advancePayment,
+        totalRepairCost: record.totalCost,
+        pendingBalance: 0
+      }
+    );
     onClose();
   };
 
-  // Pending repairs in shop
-  const pendingRepairs = repairRecords.filter((r) => {
-    if (r.status === 'entregado') return false;
-    const q = searchFilter.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      r.id.toLowerCase().includes(q) ||
-      r.clientName.toLowerCase().includes(q) ||
-      r.deviceModel.toLowerCase().includes(q) ||
-      r.clientPhone.includes(q)
-    );
-  });
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget || !onCancelRepairRecord) return;
+    await onCancelRepairRecord(cancelTarget, cancelReason);
+    setCancelTarget(null);
+    setCancelReason('');
+  };
+
+  const exportHistory = () => {
+    const encabezado = [
+      'Folio',
+      'Estado',
+      'Cliente',
+      'Telefono',
+      'Equipo',
+      'Falla',
+      'Costo',
+      'Anticipo',
+      'Saldo',
+      'Recibido',
+      'Entregado',
+      'Recibio',
+      'Entrego',
+      'Sucursal'
+    ];
+    const filas = historyRecords.map((r) => [
+      r.id,
+      r.status,
+      r.clientName,
+      r.clientPhone,
+      r.deviceModel,
+      (r.issueDescription || '').replace(/[\n;]/g, ' '),
+      formatMoney(r.totalCost),
+      formatMoney(r.advancePayment),
+      formatMoney(r.pendingBalance),
+      stampLabel(r.receivedAtIso, r.receivedAt),
+      stampLabel(r.deliveredAtIso, r.deliveredAt),
+      r.operatorName || '',
+      r.deliveredByName || '',
+      r.branchId
+    ]);
+    const csv = [encabezado, ...filas]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
+      .join('\n');
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `historial-taller-${currentBranch.name.toLowerCase()}-${safeDateIsoKey(trustedIso())}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const tabButton = (id: TabId, icon: React.ReactNode, label: string) => (
+    <button
+      type="button"
+      onClick={() => setActiveTab(id)}
+      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+        activeTab === id
+          ? 'bg-amber-600 text-white shadow-sm'
+          : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+      }`}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </button>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col my-auto max-h-[92vh]">
-        
-        {/* Header */}
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col my-auto max-h-[92vh]">
         <div className="flex items-center justify-between px-6 py-4 bg-amber-600 text-white shrink-0">
           <div className="flex items-center gap-2.5">
             <Wrench className="w-6 h-6 text-amber-200" />
             <div>
               <h3 className="font-bold text-base">Servicio Técnico & Reparaciones</h3>
-              <p className="text-[11px] text-amber-100">Recepción y Entrega de Equipos de Clientes</p>
+              <p className="text-[11px] text-amber-100">
+                Recepción, entrega e historial de equipos de clientes
+              </p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="text-amber-100 hover:text-white p-1 rounded-lg"
-          >
+          <button onClick={onClose} className="text-amber-100 hover:text-white p-1 rounded-lg cursor-pointer">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Switcher */}
         <div className="flex border-b border-slate-200 bg-slate-50 p-2 gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab('recepcion')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-              activeTab === 'recepcion'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Wrench className="w-4 h-4" />
-            1. Recepción / Dejar Celular
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('entrega')}
-            className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-              activeTab === 'entrega'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <PackageCheck className="w-4 h-4" />
-            2. Entrega de Equipo ({repairRecords.filter(r => r.status !== 'entregado').length})
-          </button>
+          {tabButton('recepcion', <Wrench className="w-4 h-4" />, 'Recepción')}
+          {tabButton(
+            'entrega',
+            <PackageCheck className="w-4 h-4" />,
+            `En taller (${repairRecords.filter((r) => r.status !== 'entregado' && r.status !== 'cancelado').length})`
+          )}
+          {tabButton('historial', <History className="w-4 h-4" />, 'Historial')}
         </div>
 
-        {/* TAB 1: RECEPCION DE EQUIPO */}
         {activeTab === 'recepcion' && (
           <form onSubmit={handleRecepcionSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
-            
             <div className="bg-amber-50/70 border border-amber-200/80 p-3 rounded-xl text-xs text-amber-900 font-medium">
-              Completa la información del cliente y del celular para registrar la recepción en el taller.
+              El equipo queda registrado con folio en cuanto guardas, aunque no haya internet.
+              El anticipo se cobra después, en el punto de venta.
             </div>
 
-            {/* Client Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
                   <User className="w-3.5 h-3.5 text-amber-600" />
-                  Nombre del Cliente
+                  Nombre del cliente
                 </label>
                 <input
                   type="text"
@@ -375,13 +492,13 @@ export default function RepairModal({
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
                   <Phone className="w-3.5 h-3.5 text-amber-600" />
-                  Teléfono de Contacto (10 dígitos)
+                  Teléfono de contacto (10 dígitos)
                 </label>
                 <input
                   type="tel"
                   required
                   maxLength={10}
-                  placeholder="Ej. 5511223344"
+                  placeholder="Ej. 6441234567"
                   value={clientPhone}
                   onChange={(e) => setClientPhone(e.target.value.replace(/\D/g, ''))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
@@ -389,12 +506,11 @@ export default function RepairModal({
               </div>
             </div>
 
-            {/* Device Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5 text-amber-600" />
-                  Modelo / Marca del Equipo
+                  Modelo / marca del equipo
                 </label>
                 <input
                   type="text"
@@ -409,7 +525,7 @@ export default function RepairModal({
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
                   <Lock className="w-3.5 h-3.5 text-amber-600" />
-                  Contraseña / Patrón de Desbloqueo (Opcional)
+                  Contraseña / patrón (opcional)
                 </label>
                 <input
                   type="text"
@@ -421,28 +537,26 @@ export default function RepairModal({
               </div>
             </div>
 
-            {/* Issue Description */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
                 <FileText className="w-3.5 h-3.5 text-amber-600" />
-                Falla Reportada o Servicio a Realizar
+                Falla reportada o servicio a realizar
               </label>
               <textarea
                 rows={2}
                 required
-                placeholder="Ej. Pantalla estrellada, no da imagen. Cambio de display OLED y revisión de lógica."
+                placeholder="Ej. Pantalla estrellada, no da imagen. Cambio de display y revisión."
                 value={issueDescription}
                 onChange={(e) => setIssueDescription(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
               />
             </div>
 
-            {/* Costs & Advance Payment */}
             <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1">
                   <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-                  Costo Total Estimado ($)
+                  Costo total estimado
                 </label>
                 <input
                   type="number"
@@ -458,7 +572,7 @@ export default function RepairModal({
               <div>
                 <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1">
                   <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                  Anticipo Dejado ($ MXN)
+                  Anticipo dejado
                 </label>
                 <input
                   type="number"
@@ -472,50 +586,51 @@ export default function RepairModal({
               </div>
             </div>
 
-            {/* Buttons */}
+            {formError && (
+              <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                {formError}
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                Registrar Recepción de Equipo
+                {saving ? 'Guardando…' : 'Registrar recepción del equipo'}
               </button>
             </div>
-
           </form>
         )}
 
-        {/* TAB 2: ENTREGA DE EQUIPO */}
         {activeTab === 'entrega' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
-            
-            {/* Search Filter */}
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Buscar por Folio, Cliente o Modelo de Celular..."
+                placeholder="Buscar por folio, cliente, teléfono o modelo…"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
               />
             </div>
 
-            {/* List of pending repairs */}
             {pendingRepairs.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 space-y-2">
                 <PackageCheck className="w-10 h-10 mx-auto text-slate-300" />
-                <p className="text-xs font-bold">No hay equipos pendientes de entrega.</p>
+                <p className="text-xs font-bold">No hay equipos en taller.</p>
                 <p className="text-[11px] text-slate-400">
-                  Todos los celulares han sido entregados o no hay coincidencias en la búsqueda.
+                  Los equipos ya entregados están en la pestaña Historial.
                 </p>
               </div>
             ) : (
@@ -525,72 +640,329 @@ export default function RepairModal({
                     key={record.id}
                     className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-amber-400 transition-all space-y-3"
                   >
-                    
-                    {/* Header Row */}
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
                         <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-extrabold text-xs rounded-lg">
                           {record.id}
                         </span>
-                        <span className="text-xs font-extrabold text-slate-900">
-                          {record.deviceModel}
-                        </span>
+                        <span className="text-xs font-extrabold text-slate-900">{record.deviceModel}</span>
                       </div>
                       <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
                         <Clock className="w-3 h-3 text-slate-400" />
-                        {record.receivedAt}
+                        {stampLabel(record.receivedAtIso, record.receivedAt)}
                       </span>
                     </div>
 
-                    {/* Client & Issue Details */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-xl">
                       <div>
-                        <p className="text-slate-500 font-medium">Cliente:</p>
-                        <p className="font-bold text-slate-900">{record.clientName} ({record.clientPhone})</p>
+                        <p className="text-slate-500 font-medium">Cliente</p>
+                        <p className="font-bold text-slate-900">
+                          {record.clientName} ({record.clientPhone})
+                        </p>
                       </div>
                       <div>
-                        <p className="text-slate-500 font-medium">Falla / Servicio:</p>
-                        <p className="font-bold text-slate-800 line-clamp-1">{record.issueDescription}</p>
+                        <p className="text-slate-500 font-medium">Falla / servicio</p>
+                        <p className="font-bold text-slate-800">{record.issueDescription}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 font-medium">Contraseña / patrón</p>
+                        <p className="font-bold text-slate-800">{record.passcodePattern}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 font-medium">Recibió</p>
+                        <p className="font-bold text-slate-800">{record.operatorName}</p>
                       </div>
                     </div>
 
-                    {/* Financial Balance */}
                     <div className="flex flex-wrap items-center justify-between pt-1 border-t border-slate-100 gap-2">
                       <div className="flex items-center gap-3 text-xs">
                         <div>
-                          <span className="text-slate-500">Costo Total:</span>{' '}
-                          <span className="font-bold text-slate-900">${record.totalCost.toFixed(2)}</span>
+                          <span className="text-slate-500">Costo:</span>{' '}
+                          <span className="font-bold text-slate-900">${formatMoney(record.totalCost)}</span>
                         </div>
                         <div>
                           <span className="text-slate-500">Anticipo:</span>{' '}
-                          <span className="font-bold text-emerald-700">${record.advancePayment.toFixed(2)}</span>
+                          <span className="font-bold text-emerald-700">
+                            ${formatMoney(record.advancePayment)}
+                          </span>
                         </div>
                         <div>
-                          <span className="text-slate-500">Saldo Restante:</span>{' '}
-                          <span className="font-black text-amber-700 text-sm">${record.pendingBalance.toFixed(2)} MXN</span>
+                          <span className="text-slate-500">Saldo:</span>{' '}
+                          <span className="font-black text-amber-700 text-sm">
+                            ${formatMoney(record.pendingBalance)}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Deliver Action */}
-                      <button
-                        type="button"
-                        onClick={() => handleDeliverEquipment(record)}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all"
-                      >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Cobrar Saldo (${record.pendingBalance}) y Entregar
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {onCancelRepairRecord && isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelTarget(record);
+                              setCancelReason('');
+                            }}
+                            className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                            title="Dar de baja este registro"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            Dar de baja
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleDeliverEquipment(record)}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          {record.pendingBalance > 0
+                            ? `Cobrar $${formatMoney(record.pendingBalance)} y entregar`
+                            : 'Entregar equipo'}
+                        </button>
+                      </div>
                     </div>
 
+                    {record.pendingBalance > 0 && (
+                      <p className="text-[10.5px] text-slate-500">
+                        El equipo se marca entregado cuando el cobro quede completado en el punto de venta.
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-
           </div>
         )}
 
+        {activeTab === 'historial' && (
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar en el historial por folio, cliente, teléfono, equipo o falla…"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+              <select
+                value={historyScope}
+                onChange={(e) => setHistoryScope(e.target.value as typeof historyScope)}
+                className="px-3 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer"
+              >
+                <option value="entregados">Entregados</option>
+                <option value="cancelados">Dados de baja</option>
+                <option value="todos">Todos</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="text-[11px] text-slate-600">
+                <span className="font-bold text-slate-900">{historyTotals.cuenta}</span> registro(s)
+                {historyScope !== 'cancelados' && (
+                  <>
+                    {' · '}cobrado{' '}
+                    <span className="font-bold text-slate-900">${formatMoney(historyTotals.cobrado)}</span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={exportHistory}
+                disabled={historyRecords.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-white disabled:opacity-50 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Exportar
+              </button>
+            </div>
+
+            {historyRecords.length === 0 ? (
+              <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 space-y-2">
+                <History className="w-10 h-10 mx-auto text-slate-300" />
+                <p className="text-xs font-bold">Todavía no hay equipos en el historial.</p>
+                <p className="text-[11px] text-slate-400">
+                  Aquí aparecen los equipos entregados con su información completa.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {historyRecords.map((record) => {
+                  const abierto = expandedId === record.id;
+                  const cancelado = record.status === 'cancelado';
+                  return (
+                    <div
+                      key={record.id}
+                      className={`rounded-2xl border overflow-hidden ${
+                        cancelado ? 'border-rose-200 bg-rose-50/40' : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(abierto ? null : record.id)}
+                        className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/80 cursor-pointer"
+                      >
+                        <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-extrabold text-[11px] rounded-lg">
+                            {record.id}
+                          </span>
+                          <span className="text-xs font-black text-slate-900 truncate">
+                            {record.clientName}
+                          </span>
+                          <span className="text-[11px] text-slate-500 truncate">{record.deviceModel}</span>
+                          <span
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                              cancelado
+                                ? 'border-rose-200 bg-rose-100 text-rose-700'
+                                : 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {cancelado ? 'Dado de baja' : 'Entregado'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 shrink-0 font-medium">
+                          {cancelado
+                            ? stampLabel(record.cancelledAt, undefined)
+                            : stampLabel(record.deliveredAtIso, record.deliveredAt)}
+                        </span>
+                      </button>
+
+                      {abierto && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                            <div>
+                              <p className="text-slate-500 font-medium">Teléfono</p>
+                              <p className="font-bold text-slate-900 font-mono">{record.clientPhone}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 font-medium">Contraseña / patrón</p>
+                              <p className="font-bold text-slate-900">{record.passcodePattern || '—'}</p>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <p className="text-slate-500 font-medium">Falla reportada</p>
+                              <p className="font-bold text-slate-900">{record.issueDescription}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 font-medium">Recibido</p>
+                              <p className="font-bold text-slate-900">
+                                {stampLabel(record.receivedAtIso, record.receivedAt)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 font-medium">Entregado</p>
+                              <p className="font-bold text-slate-900">
+                                {stampLabel(record.deliveredAtIso, record.deliveredAt)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 font-medium">Recibió</p>
+                              <p className="font-bold text-slate-900">{record.operatorName || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 font-medium">Entregó</p>
+                              <p className="font-bold text-slate-900">{record.deliveredByName || '—'}</p>
+                            </div>
+                            {record.deliveryTicketId && (
+                              <div>
+                                <p className="text-slate-500 font-medium">Ticket de liquidación</p>
+                                <p className="font-bold text-slate-900 font-mono">{record.deliveryTicketId}</p>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-slate-500 font-medium">Equipo que registró</p>
+                              <p className="font-bold text-slate-900">{record.deviceLabel || '—'}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
+                            <span>
+                              Costo <strong className="text-slate-900">${formatMoney(record.totalCost)}</strong>
+                            </span>
+                            <span>
+                              Anticipo{' '}
+                              <strong className="text-emerald-700">${formatMoney(record.advancePayment)}</strong>
+                            </span>
+                            <span>
+                              Saldo final{' '}
+                              <strong className="text-slate-900">${formatMoney(record.pendingBalance)}</strong>
+                            </span>
+                          </div>
+
+                          {cancelado && (
+                            <div className="text-[11px] bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-rose-800">
+                              <p>
+                                <strong>Dado de baja por:</strong> {record.cancelledByName || '—'}
+                              </p>
+                              <p>
+                                <strong>Motivo:</strong> {record.cancelReason || '—'}
+                              </p>
+                            </div>
+                          )}
+
+                          {!cancelado && onCancelRepairRecord && isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelTarget(record);
+                                setCancelReason('');
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Dar de baja este registro
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {cancelTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-rose-600" />
+              <h4 className="text-sm font-black text-slate-900">Dar de baja {cancelTarget.id}</h4>
+            </div>
+            <p className="text-xs text-slate-600">
+              El registro no se borra: queda en el historial como dado de baja, con tu nombre y el motivo.
+              Equipo de {cancelTarget.clientName} ({cancelTarget.deviceModel}).
+            </p>
+            <textarea
+              rows={2}
+              autoFocus
+              placeholder="Motivo (ej. captura equivocada, el cliente ya no dejó el equipo)"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCancelTarget(null)}
+                className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmCancel()}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Dar de baja
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -172,7 +172,7 @@ export interface CreditAccount {
 }
 
 export interface RepairRecord {
-  id: string; // Folio e.g. REP-1001
+  id: string; // Folio e.g. REP-2908-K3M07
   clientName: string;
   clientPhone: string;
   deviceModel: string;
@@ -181,11 +181,23 @@ export interface RepairRecord {
   totalCost: number;
   advancePayment: number;
   pendingBalance: number;
-  status: 'en_taller' | 'listo' | 'entregado';
+  status: 'en_taller' | 'listo' | 'entregado' | 'cancelado';
   receivedAt: string;
   deliveredAt?: string;
+  /** Marcas ordenables. Las de arriba son para mostrar e imprimir. */
+  receivedAtIso?: string;
+  deliveredAtIso?: string;
   operatorName: string;
+  deliveredByName?: string;
   branchId: string;
+  deviceId?: string;
+  deviceLabel?: string;
+  /** Baja lógica: el registro se conserva para auditoría. */
+  cancelledAt?: string;
+  cancelledByName?: string;
+  cancelReason?: string;
+  /** Ticket con el que se liquidó el saldo. */
+  deliveryTicketId?: string;
 }
 
 export interface RepairPriceItem {

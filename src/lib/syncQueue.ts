@@ -6,7 +6,7 @@
  * esperando a la red y ninguna venta del día se pierde.
  */
 
-import { CorteXRecord, Expense, InventoryMovement, Product, SaleTicket } from '../types';
+import { CorteXRecord, Expense, InventoryMovement, Product, RepairRecord, SaleTicket } from '../types';
 import { normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
@@ -17,6 +17,7 @@ import {
   EXPENSES_COLLECTION,
   GASTOS_COLLECTION,
   PRODUCTS_COLLECTION,
+  REPAIR_RECORDS_COLLECTION,
   SALES_COLLECTION,
   VENTAS_COLLECTION,
   cleanForFirestore,
@@ -163,6 +164,61 @@ export async function commitCorte(
   });
 
   kickDrain();
+}
+
+// ----------------------------------------------------
+// Taller
+// ----------------------------------------------------
+
+/**
+ * Recepción, entrega y cancelación de un equipo en taller.
+ *
+ * Un celular ajeno en el mostrador no puede depender de que haya internet:
+ * el registro queda en el equipo y sube cuando se pueda. Reenviarlo no
+ * duplica nada porque el folio es el id del documento.
+ */
+export async function commitRepairRecord(record: RepairRecord): Promise<RepairRecord> {
+  const branchId = normalizeBranchId(record.branchId);
+  const enriched: RepairRecord = {
+    ...record,
+    branchId,
+    receivedAtIso: record.receivedAtIso || trustedIso(),
+    deviceId: record.deviceId || getDeviceId(),
+    deviceLabel: record.deviceLabel || getDeviceLabel()
+  };
+  const dateKey = hermosilloDateKey(enriched.receivedAtIso) || trustedDateKey();
+
+  await putRecord<RepairRecord>({
+    kind: 'repair',
+    id: enriched.id,
+    branchId,
+    dateKey,
+    data: enriched,
+    updatedAt: trustedIso()
+  });
+
+  await enqueue({
+    kind: 'docWrite',
+    groupKey: `taller-${branchId}`,
+    id: `repair-${enriched.id}`,
+    label: `Taller ${enriched.id} · ${enriched.clientName}`,
+    payload: {
+      writes: [
+        {
+          collection: REPAIR_RECORDS_COLLECTION,
+          id: enriched.id,
+          data: cleanForFirestore(enriched as unknown as Record<string, unknown>)
+        }
+      ]
+    }
+  });
+
+  kickDrain();
+  return enriched;
+}
+
+export async function localRepairs(): Promise<RepairRecord[]> {
+  return unwrap(await listRecords<RepairRecord>('repair'));
 }
 
 // ----------------------------------------------------

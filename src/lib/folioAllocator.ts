@@ -190,6 +190,22 @@ export async function folioLeaseRemaining(branchId: string): Promise<number> {
   return Math.max(0, lease.end - lease.next + 1);
 }
 
+/**
+ * Folio de taller. No pasa por la nube: la recepción de un equipo no puede
+ * esperar a la red. La clave de la caja lo hace único entre sucursales.
+ */
+export async function allocateRepairFolio(branchId: string, atIso?: string): Promise<string> {
+  const normBId = normalizeBranchId(branchId);
+  const dateKey = hermosilloDateKey(atIso) || trustedDateKey();
+  const key = `repair_folio_${branchFolioCode(normBId)}_${dateKey}`;
+  const current = await getMeta<ProvisionalCounter>(key);
+  const seq = current && current.dateKey === dateKey ? current.seq + 1 : 1;
+  await setMeta<ProvisionalCounter>(key, { dateKey, seq });
+  const dd = dateKey.slice(8, 10);
+  const mm = dateKey.slice(5, 7);
+  return `REP-${dd}${mm}-${getDeviceCode()}${String(seq).padStart(2, '0')}`;
+}
+
 export function isProvisionalFolio(folio: string | undefined): boolean {
   if (!folio) return false;
   const parts = folio.split('-');

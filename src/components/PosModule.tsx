@@ -73,8 +73,9 @@ interface PosModuleProps {
   tillLocked?: boolean;
   creditAccounts?: CreditAccount[];
   repairRecords?: RepairRecord[];
-  onAddRepairRecord?: (record: RepairRecord) => void;
-  onUpdateRepairRecord?: (record: RepairRecord) => void;
+  onAddRepairRecord: (record: RepairRecord) => void | Promise<void>;
+  onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
+  onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
 }
 
 
@@ -107,7 +108,8 @@ export default function PosModule({
   creditAccounts = [],
   repairRecords: repairRecordsProp,
   onAddRepairRecord,
-  onUpdateRepairRecord
+  onUpdateRepairRecord,
+  onCancelRepairRecord
 }: PosModuleProps) {
 
   // Cart state
@@ -150,28 +152,9 @@ export default function PosModule({
   const [isCreditDeviceModalOpen, setIsCreditDeviceModalOpen] = useState(false);
   const [selectedCreditProduct, setSelectedCreditProduct] = useState<Product | null>(null);
 
-  const [localRepairRecords, setLocalRepairRecords] = useState<RepairRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(`erp_repair_records_${currentBranch.id}`);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Error loading repair records', e);
-    }
-    return [];
-  });
-
-  const repairRecords = repairRecordsProp ?? localRepairRecords;
-
-  useEffect(() => {
-    if (repairRecordsProp) return;
-    try {
-      localStorage.setItem(`erp_repair_records_${currentBranch.id}`, JSON.stringify(localRepairRecords));
-    } catch (e) {
-      console.error('Error saving repair records', e);
-    }
-  }, [localRepairRecords, currentBranch.id, repairRecordsProp]);
+  // Los registros de taller viven en el almacén durable del equipo y en la
+  // nube. Tener aquí una copia aparte era otra forma de perderlos.
+  const repairRecords = repairRecordsProp ?? [];
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
   const [internalExpenseOpen, setInternalExpenseOpen] = useState(false);
   const [internalCorteXOpen, setInternalCorteXOpen] = useState(false);
@@ -1245,17 +1228,13 @@ export default function PosModule({
         isOpen={isRepairModalOpen}
         onClose={() => setIsRepairModalOpen(false)}
         repairRecords={repairRecords}
-        onAddRepairRecord={(record) => {
-          if (onAddRepairRecord) onAddRepairRecord(record);
-          else setLocalRepairRecords((prev) => [record, ...prev]);
-        }}
-        onUpdateRepairRecord={(record) => {
-          if (onUpdateRepairRecord) onUpdateRepairRecord(record);
-          else setLocalRepairRecords((prev) => prev.map((r) => (r.id === record.id ? record : r)));
-        }}
+        onAddRepairRecord={onAddRepairRecord}
+        onUpdateRepairRecord={onUpdateRepairRecord}
+        onCancelRepairRecord={onCancelRepairRecord}
         onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
+        isAdmin={currentOperator.role === 'admin'}
         onEmitDirectTicket={async (ticket) => {
           await commitSale(ticket);
         }}

@@ -42,11 +42,11 @@ import {
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
-  saveRepairRecordToFirestore,
   deleteSaleTicketFromFirestore,
   savePurchaseDraftToFirestore
 } from '../lib/firebase';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
+import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
 import {
   canOpenNewCashSession,
@@ -73,10 +73,12 @@ import {
   commitExpense,
   commitInventoryMovements,
   commitProduct,
+  commitRepairRecord,
   commitSale,
   forgetLocalSale,
   localCortes,
   localExpenses,
+  localRepairs,
   localSales,
   mergeWithLocal,
   pruneOldLocalRecords,
@@ -85,7 +87,7 @@ import {
 } from '../lib/syncQueue';
 import { allocateFolio, clearFolioLeaseCooldown, warmUpFolios } from '../lib/folioAllocator';
 import { ensureDailyBackup } from '../lib/dailyBackup';
-import { observeTrustedIso } from '../lib/clockGuard';
+import { observeTrustedIso, trustedIso } from '../lib/clockGuard';
 import SyncStatusChip from './SyncStatusChip';
 
 interface DashboardProps {
@@ -138,10 +140,16 @@ export default function Dashboard({
   const expensesRef = useRef(expenses);
   const cortesRef = useRef(cortesX);
   /** Lo capturado en este equipo que la nube todavía no confirma. */
-  const localOnlyRef = useRef<{ sales: SaleTicket[]; expenses: Expense[]; cortes: CorteXRecord[] }>({
+  const localOnlyRef = useRef<{
+    sales: SaleTicket[];
+    expenses: Expense[];
+    cortes: CorteXRecord[];
+    repairs: RepairRecord[];
+  }>({
     sales: [],
     expenses: [],
-    cortes: []
+    cortes: [],
+    repairs: []
   });
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
@@ -235,9 +243,15 @@ export default function Dashboard({
       setCreditAccounts(accounts || []);
     });
 
-    const unsubRepairs = subscribeToRepairRecords((records) => {
-      setRepairRecords(records || []);
-    });
+    const unsubRepairs = subscribeToRepairRecords(
+      (records) => {
+        setRepairRecords((prev) => {
+          const fromCloud = keepIfCloudEmpty(records, prev);
+          return mergeWithLocal(fromCloud, localOnlyRef.current.repairs);
+        });
+      },
+      () => markCloudDown()
+    );
 
     return () => {
       unsubProducts();
@@ -281,13 +295,17 @@ export default function Dashboard({
     let cancelled = false;
     const hydrate = async () => {
       try {
-        const [sales, exps, cortes] = await Promise.all([
+        const [sales, exps, cortes, repairs] = await Promise.all([
           localSales(),
           localExpenses(),
-          localCortes()
+          localCortes(),
+          localRepairs()
         ]);
         if (cancelled) return;
-        localOnlyRef.current = { sales, expenses: exps, cortes };
+        localOnlyRef.current = { sales, expenses: exps, cortes, repairs };
+        if (repairs.length > 0) {
+          setRepairRecords((prev) => mergeWithLocal(prev, repairs));
+        }
         if (sales.length > 0) {
           setSalesTickets((prev) => sortByTimestampDesc(mergeWithLocal(prev, sales)));
         }
@@ -796,6 +814,22 @@ export default function Dashboard({
         saveCreditAccountToFirestore(account).catch((err) => console.error('Error saving credit account:', err));
       }
 
+      // El equipo se marca entregado solo cuando el saldo quedó cobrado.
+      if (meta?.repairId && meta.repairType === 'saldo_final') {
+        const pending = repairRecords.find((r) => r.id === meta.repairId);
+        if (pending && pending.status !== 'entregado') {
+          void persistRepairRecord({
+            ...pending,
+            status: 'entregado',
+            pendingBalance: 0,
+            deliveredAt: safeFormatDate(nowIso) + ' ' + safeFormatTime(nowIso),
+            deliveredAtIso: nowIso,
+            deliveredByName: currentOperator.name,
+            deliveryTicketId: enrichedTicket.folio || enrichedTicket.id
+          }).catch((err) => console.error('Error marcando la entrega del equipo:', err));
+        }
+      }
+
       if (meta?.saleType === 'abono' && meta.creditAccountId) {
         applyCreditAbonoToAccount(meta.creditAccountId, item.totalPrice || item.unitPrice || 0)
           .then((updated) => {
@@ -829,14 +863,37 @@ export default function Dashboard({
     });
   };
 
-  const handleAddRepairRecord = (record: RepairRecord) => {
-    setRepairRecords((prev) => [record, ...prev.filter((r) => r.id !== record.id)]);
-    saveRepairRecordToFirestore(record).catch((err) => console.error('Error saving repair record:', err));
+  /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
+  const persistRepairRecord = async (record: RepairRecord): Promise<RepairRecord> => {
+    const saved = await commitRepairRecord(record);
+    localOnlyRef.current.repairs = [
+      saved,
+      ...localOnlyRef.current.repairs.filter((r) => r.id !== saved.id)
+    ];
+    setRepairRecords((prev) => [saved, ...prev.filter((r) => r.id !== saved.id)]);
+    return saved;
   };
 
-  const handleUpdateRepairRecord = (record: RepairRecord) => {
-    setRepairRecords((prev) => prev.map((r) => (r.id === record.id ? record : r)));
-    saveRepairRecordToFirestore(record).catch((err) => console.error('Error updating repair record:', err));
+  const handleAddRepairRecord = async (record: RepairRecord) => {
+    await persistRepairRecord(record);
+  };
+
+  const handleUpdateRepairRecord = async (record: RepairRecord) => {
+    await persistRepairRecord(record);
+  };
+
+  /**
+   * Baja de un registro de taller. Se conserva como cancelado para que quede
+   * constancia de quién lo dio de baja y por qué.
+   */
+  const handleCancelRepairRecord = async (record: RepairRecord, reason: string) => {
+    await persistRepairRecord({
+      ...record,
+      status: 'cancelado',
+      cancelledAt: trustedIso(),
+      cancelledByName: currentOperator.name,
+      cancelReason: reason.trim() || 'Sin motivo capturado'
+    });
   };
 
   // Add Expense Handler
@@ -1214,9 +1271,12 @@ export default function Dashboard({
             activeCashSession={activeCashSession}
             tillLocked={tillLocked}
             creditAccounts={creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo')}
-            repairRecords={repairRecords.filter((r) => r.branchId === currentBranch.id)}
+            repairRecords={repairRecords.filter(
+              (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+            )}
             onAddRepairRecord={handleAddRepairRecord}
             onUpdateRepairRecord={handleUpdateRepairRecord}
+            onCancelRepairRecord={handleCancelRepairRecord}
             onFinalizeCorteX={handleFinalizeCorteX}
             onLogout={onLogout}
           />
