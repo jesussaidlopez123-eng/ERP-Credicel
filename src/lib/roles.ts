@@ -1,15 +1,39 @@
 import { ModuleId } from '../types';
 
+export type AppRole = 'admin' | 'manager' | 'cashier';
+
+export function normalizeRole(role?: string): AppRole {
+  const value = String(role || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  if (value === 'admin' || value.includes('admin')) return 'admin';
+  if (value === 'manager' || value.includes('encargado') || value.includes('gerente')) return 'manager';
+  return 'cashier';
+}
+
 export function roleLabel(role?: string): string {
-  if (role === 'admin') return 'Administrador';
-  if (role === 'manager') return 'Encargado';
+  const normalized = normalizeRole(role);
+  if (normalized === 'admin') return 'Administrador';
+  if (normalized === 'manager') return 'Encargado';
   return 'Cajero';
 }
 
 export function canOpenModule(role: string | undefined, moduleId: ModuleId): boolean {
-  if (role === 'admin') return true;
-  if (role === 'manager') {
-    return moduleId === 'pos' || moduleId === 'inventory' || moduleId === 'sales' || moduleId === 'repairs';
+  const normalized = normalizeRole(role);
+  if (normalized === 'admin') return true;
+  if (normalized === 'manager') {
+    return (
+      moduleId === 'pos' ||
+      moduleId === 'inventory' ||
+      moduleId === 'sales' ||
+      moduleId === 'repairs'
+    );
   }
-  return moduleId === 'pos';
+  return moduleId === 'pos' || moduleId === 'repairs';
+}
+
+export function defaultModuleForRole(role?: string): ModuleId {
+  return normalizeRole(role) === 'cashier' ? 'pos' : 'repairs';
 }

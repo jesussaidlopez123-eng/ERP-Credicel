@@ -14,7 +14,7 @@ import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { ALL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
-import { canOpenModule } from '../lib/roles';
+import { canOpenModule, defaultModuleForRole, normalizeRole } from '../lib/roles';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import { Bell, Menu, Megaphone } from 'lucide-react';
 import {
@@ -112,7 +112,7 @@ export default function Dashboard({
   onUpdateOperators = () => {},
   onLogout 
 }: DashboardProps) {
-  const [activeModule, setActiveModule] = useState<ModuleId>('pos');
+  const [activeModule, setActiveModule] = useState<ModuleId>(() => defaultModuleForRole(currentOperator.role));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -453,8 +453,8 @@ export default function Dashboard({
     };
   }, [currentBranch.id, currentBranch.name]);
 
-  const isAdmin = currentOperator.role === 'admin';
-  const isCashierOnly = currentOperator.role === 'cashier';
+  const isAdmin = normalizeRole(currentOperator.role) === 'admin';
+  const isCashierOnly = normalizeRole(currentOperator.role) === 'cashier';
 
   useEffect(() => {
     if (currentBranch.id === 'b-bodega') {
@@ -622,10 +622,10 @@ export default function Dashboard({
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, onLogout]);
 
   useEffect(() => {
-    if (isCashierOnly && activeModule !== 'pos') {
+    if (isCashierOnly && activeModule !== 'pos' && activeModule !== 'repairs') {
       setActiveModule('pos');
     } else if (!canOpenModule(currentOperator.role, activeModule)) {
-      setActiveModule('pos');
+      setActiveModule(defaultModuleForRole(currentOperator.role));
     }
   }, [isCashierOnly, currentOperator.role, activeModule]);
 
@@ -1430,6 +1430,7 @@ export default function Dashboard({
         currentOperator={currentOperator}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        repairPendingCount={repairRecords.filter(isPendingRepair).length}
       />
 
       {/* Main Workspace Section */}

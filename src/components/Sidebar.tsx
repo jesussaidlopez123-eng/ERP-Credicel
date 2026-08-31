@@ -23,6 +23,7 @@ interface SidebarProps {
   currentOperator: Operator;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  repairPendingCount?: number;
 }
 
 export default function Sidebar({
@@ -32,7 +33,8 @@ export default function Sidebar({
   currentBranch,
   currentOperator,
   isMobileOpen = false,
-  onCloseMobile
+  onCloseMobile,
+  repairPendingCount = 0
 }: SidebarProps) {
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
     { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
@@ -112,6 +114,15 @@ export default function Sidebar({
               >
                 {item.icon}
                 <span>{item.label}</span>
+                {item.id === 'repairs' && repairPendingCount > 0 && (
+                  <span
+                    className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      isActive ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {repairPendingCount}
+                  </span>
+                )}
               </button>
             );
           })}

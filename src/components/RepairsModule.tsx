@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Branch, Operator, RepairRecord } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import {
@@ -41,7 +42,7 @@ export default function RepairsModule({
   onUpdateRepairRecord,
   onCancelRepairRecord
 }: RepairsModuleProps) {
-  const isAdmin = currentOperator.role === 'admin';
+  const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
