@@ -43,7 +43,7 @@ export default function RepairsModule({
 }: RepairsModuleProps) {
   const isAdmin = currentOperator.role === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(isAdmin ? 'all' : currentBranch.id);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [costDraft, setCostDraft] = useState('');
@@ -146,7 +146,7 @@ export default function RepairsModule({
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Equipos en taller, costos y el historial de entregas. El cobro sigue en el punto de venta.
+              Equipos que siguen en taller hasta hoy, costos e historial. El cobro sigue en el punto de venta.
             </p>
           </div>
         </div>

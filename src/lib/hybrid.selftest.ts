@@ -233,4 +233,48 @@ assert.throws(
 );
 assert.equal(isPendingRepair({ ...taller, status: 'entregado' }), false);
 
+const { inferRepairsFromTickets, mergeRepairSources } = await import('./repairUtils.ts');
+const inferidos = inferRepairsFromTickets([
+  {
+    id: 'TCK-1',
+    timestamp: '2026-08-27T16:58:30.972Z',
+    branchId: 'b-huatabampo',
+    operatorName: 'Teresa',
+    total: 0,
+    paymentMethod: 'Efectivo',
+    items: [
+      {
+        cartItemId: 'i1',
+        product: { id: 'p', code: 'REP-1082', name: 'Recepción', category: 'servicio', price: 0, stock: 1 },
+        quantity: 1,
+        unitPrice: 0,
+        totalPrice: 0,
+        metadata: {
+          repairId: 'REP-1082',
+          clientName: 'ana guadalupe',
+          clientPhone: '6471086212',
+          deviceModel: 'motola g06',
+          issueDescription: 'cambio de pantalla',
+          repairType: 'anticipo',
+          totalRepairCost: 700,
+          pendingBalance: 700,
+          receivedAt: '27 ago 2026 09:58'
+        }
+      }
+    ]
+  }
+]);
+assert.equal(inferidos.length, 1);
+assert.equal(inferidos[0].status, 'en_taller');
+assert.equal(inferidos[0].clientName, 'ana guadalupe');
+const oficiales = mergeRepairSources(inferidos, [
+  { ...inferidos[0], clientName: 'Ana Guadalupe', totalCost: 750, pendingBalance: 750 }
+]);
+assert.equal(oficiales[0].clientName, 'Ana Guadalupe', 'la ficha oficial no se pisa con la reconstruida');
+assert.equal(
+  mergeRepairSources([], inferidos).length,
+  1,
+  'si la nube no trae la ficha, el pendiente reconstruido se conserva'
+);
+
 console.log('hybrid self-test ok');

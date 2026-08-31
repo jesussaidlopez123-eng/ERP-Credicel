@@ -18,7 +18,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Folio de ticket:** al cobrar se asigna un folio corto del día, por ejemplo `NAV-2708-042`. El id interno no se imprime.
 - **Compras:** los pedidos se guardan en la nube. Al marcar **Entregado**, la mercancía entra a inventario de Bodega (si el código o nombre coincide con un producto).
 - **Taller:** el equipo del cliente queda registrado con folio en cuanto se guarda, aunque no haya internet. Un equipo con saldo se marca **entregado solo cuando el cobro se completa**, así un cobro cancelado no deja el celular como entregado. Los registros no desaparecen: los entregados y los dados de baja pasan a **Historial**, con la información completa y exportable.
-- **Reparaciones (admin):** el menú **Reparaciones** muestra los equipos pendientes de todas las sucursales. Desde ahí se **agrega o modifica el costo** (el saldo se recalcula contra el anticipo ya cobrado) y se abre el **Historial**. El cobro de anticipo o liquidación sigue en el punto de venta.
+- **Reparaciones (admin):** el menú **Reparaciones** muestra los equipos que siguen en taller **hasta hoy**, de todas las sucursales. Si una recepción vieja quedó solo en el ticket (sin ficha), se reconstruye y no se pierde. Desde ahí se **agrega o modifica el costo** (el saldo se recalcula contra el anticipo ya cobrado) y se abre el **Historial**. El cobro de anticipo o liquidación sigue en el punto de venta.
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 
 ## Sistema híbrido: primero el equipo, luego la nube

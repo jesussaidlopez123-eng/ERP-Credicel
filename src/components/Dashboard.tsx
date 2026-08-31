@@ -89,6 +89,12 @@ import {
 import { allocateFolio, clearFolioLeaseCooldown, warmUpFolios } from '../lib/folioAllocator';
 import { ensureDailyBackup } from '../lib/dailyBackup';
 import { observeTrustedIso, trustedIso } from '../lib/clockGuard';
+import {
+  inferRepairsFromTickets,
+  isPendingRepair,
+  loadLegacyRepairRecords,
+  mergeRepairSources
+} from '../lib/repairUtils';
 import SyncStatusChip from './SyncStatusChip';
 
 interface DashboardProps {
@@ -127,7 +133,10 @@ export default function Dashboard({
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [branchCashFunds, setBranchCashFunds] = useState<Record<string, number>>({});
   const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([]);
-  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>([]);
+  const [repairRecords, setRepairRecords] = useState<RepairRecord[]>(() =>
+    loadCachedList<RepairRecord>('repairs')
+  );
+  const [repairsCloudReady, setRepairsCloudReady] = useState(false);
   const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -152,6 +161,8 @@ export default function Dashboard({
     cortes: [],
     repairs: []
   });
+  const cloudRepairIdsRef = useRef<Set<string> | null>(null);
+  const rescuedRepairIdsRef = useRef(new Set<string>());
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
@@ -246,9 +257,20 @@ export default function Dashboard({
 
     const unsubRepairs = subscribeToRepairRecords(
       (records) => {
+        if (Array.isArray(records)) {
+          cloudRepairIdsRef.current = new Set(records.map((r) => r.id));
+          setRepairsCloudReady(true);
+        }
         setRepairRecords((prev) => {
           const fromCloud = keepIfCloudEmpty(records, prev);
-          return mergeWithLocal(fromCloud, localOnlyRef.current.repairs);
+          const next = mergeRepairSources(
+            loadLegacyRepairRecords(),
+            prev,
+            localOnlyRef.current.repairs,
+            fromCloud
+          );
+          saveCachedList('repairs', next);
+          return next;
         });
       },
       () => markCloudDown()
@@ -304,8 +326,13 @@ export default function Dashboard({
         ]);
         if (cancelled) return;
         localOnlyRef.current = { sales, expenses: exps, cortes, repairs };
-        if (repairs.length > 0) {
-          setRepairRecords((prev) => mergeWithLocal(prev, repairs));
+        const legacy = loadLegacyRepairRecords();
+        if (repairs.length > 0 || legacy.length > 0) {
+          setRepairRecords((prev) => {
+            const next = mergeRepairSources(legacy, repairs, prev);
+            saveCachedList('repairs', next);
+            return next;
+          });
         }
         if (sales.length > 0) {
           setSalesTickets((prev) => sortByTimestampDesc(mergeWithLocal(prev, sales)));
@@ -871,9 +898,38 @@ export default function Dashboard({
       saved,
       ...localOnlyRef.current.repairs.filter((r) => r.id !== saved.id)
     ];
-    setRepairRecords((prev) => [saved, ...prev.filter((r) => r.id !== saved.id)]);
+    setRepairRecords((prev) => {
+      const next = [saved, ...prev.filter((r) => r.id !== saved.id)];
+      saveCachedList('repairs', next);
+      return next;
+    });
     return saved;
   };
+
+  useEffect(() => {
+    const inferred = inferRepairsFromTickets(salesTickets);
+    if (inferred.length === 0) return;
+
+    setRepairRecords((prev) => {
+      const next = mergeRepairSources(inferred, prev);
+      const prevIds = new Set(prev.map((r) => r.id));
+      if (next.length === prev.length && next.every((r) => prevIds.has(r.id))) return prev;
+      saveCachedList('repairs', next);
+      return next;
+    });
+
+    if (!repairsCloudReady) return;
+    const cloudIds = cloudRepairIdsRef.current;
+    if (!cloudIds) return;
+    inferred.forEach((rec) => {
+      if (!isPendingRepair(rec)) return;
+      if (cloudIds.has(rec.id) || rescuedRepairIdsRef.current.has(rec.id)) return;
+      rescuedRepairIdsRef.current.add(rec.id);
+      void persistRepairRecord(rec).catch((err) =>
+        console.warn('[Taller] No se pudo rescatar la ficha', rec.id, err)
+      );
+    });
+  }, [salesTickets, repairsCloudReady]);
 
   const handleAddRepairRecord = async (record: RepairRecord) => {
     await persistRepairRecord(record);
