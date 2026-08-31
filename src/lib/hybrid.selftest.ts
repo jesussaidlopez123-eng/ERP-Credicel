@@ -205,4 +205,32 @@ const firmaC = computeChecksum(['t1', 't2', 't3'], ['g1'], 1307);
 assert.equal(firmaA, firmaB, 'el orden de los tickets no cambia la firma');
 assert.notEqual(firmaA, firmaC, 'si falta o sobra un ticket, la firma cambia');
 
+// ---- costos de taller ----
+const { applyRepairCost, isPendingRepair } = await import('./repairUtils.ts');
+const taller = {
+  id: 'REP-3108-K3M01',
+  clientName: 'Ana',
+  clientPhone: '6441234567',
+  deviceModel: 'iPhone 12',
+  issueDescription: 'Pantalla',
+  totalCost: 0,
+  advancePayment: 200,
+  pendingBalance: 200,
+  status: 'en_taller' as const,
+  receivedAt: '31/08/2026',
+  operatorName: 'Juan',
+  branchId: 'b-navojoa'
+};
+assert.equal(isPendingRepair(taller), true, 'en taller cuenta como pendiente');
+const conCosto = applyRepairCost(taller, 1800, 'Admin Principal', '2026-08-31T18:00:00.000Z', 'Cambio de display');
+assert.equal(conCosto.totalCost, 1800);
+assert.equal(conCosto.pendingBalance, 1600, 'el saldo es costo menos anticipo');
+assert.equal(conCosto.costUpdates?.length, 1);
+assert.throws(
+  () => applyRepairCost(taller, 100, 'Admin Principal', '2026-08-31T18:00:00.000Z'),
+  /anticipo/,
+  'no se puede bajar el costo debajo del anticipo cobrado'
+);
+assert.equal(isPendingRepair({ ...taller, status: 'entregado' }), false);
+
 console.log('hybrid self-test ok');

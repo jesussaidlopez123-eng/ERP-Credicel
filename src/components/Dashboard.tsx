@@ -7,6 +7,7 @@ import PosModule from './PosModule';
 import InventoryModule from './InventoryModule';
 import PurchasesModule from './PurchasesModule';
 import SalesModule from './SalesModule';
+import RepairsModule from './RepairsModule';
 import SettingsModule from './SettingsModule';
 import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja, PurchaseDraft } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
@@ -1323,6 +1324,16 @@ export default function Dashboard({
             activeCashSession={activeCashSession}
           />
         );
+      case 'repairs':
+        return (
+          <RepairsModule
+            repairRecords={repairRecords}
+            currentBranch={currentBranch}
+            currentOperator={currentOperator}
+            onUpdateRepairRecord={handleUpdateRepairRecord}
+            onCancelRepairRecord={handleCancelRepairRecord}
+          />
+        );
       case 'executive':
         return (
           <ExecutiveModule 
@@ -1385,6 +1396,7 @@ export default function Dashboard({
                  activeModule === 'inventory' ? 'Inventario' :
                  activeModule === 'purchases' ? 'Compras' :
                  activeModule === 'sales' ? 'Ventas y cortes' :
+                 activeModule === 'repairs' ? 'Reparaciones' :
                  activeModule === 'executive' ? 'Dirección' : 'Usuarios'}
               </h2>
             </div>

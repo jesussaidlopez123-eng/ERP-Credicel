@@ -8,6 +8,7 @@ import {
   Store,
   ShoppingBag,
   Building2,
+  Wrench,
   X
 } from 'lucide-react';
 import { ModuleId, Branch, Operator } from '../types';
@@ -35,6 +36,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
     { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
+    { id: 'repairs', label: 'Reparaciones', icon: <Wrench className="w-4 h-4" /> },
     { id: 'inventory', label: 'Inventario', icon: <Package className="w-4 h-4" /> },
     { id: 'purchases', label: 'Compras', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'executive', label: 'Dirección', icon: <Building2 className="w-4 h-4" /> },

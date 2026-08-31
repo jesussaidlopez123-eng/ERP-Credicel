@@ -14,7 +14,7 @@ export interface Operator {
   createdAt?: string;
 }
 
-export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'executive' | 'settings';
+export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'repairs' | 'executive' | 'settings';
 
 export type NoticeUrgency = 'normal' | 'urgente';
 
@@ -198,6 +198,14 @@ export interface RepairRecord {
   cancelReason?: string;
   /** Ticket con el que se liquidó el saldo. */
   deliveryTicketId?: string;
+  /** Cambios de costo capturados desde admin o taller. */
+  costUpdates?: {
+    previousTotal: number;
+    newTotal: number;
+    at: string;
+    by: string;
+    note?: string;
+  }[];
 }
 
 export interface RepairPriceItem {

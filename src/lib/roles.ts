@@ -8,6 +8,8 @@ export function roleLabel(role?: string): string {
 
 export function canOpenModule(role: string | undefined, moduleId: ModuleId): boolean {
   if (role === 'admin') return true;
-  if (role === 'manager') return moduleId === 'pos' || moduleId === 'inventory' || moduleId === 'sales';
+  if (role === 'manager') {
+    return moduleId === 'pos' || moduleId === 'inventory' || moduleId === 'sales' || moduleId === 'repairs';
+  }
   return moduleId === 'pos';
 }
