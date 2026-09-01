@@ -127,7 +127,7 @@ export default function SettingsModule({
     setFormPassword('');
     setFormConfirmPassword('');
     setFormRole('cashier');
-    setFormBranchIds([currentBranch.id]);
+    setFormBranchIds(currentBranch.id === 'all' ? [] : [currentBranch.id]);
     setShowFormPassword(false);
     setModalError(null);
     setIsUserModalOpen(true);
@@ -197,7 +197,7 @@ export default function SettingsModule({
       return;
     }
 
-    if (formBranchIds.length === 0) {
+    if (formRole !== 'admin' && formBranchIds.length === 0) {
       setModalError('Seleccione al menos una sucursal permitida para este operador.');
       return;
     }

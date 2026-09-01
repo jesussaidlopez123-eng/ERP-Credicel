@@ -44,7 +44,7 @@ import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
-import { normalizeBranchId } from '../data/initialBranches';
+import { hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { isPendingRepair } from '../lib/repairUtils';
 import RepairsModule from './RepairsModule';
@@ -674,6 +674,10 @@ export default function PosModule({
     cashReceivedVal: number,
     changeVal: number
   ) => {
+    if (!hasCashTill(currentBranch.id)) {
+      setSaleError('Administración no cobra. Entra a Navojoa o Huatabampo para registrar una venta.');
+      return;
+    }
     const reused = pendingTicketRef.current;
     const newTicket: SaleTicket = {
       id: reused?.id || newTicketId(),
@@ -697,7 +701,16 @@ export default function PosModule({
 
   return (
     <div className="h-full flex flex-col gap-2 p-3 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
-      {currentBranch.id !== 'b-bodega' && (
+      {!hasCashTill(currentBranch.id) && (
+        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 flex items-start gap-2">
+          <Wrench className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
+          <p className="text-[11px] leading-relaxed text-amber-950">
+            Estás en <strong>Administración</strong>, sin sucursal ni caja. Aquí se ven pendientes, costos e historial de
+            todas las tiendas. Para cobrar, entra con un cajero de Navojoa o Huatabampo.
+          </p>
+        </div>
+      )}
+      {hasCashTill(currentBranch.id) && (
         <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-start gap-2">
           <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
           <p className="text-[11px] leading-relaxed text-slate-600">
@@ -1221,10 +1234,16 @@ export default function PosModule({
 
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || saleBusy || tillLocked}
+            disabled={cart.length === 0 || saleBusy || tillLocked || !hasCashTill(currentBranch.id)}
             className="w-full py-3 bg-[#047857] hover:bg-[#066046] disabled:opacity-40 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
           >
-            {saleBusy ? 'Guardando venta…' : tillLocked ? 'Caja cerrada 11:00 p.m.' : `Cobrar $${cartTotal.toFixed(2)}`}
+            {saleBusy
+              ? 'Guardando venta…'
+              : !hasCashTill(currentBranch.id)
+              ? 'Administración no cobra'
+              : tillLocked
+              ? 'Caja cerrada 11:00 p.m.'
+              : `Cobrar $${cartTotal.toFixed(2)}`}
           </button>
 
         </div>

@@ -4,7 +4,8 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import { Branch, Operator } from './types';
 import { getStoredOperators, saveStoredOperators, INITIAL_OPERATORS } from './data/initialOperators';
-import { ALL_BRANCHES } from './data/initialBranches';
+import { ADMIN_WORKSPACE, ALL_BRANCHES, hasCashTill } from './data/initialBranches';
+import { normalizeRole } from './lib/roles';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
 
 const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
@@ -167,26 +168,28 @@ export default function App() {
   };
 
   const handleLogin = (branch: Branch, operator: Operator) => {
-    setCurrentBranch(branch);
+    const workspace = normalizeRole(operator.role) === 'admin' ? ADMIN_WORKSPACE : branch;
+    setCurrentBranch(workspace);
     setCurrentOperator(operator);
     setIsAuthenticated(true);
 
     try {
       localStorage.setItem(
         SESSION_STORAGE_KEY,
-        JSON.stringify({ authenticated: true, branch, operator })
+        JSON.stringify({ authenticated: true, branch: workspace, operator })
       );
 
-      // Registrar inicio de sesión / turno del día si es la primera vez hoy
-      const todayIso = new Date().toISOString().slice(0, 10);
-      const shiftLoginKey = `erp_shift_login_${branch.id}_${todayIso}`;
-      if (!localStorage.getItem(shiftLoginKey)) {
-        const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
-        localStorage.setItem(shiftLoginKey, JSON.stringify({
-          operatorName: operator.name,
-          time: nowTime,
-          timestamp: new Date().toISOString()
-        }));
+      if (hasCashTill(workspace.id)) {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const shiftLoginKey = `erp_shift_login_${workspace.id}_${todayIso}`;
+        if (!localStorage.getItem(shiftLoginKey)) {
+          const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+          localStorage.setItem(shiftLoginKey, JSON.stringify({
+            operatorName: operator.name,
+            time: nowTime,
+            timestamp: new Date().toISOString()
+          }));
+        }
       }
     } catch (e) {
       console.error('Error saving session to localStorage', e);

@@ -73,9 +73,11 @@ export default function SyncStatusChip({
     void listPendingOutbox().then((rows) => {
       if (!cancelled) setPendingRows(rows.slice(0, 12));
     });
-    void folioLeaseRemaining(currentBranch.id).then((left) => {
-      if (!cancelled) setFoliosLeft(left);
-    });
+    if (currentBranch.id !== 'all') {
+      void folioLeaseRemaining(currentBranch.id).then((left) => {
+        if (!cancelled) setFoliosLeft(left);
+      });
+    }
     return () => {
       cancelled = true;
     };

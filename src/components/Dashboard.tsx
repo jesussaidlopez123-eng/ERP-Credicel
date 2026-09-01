@@ -13,7 +13,7 @@ import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expen
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
-import { ALL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import { ALL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { canOpenModule, defaultModuleForRole, normalizeRole } from '../lib/roles';
 import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import { Bell, Menu, Megaphone } from 'lucide-react';
@@ -296,7 +296,7 @@ export default function Dashboard({
   // Folios apartados por adelantado: sin esto, una caja que pierde la red
   // tendría que emitir folios provisionales.
   useEffect(() => {
-    if (currentBranch.id === 'b-bodega') return;
+    if (!hasCashTill(currentBranch.id)) return;
     const warm = (immediate = false) => {
       if (immediate) clearFolioLeaseCooldown();
       void warmUpFolios(currentBranch.id).catch((err) =>
@@ -435,7 +435,7 @@ export default function Dashboard({
 
   // Respaldo del día: se rearma solo conforme entran ventas y gastos.
   useEffect(() => {
-    if (currentBranch.id === 'b-bodega') return;
+    if (!hasCashTill(currentBranch.id)) return;
     const run = () => {
       void ensureDailyBackup({
         branchId: currentBranch.id,
@@ -457,7 +457,7 @@ export default function Dashboard({
   const isCashierOnly = normalizeRole(currentOperator.role) === 'cashier';
 
   useEffect(() => {
-    if (currentBranch.id === 'b-bodega') {
+    if (!hasCashTill(currentBranch.id)) {
       setActiveCashSession(null);
       setSessionError(null);
       setTillLocked(false);
@@ -534,7 +534,7 @@ export default function Dashboard({
       nightCloseRanRef.current = true;
       setNightClosing(true);
       try {
-        if (currentBranch.id !== 'b-bodega') {
+        if (hasCashTill(currentBranch.id)) {
           const due = await closeCashSessionIfDue({
             branchId: currentBranch.id,
             branchName: currentBranch.name,
@@ -1458,12 +1458,12 @@ export default function Dashboard({
             <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
               {currentBranch.name}
             </span>
-            {activeCashSession?.id && currentBranch.id !== 'b-bodega' && (
+            {activeCashSession?.id && hasCashTill(currentBranch.id) && (
               <span className="hidden md:inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800" title={activeCashSession.id}>
                 Turno abierto
               </span>
             )}
-            {tillLocked && currentBranch.id !== 'b-bodega' && (
+            {tillLocked && hasCashTill(currentBranch.id) && (
               <span className="hidden md:inline-flex items-center rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                 Caja cerrada 11:00 p.m.
               </span>

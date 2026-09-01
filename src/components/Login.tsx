@@ -5,8 +5,8 @@ import {
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
-import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
-import { roleLabel } from '../lib/roles';
+import { ADMIN_WORKSPACE, ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import { normalizeRole, roleLabel } from '../lib/roles';
 import { isAfterCashClose } from '../lib/shiftHours';
 
 interface LoginProps {
@@ -38,9 +38,12 @@ export default function Login({
   // Selected operator object
   const selectedOperator = safeOperators.find((o) => o.id === selectedOperatorId) || safeOperators[0];
 
-  // Automatically resolve the branch assigned to this operator in Administration
+  const isAdminUser = normalizeRole(selectedOperator?.role) === 'admin';
+
+  // Cajero y encargado entran a su sucursal. Administración no se ata a una caja.
   const assignedBranch: Branch = React.useMemo(() => {
     if (!selectedOperator) return safeBranches[0];
+    if (normalizeRole(selectedOperator.role) === 'admin') return ADMIN_WORKSPACE;
     const allowed = (selectedOperator.branchIds || []).filter(Boolean);
     const preferred = selectedBranchId && allowed.includes(selectedBranchId)
       ? selectedBranchId
@@ -82,12 +85,14 @@ export default function Login({
       return;
     }
 
-    // Automatic direct login to the branch assigned to this operator in Administration
-    onLogin(assignedBranch, operator);
+    onLogin(
+      normalizeRole(operator.role) === 'admin' ? ADMIN_WORKSPACE : assignedBranch,
+      operator
+    );
   };
 
   const getRoleBadge = (role: string) => {
-    switch (role) {
+    switch (normalizeRole(role)) {
       case 'admin':
         return <span className="bg-amber-500/20 text-amber-800 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full uppercase">Administrador</span>;
       case 'manager':
@@ -146,10 +151,12 @@ export default function Login({
                   className="block w-full pl-10 pr-8 py-3 border border-slate-300 rounded-xl text-slate-900 font-bold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white cursor-pointer shadow-xs"
                 >
                   {safeOperators.map((op) => {
+                    const isAdminOp = normalizeRole(op.role) === 'admin';
                     const opBranch = safeBranches.find((b) => op.branchIds?.includes(b.id)) || safeBranches[0];
                     return (
                       <option key={op.id} value={op.id}>
-                        {op.name} ({roleLabel(op.role)}) — {getBranchDisplayName(opBranch?.id)}
+                        {op.name} ({roleLabel(op.role)})
+                        {isAdminOp ? ' — Administración' : ` — ${getBranchDisplayName(opBranch?.id)}`}
                       </option>
                     );
                   })}
@@ -163,12 +170,19 @@ export default function Login({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-1">
                     <Store className="w-3.5 h-3.5 text-blue-600" />
-                    Sucursal de trabajo:
+                    {isAdminUser ? 'Ámbito de trabajo:' : 'Sucursal de trabajo:'}
                   </span>
                   {getRoleBadge(selectedOperator.role)}
                 </div>
 
-                {(selectedOperator.branchIds || []).length > 1 ? (
+                {isAdminUser ? (
+                  <div className="pt-0.5">
+                    <p className="text-sm font-semibold text-blue-950">Administración</p>
+                    <p className="text-[11px] text-blue-800/80 mt-0.5">
+                      Entras sin sucursal. Ves Navojoa, Huatabampo y Bodega. No se abre caja.
+                    </p>
+                  </div>
+                ) : (selectedOperator.branchIds || []).length > 1 ? (
                   <select
                     value={assignedBranch?.id || ''}
                     onChange={(e) => setSelectedBranchId(e.target.value)}
