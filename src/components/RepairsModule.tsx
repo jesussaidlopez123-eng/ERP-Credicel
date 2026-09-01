@@ -31,6 +31,7 @@ interface RepairsModuleProps {
   currentOperator: Operator;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  embedded?: boolean;
 }
 
 type TabId = 'pendientes' | 'historial';
@@ -40,7 +41,8 @@ export default function RepairsModule({
   currentBranch,
   currentOperator,
   onUpdateRepairRecord,
-  onCancelRepairRecord
+  onCancelRepairRecord,
+  embedded = false
 }: RepairsModuleProps) {
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
@@ -141,8 +143,8 @@ export default function RepairsModule({
   };
 
   return (
-    <div className="space-y-4 pb-12">
-      <div className="bg-white rounded-2xl p-5 border border-slate-200">
+    <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
+      <div className={`bg-white rounded-2xl border border-slate-200 ${embedded ? 'p-3' : 'p-5'}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>

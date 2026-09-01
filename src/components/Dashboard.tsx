@@ -1328,9 +1328,7 @@ export default function Dashboard({
             activeCashSession={activeCashSession}
             tillLocked={tillLocked}
             creditAccounts={creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo')}
-            repairRecords={repairRecords.filter(
-              (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
-            )}
+            repairRecords={repairRecords}
             onAddRepairRecord={handleAddRepairRecord}
             onUpdateRepairRecord={handleUpdateRepairRecord}
             onCancelRepairRecord={handleCancelRepairRecord}

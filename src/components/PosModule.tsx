@@ -44,6 +44,10 @@ import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
+import { normalizeBranchId } from '../data/initialBranches';
+import { normalizeRole } from '../lib/roles';
+import { isPendingRepair } from '../lib/repairUtils';
+import RepairsModule from './RepairsModule';
 
 interface PosModuleProps {
   products: Product[];
@@ -155,6 +159,18 @@ export default function PosModule({
   // Los registros de taller viven en el almacén durable del equipo y en la
   // nube. Tener aquí una copia aparte era otra forma de perderlos.
   const repairRecords = repairRecordsProp ?? [];
+  const isAdminUser = normalizeRole(currentOperator.role) === 'admin';
+  const boardRepairRecords =
+    isAdminUser || currentBranch.id === 'b-bodega'
+      ? repairRecords
+      : repairRecords.filter(
+          (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+        );
+  const counterRepairRecords = repairRecords.filter(
+    (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+  );
+  const pendingOnBoard = boardRepairRecords.filter(isPendingRepair).length;
+  const [showRepairBoard, setShowRepairBoard] = useState(true);
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
   const [internalExpenseOpen, setInternalExpenseOpen] = useState(false);
   const [internalCorteXOpen, setInternalCorteXOpen] = useState(false);
@@ -860,6 +876,11 @@ export default function PosModule({
             >
               <Wrench className="w-3 h-3" />
               Taller / Reparaciones
+              {pendingOnBoard > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/90 text-amber-800 text-[10px] font-black">
+                  {pendingOnBoard}
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -874,6 +895,36 @@ export default function PosModule({
               Recargas
             </button>
           </div>
+        </div>
+
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 space-y-2 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-black text-amber-950">Reparaciones en taller</p>
+              <p className="text-[11px] text-amber-800">
+                {pendingOnBoard} equipo(s) pendiente(s) hasta hoy. Aquí se capturan o cambian los costos.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRepairBoard((v) => !v)}
+              className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold cursor-pointer"
+            >
+              {showRepairBoard ? 'Ocultar' : 'Ver pendientes'}
+            </button>
+          </div>
+          {showRepairBoard && (
+            <div className="max-h-[55vh] overflow-y-auto rounded-xl">
+              <RepairsModule
+                embedded
+                repairRecords={boardRepairRecords}
+                currentBranch={currentBranch}
+                currentOperator={currentOperator}
+                onUpdateRepairRecord={onUpdateRepairRecord}
+                onCancelRepairRecord={onCancelRepairRecord}
+              />
+            </div>
+          )}
         </div>
         
         {filteredProducts.length === 0 ? (
@@ -1227,7 +1278,7 @@ export default function PosModule({
       <RepairModal
         isOpen={isRepairModalOpen}
         onClose={() => setIsRepairModalOpen(false)}
-        repairRecords={repairRecords}
+        repairRecords={isAdminUser ? boardRepairRecords : counterRepairRecords}
         onAddRepairRecord={onAddRepairRecord}
         onUpdateRepairRecord={onUpdateRepairRecord}
         onCancelRepairRecord={onCancelRepairRecord}
