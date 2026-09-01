@@ -277,4 +277,16 @@ assert.equal(
   'si la nube no trae la ficha, el pendiente reconstruido se conserva'
 );
 
+const { mergeByIdKeep, oldestTimestamp } = await import('./listMerge.ts');
+const kept = mergeByIdKeep(
+  [
+    { id: 'a', timestamp: '2026-08-01' },
+    { id: 'b', timestamp: '2026-08-20' }
+  ],
+  [{ id: 'b', timestamp: '2026-09-01' }, { id: 'c', timestamp: '2026-09-01' }]
+);
+assert.equal(kept.length, 3, 'las páginas viejas no se tiran al llegar el recorte en vivo');
+assert.equal(kept.find((r) => r.id === 'b')?.timestamp, '2026-09-01', 'el id vivo pisa al viejo');
+assert.equal(oldestTimestamp(kept, 'timestamp'), '2026-08-01', 'el cursor de historial es el más viejo');
+
 console.log('hybrid self-test ok');

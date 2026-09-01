@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Printer, Check } from 'lucide-react';
 import Login from './components/Login';
-import Dashboard from './components/Dashboard';
+import { ModuleLoading } from './components/LazyWhen';
 import { Branch, Operator } from './types';
 import { getStoredOperators, saveStoredOperators, INITIAL_OPERATORS } from './data/initialOperators';
 import { ADMIN_WORKSPACE, ALL_BRANCHES, hasCashTill } from './data/initialBranches';
 import { normalizeRole } from './lib/roles';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
 
+const Dashboard = lazy(() => import('./components/Dashboard'));
 const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
 
 export default function App() {
@@ -48,15 +49,18 @@ export default function App() {
   // Sistema hermético: Siempre solicitar contraseña al cargar o recargar la página
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
+  const currentOperatorRef = useRef<Operator | null>(currentOperator);
+  currentOperatorRef.current = currentOperator;
+
   useEffect(() => {
     const unsubscribe = subscribeToOperators((firestoreOps) => {
       if (firestoreOps && firestoreOps.length > 0) {
         setOperators(firestoreOps);
         saveStoredOperators(firestoreOps);
 
-        // Keep current operator in sync if modified in administration
-        if (currentOperator) {
-          const matched = firestoreOps.find((o) => o.id === currentOperator.id);
+        const current = currentOperatorRef.current;
+        if (current) {
+          const matched = firestoreOps.find((o) => o.id === current.id);
           if (matched) {
             setCurrentOperator(matched);
             try {
@@ -76,7 +80,7 @@ export default function App() {
       }
     });
     return () => unsubscribe();
-  }, [currentOperator]);
+  }, []);
 
   // Listen for browser print events (window.print, kiosk printing, or shortcut Ctrl+P)
   useEffect(() => {
@@ -220,13 +224,15 @@ export default function App() {
 
   return (
     <>
-      <Dashboard 
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-        operators={operators}
-        onUpdateOperators={handleUpdateOperators}
-        onLogout={handleLogout}
-      />
+      <Suspense fallback={<ModuleLoading />}>
+        <Dashboard 
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+          operators={operators}
+          onUpdateOperators={handleUpdateOperators}
+          onLogout={handleLogout}
+        />
+      </Suspense>
 
       {/* Discrete Printing Status Indicator (No-Print) */}
       {(isPrintingNotification || printFinishedNotification) && (

@@ -24,6 +24,7 @@ import {
   stampRepairLabel
 } from '../lib/repairUtils';
 import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RepairsModuleProps {
   repairRecords: RepairRecord[];
@@ -32,22 +33,29 @@ interface RepairsModuleProps {
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
   embedded?: boolean;
+  onLoadOlderRepairs?: () => void;
+  repairsHasMore?: boolean;
+  repairsLoading?: boolean;
 }
 
 type TabId = 'pendientes' | 'historial';
 
-export default function RepairsModule({
+function RepairsModule({
   repairRecords,
   currentBranch,
   currentOperator,
   onUpdateRepairRecord,
   onCancelRepairRecord,
-  embedded = false
+  embedded = false,
+  onLoadOlderRepairs,
+  repairsHasMore = false,
+  repairsLoading = false
 }: RepairsModuleProps) {
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [costDraft, setCostDraft] = useState('');
   const [costNote, setCostNote] = useState('');
@@ -66,13 +74,13 @@ export default function RepairsModule({
   const pendingRepairs = useMemo(() => {
     return scopedRecords
       .filter(isPendingRepair)
-      .filter((r) => matchesRepairSearch(r, searchQuery))
+      .filter((r) => matchesRepairSearch(r, debouncedSearch))
       .sort((a, b) =>
         String(b.receivedAtIso || b.receivedAt || '').localeCompare(
           String(a.receivedAtIso || a.receivedAt || '')
         )
       );
-  }, [scopedRecords, searchQuery]);
+  }, [scopedRecords, debouncedSearch]);
 
   const pendingStats = useMemo(() => {
     const allPending = scopedRecords.filter(isPendingRepair);
@@ -440,6 +448,9 @@ export default function RepairsModule({
             showBranch
             isAdmin={isAdmin}
             onCancelRepairRecord={onCancelRepairRecord}
+            onLoadOlder={onLoadOlderRepairs}
+            hasMore={repairsHasMore}
+            loadingMore={repairsLoading}
           />
         </div>
       )}
@@ -480,3 +491,5 @@ function SummaryCard({
     </div>
   );
 }
+
+export default React.memo(RepairsModule);

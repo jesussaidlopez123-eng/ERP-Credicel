@@ -1,21 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense, startTransition } from 'react';
 import Sidebar from './Sidebar';
 import NotificationsPopover from './NotificationsPopover';
-import CreateNoticeModal from './CreateNoticeModal';
-import ExecutiveModule from './ExecutiveModule';
-import PosModule from './PosModule';
-import InventoryModule from './InventoryModule';
-import PurchasesModule from './PurchasesModule';
-import SalesModule from './SalesModule';
-import RepairsModule from './RepairsModule';
-import SettingsModule from './SettingsModule';
 import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja, PurchaseDraft } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { ALL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { canOpenModule, defaultModuleForRole, normalizeRole } from '../lib/roles';
-import RepairPriceCatalogModal from './RepairPriceCatalogModal';
 import { Bell, Menu, Megaphone } from 'lucide-react';
 import {
   subscribeToProducts,
@@ -44,7 +35,12 @@ import {
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
   deleteSaleTicketFromFirestore,
-  savePurchaseDraftToFirestore
+  savePurchaseDraftToFirestore,
+  fetchOlderSales,
+  fetchOlderExpenses,
+  fetchOlderCortes,
+  fetchOlderInventoryMovements,
+  fetchOlderRepairRecords
 } from '../lib/firebase';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
@@ -66,7 +62,8 @@ import {
   loadCachedProducts,
   rememberLastSession,
   removePendingCorte,
-  saveCachedList
+  saveCachedList,
+  scheduleSaveCachedList
 } from '../lib/localCloudCache';
 import { enqueue, startOutboxWorker } from '../lib/outbox';
 import {
@@ -96,6 +93,20 @@ import {
   mergeRepairSources
 } from '../lib/repairUtils';
 import SyncStatusChip from './SyncStatusChip';
+import LazyWhen, { ModuleLoading } from './LazyWhen';
+import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
+import { HISTORY_PAGE, LIVE_LIMIT } from '../lib/queryLimits';
+import { useStableCallback } from '../hooks/useStableCallback';
+
+const CreateNoticeModal = lazy(() => import('./CreateNoticeModal'));
+const RepairPriceCatalogModal = lazy(() => import('./RepairPriceCatalogModal'));
+const PosModule = lazy(() => import('./PosModule'));
+const InventoryModule = lazy(() => import('./InventoryModule'));
+const PurchasesModule = lazy(() => import('./PurchasesModule'));
+const SalesModule = lazy(() => import('./SalesModule'));
+const RepairsModule = lazy(() => import('./RepairsModule'));
+const ExecutiveModule = lazy(() => import('./ExecutiveModule'));
+const SettingsModule = lazy(() => import('./SettingsModule'));
 
 interface DashboardProps {
   currentBranch: Branch;
@@ -142,6 +153,12 @@ export default function Dashboard({
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [tillLocked, setTillLocked] = useState(false);
   const [nightClosing, setNightClosing] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState<string | null>(null);
+  const [salesHasMore, setSalesHasMore] = useState(true);
+  const [expensesHasMore, setExpensesHasMore] = useState(true);
+  const [cortesHasMore, setCortesHasMore] = useState(true);
+  const [movementsHasMore, setMovementsHasMore] = useState(true);
+  const [repairsHasMore, setRepairsHasMore] = useState(true);
   const corteInFlightRef = useRef(false);
   const saleInFlightIdsRef = useRef(new Set<string>());
   const loggedInAtRef = useRef(Date.now());
@@ -188,7 +205,7 @@ export default function Dashboard({
           });
           const next = Array.from(byId.values());
           setProducts(next);
-          saveCachedList('products', next);
+          scheduleSaveCachedList('products', next);
           setCloudSynced(true);
         }
       },
@@ -199,10 +216,13 @@ export default function Dashboard({
       (sales) => {
         setSalesTickets((prev) => {
           const fromCloud = keepIfCloudEmpty(sales, prev);
-          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.sales));
-          saveCachedList('sales', next);
+          const next = sortByTimestampDesc(
+            mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.sales)
+          );
+          scheduleSaveCachedList('sales', next);
           return next;
         });
+        if (sales.length < LIVE_LIMIT.sales) setSalesHasMore(false);
       },
       () => markCloudDown()
     );
@@ -211,10 +231,13 @@ export default function Dashboard({
       (exps) => {
         setExpenses((prev) => {
           const fromCloud = keepIfCloudEmpty(exps, prev);
-          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.expenses));
-          saveCachedList('expenses', next);
+          const next = sortByTimestampDesc(
+            mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.expenses)
+          );
+          scheduleSaveCachedList('expenses', next);
           return next;
         });
+        if (exps.length < LIVE_LIMIT.expenses) setExpensesHasMore(false);
       },
       () => markCloudDown()
     );
@@ -229,10 +252,13 @@ export default function Dashboard({
       (cortes) => {
         setCortesX((prev) => {
           const fromCloud = keepIfCloudEmpty(cortes, prev);
-          const next = sortByTimestampDesc(mergeWithLocal(fromCloud, localOnlyRef.current.cortes));
-          saveCachedList('cortes', next);
+          const next = sortByTimestampDesc(
+            mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.cortes)
+          );
+          scheduleSaveCachedList('cortes', next);
           return next;
         });
+        if (cortes.length < LIVE_LIMIT.cortes) setCortesHasMore(false);
       },
       () => markCloudDown()
     );
@@ -242,7 +268,8 @@ export default function Dashboard({
     });
 
     const unsubMovements = subscribeToInventoryMovements((movs) => {
-      setInventoryMovements(movs);
+      setInventoryMovements((prev) => mergeByIdKeep(prev, movs));
+      if (movs.length < LIVE_LIMIT.movements) setMovementsHasMore(false);
     });
 
     const unsubFunds = subscribeToBranchFunds((funds) => {
@@ -269,7 +296,7 @@ export default function Dashboard({
             localOnlyRef.current.repairs,
             fromCloud
           );
-          saveCachedList('repairs', next);
+          scheduleSaveCachedList('repairs', next);
           return next;
         });
       },
@@ -288,6 +315,134 @@ export default function Dashboard({
       unsubCredits();
       unsubRepairs();
     };
+  }, []);
+
+  const loadOlderSales = useCallback(async () => {
+    if (historyBusy) return;
+    const before = oldestTimestamp(salesTicketsRef.current, 'timestamp');
+    if (!before) {
+      setSalesHasMore(false);
+      return;
+    }
+    setHistoryBusy('sales');
+    try {
+      const extra = await fetchOlderSales(before, HISTORY_PAGE);
+      if (extra.length < HISTORY_PAGE) setSalesHasMore(false);
+      if (extra.length > 0) {
+        setSalesTickets((prev) => {
+          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
+          scheduleSaveCachedList('sales', next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn('[Historial] ventas:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy]);
+
+  const loadOlderExpenses = useCallback(async () => {
+    if (historyBusy) return;
+    const before = oldestTimestamp(expensesRef.current, 'timestamp');
+    if (!before) {
+      setExpensesHasMore(false);
+      return;
+    }
+    setHistoryBusy('expenses');
+    try {
+      const extra = await fetchOlderExpenses(before, HISTORY_PAGE);
+      if (extra.length < HISTORY_PAGE) setExpensesHasMore(false);
+      if (extra.length > 0) {
+        setExpenses((prev) => {
+          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
+          scheduleSaveCachedList('expenses', next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn('[Historial] gastos:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy]);
+
+  const loadOlderCortes = useCallback(async () => {
+    if (historyBusy) return;
+    const before = oldestTimestamp(cortesRef.current, 'timestamp');
+    if (!before) {
+      setCortesHasMore(false);
+      return;
+    }
+    setHistoryBusy('cortes');
+    try {
+      const extra = await fetchOlderCortes(before, HISTORY_PAGE);
+      if (extra.length < HISTORY_PAGE) setCortesHasMore(false);
+      if (extra.length > 0) {
+        setCortesX((prev) => {
+          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
+          scheduleSaveCachedList('cortes', next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn('[Historial] cortes:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy]);
+
+  const loadOlderMovements = useCallback(async () => {
+    if (historyBusy) return;
+    const before = oldestTimestamp(inventoryMovements, 'timestamp');
+    if (!before) {
+      setMovementsHasMore(false);
+      return;
+    }
+    setHistoryBusy('movements');
+    try {
+      const extra = await fetchOlderInventoryMovements(before, HISTORY_PAGE);
+      if (extra.length < HISTORY_PAGE) setMovementsHasMore(false);
+      if (extra.length > 0) {
+        setInventoryMovements((prev) => mergeByIdKeep(prev, extra));
+      }
+    } catch (err) {
+      console.warn('[Historial] kardex:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy, inventoryMovements]);
+
+  const loadOlderRepairs = useCallback(async () => {
+    if (historyBusy) return;
+    const before = oldestTimestamp(
+      repairRecords.map((r) => ({ id: r.id, receivedAtIso: r.receivedAtIso || r.receivedAt || '' })),
+      'receivedAtIso'
+    );
+    if (!before) {
+      setRepairsHasMore(false);
+      return;
+    }
+    setHistoryBusy('repairs');
+    try {
+      const extra = await fetchOlderRepairRecords(before, HISTORY_PAGE);
+      if (extra.length < HISTORY_PAGE) setRepairsHasMore(false);
+      if (extra.length > 0) {
+        setRepairRecords((prev) => {
+          const next = mergeRepairSources(prev, extra);
+          scheduleSaveCachedList('repairs', next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.warn('[Historial] taller:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy, repairRecords]);
+
+  const handleModuleChange = useCallback((id: ModuleId) => {
+    startTransition(() => setActiveModule(id));
   }, []);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
@@ -1241,13 +1396,21 @@ export default function Dashboard({
   };
 
   // Filter notifications for current user/branch
-  const visibleNotifications = notifications.filter((n) => {
-    const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
-    const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
-    return matchesBranch && matchesOperator;
-  });
+  const visibleNotifications = useMemo(
+    () =>
+      notifications.filter((n) => {
+        const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
+        const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
+        return matchesBranch && matchesOperator;
+      }),
+    [notifications, currentBranch.id, currentOperator.id]
+  );
 
   const unreadCount = visibleNotifications.length;
+  const repairPendingCount = useMemo(
+    () => repairRecords.filter(isPendingRepair).length,
+    [repairRecords]
+  );
 
   // Clicking an alert marks it as read and clears/dismisses it
   const handleDismissNotification = (id: string) => {
@@ -1298,6 +1461,31 @@ export default function Dashboard({
     );
   };
 
+  const posCreditAccounts = useMemo(
+    () => creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo'),
+    [creditAccounts, currentBranch.id]
+  );
+
+  const stableCompleteSale = useStableCallback(handleCompleteSale);
+  const stableAddExpense = useStableCallback(handleAddExpense);
+  const stableAddRepairPrice = useStableCallback(handleAddRepairPrice);
+  const stableUpdateRepairPrice = useStableCallback(handleUpdateRepairPrice);
+  const stableDeleteRepairPrice = useStableCallback(handleDeleteRepairPrice);
+  const stableAddRepairRecord = useStableCallback(handleAddRepairRecord);
+  const stableUpdateRepairRecord = useStableCallback(handleUpdateRepairRecord);
+  const stableCancelRepairRecord = useStableCallback(handleCancelRepairRecord);
+  const stableFinalizeCorteX = useStableCallback(handleFinalizeCorteX);
+  const stableAddProduct = useStableCallback(handleAddProduct);
+  const stableUpdateProduct = useStableCallback(handleUpdateProduct);
+  const stableDeleteProduct = useStableCallback(handleDeleteProduct);
+  const stableRecordMovement = useStableCallback(handleRecordInventoryMovement);
+  const stableReceivePurchase = useStableCallback(handleReceivePurchase);
+  const stableDeleteSaleTicket = useStableCallback(handleDeleteSaleTicket);
+  const stableAddNotification = useStableCallback(handleAddNotification);
+  const stableDismissNotification = useStableCallback(handleDismissNotification);
+  const stableClearNotifications = useStableCallback(handleClearAllNotifications);
+  const stableUpdateNotifStatus = useStableCallback(handleUpdateNotificationStatus);
+
   // Render Module Content based on activeModule
   const renderModuleContent = () => {
     switch (activeModule) {
@@ -1309,8 +1497,8 @@ export default function Dashboard({
             currentOperator={currentOperator}
             salesTickets={salesTickets}
             expenses={expenses}
-            onCompleteSale={handleCompleteSale}
-            onAddExpense={handleAddExpense}
+            onCompleteSale={stableCompleteSale}
+            onAddExpense={stableAddExpense}
             isCorteXOpen={isCorteXOpen}
             setIsCorteXOpen={setIsCorteXOpen}
             isExpenseModalOpen={isExpenseModalOpen}
@@ -1318,21 +1506,21 @@ export default function Dashboard({
             isRepairModalOpen={isRepairModalOpen}
             setIsRepairModalOpen={setIsRepairModalOpen}
             repairPrices={repairPrices}
-            onAddRepairPrice={handleAddRepairPrice}
-            onUpdateRepairPrice={handleUpdateRepairPrice}
-            onDeleteRepairPrice={handleDeleteRepairPrice}
+            onAddRepairPrice={stableAddRepairPrice}
+            onUpdateRepairPrice={stableUpdateRepairPrice}
+            onDeleteRepairPrice={stableDeleteRepairPrice}
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
             cortesX={cortesX}
             initialCashFund={branchCashFunds[currentBranch.id]}
             activeCashSession={activeCashSession}
             tillLocked={tillLocked}
-            creditAccounts={creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo')}
+            creditAccounts={posCreditAccounts}
             repairRecords={repairRecords}
-            onAddRepairRecord={handleAddRepairRecord}
-            onUpdateRepairRecord={handleUpdateRepairRecord}
-            onCancelRepairRecord={handleCancelRepairRecord}
-            onFinalizeCorteX={handleFinalizeCorteX}
+            onAddRepairRecord={stableAddRepairRecord}
+            onUpdateRepairRecord={stableUpdateRepairRecord}
+            onCancelRepairRecord={stableCancelRepairRecord}
+            onFinalizeCorteX={stableFinalizeCorteX}
             onLogout={onLogout}
           />
         );
@@ -1340,14 +1528,17 @@ export default function Dashboard({
         return (
           <InventoryModule 
             products={products}
-            onAddProduct={handleAddProduct}
-            onUpdateProduct={handleUpdateProduct}
-            onDeleteProduct={handleDeleteProduct}
+            onAddProduct={stableAddProduct}
+            onUpdateProduct={stableUpdateProduct}
+            onDeleteProduct={stableDeleteProduct}
             currentBranch={currentBranch}
             currentOperator={currentOperator}
             allBranches={ALL_BRANCHES}
             inventoryMovements={inventoryMovements}
-            onRecordMovement={handleRecordInventoryMovement}
+            onRecordMovement={stableRecordMovement}
+            onLoadOlderMovements={loadOlderMovements}
+            movementsHasMore={movementsHasMore}
+            movementsLoading={historyBusy === 'movements'}
           />
         );
       case 'purchases':
@@ -1357,9 +1548,9 @@ export default function Dashboard({
             products={products}
             currentBranch={currentBranch}
             currentOperator={currentOperator}
-            onUpdateNotificationStatus={handleUpdateNotificationStatus}
+            onUpdateNotificationStatus={stableUpdateNotifStatus}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
-            onReceivePurchase={handleReceivePurchase}
+            onReceivePurchase={stableReceivePurchase}
           />
         );
       case 'sales':
@@ -1373,9 +1564,16 @@ export default function Dashboard({
             cortesX={cortesX}
             branchCashFunds={branchCashFunds}
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
-            onFinalizeCorteX={handleFinalizeCorteX}
-            onDeleteSaleTicket={handleDeleteSaleTicket}
+            onFinalizeCorteX={stableFinalizeCorteX}
+            onDeleteSaleTicket={stableDeleteSaleTicket}
             activeCashSession={activeCashSession}
+            onLoadOlderSales={loadOlderSales}
+            onLoadOlderExpenses={loadOlderExpenses}
+            onLoadOlderCortes={loadOlderCortes}
+            salesHasMore={salesHasMore}
+            expensesHasMore={expensesHasMore}
+            cortesHasMore={cortesHasMore}
+            historyBusy={historyBusy}
           />
         );
       case 'repairs':
@@ -1384,8 +1582,11 @@ export default function Dashboard({
             repairRecords={repairRecords}
             currentBranch={currentBranch}
             currentOperator={currentOperator}
-            onUpdateRepairRecord={handleUpdateRepairRecord}
-            onCancelRepairRecord={handleCancelRepairRecord}
+            onUpdateRepairRecord={stableUpdateRepairRecord}
+            onCancelRepairRecord={stableCancelRepairRecord}
+            onLoadOlderRepairs={loadOlderRepairs}
+            repairsHasMore={repairsHasMore}
+            repairsLoading={historyBusy === 'repairs'}
           />
         );
       case 'executive':
@@ -1398,6 +1599,9 @@ export default function Dashboard({
             salesTickets={salesTickets}
             expenses={expenses}
             products={products}
+            onLoadOlderSales={loadOlderSales}
+            salesHasMore={salesHasMore}
+            historyBusy={historyBusy}
           />
         );
       case 'settings':
@@ -1422,13 +1626,13 @@ export default function Dashboard({
       {/* Left Sidebar Section */}
       <Sidebar 
         activeModule={activeModule}
-        onModuleChange={setActiveModule}
+        onModuleChange={handleModuleChange}
         onLogout={onLogout}
         currentBranch={currentBranch}
         currentOperator={currentOperator}
         isMobileOpen={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
-        repairPendingCount={repairRecords.filter(isPendingRepair).length}
+        repairPendingCount={repairPendingCount}
       />
 
       {/* Main Workspace Section */}
@@ -1495,9 +1699,9 @@ export default function Dashboard({
             <NotificationsPopover
               isOpen={isNotificationsOpen}
               onClose={() => setIsNotificationsOpen(false)}
-              notifications={notifications}
-              onDismissNotification={handleDismissNotification}
-              onClearAllNotifications={handleClearAllNotifications}
+              notifications={visibleNotifications}
+              onDismissNotification={stableDismissNotification}
+              onClearAllNotifications={stableClearNotifications}
               onOpenCreateModal={() => {
                 setIsNotificationsOpen(false);
                 setIsCreateNoticeOpen(true);
@@ -1518,33 +1722,38 @@ export default function Dashboard({
             </div>
           )}
           <div className="max-w-[1600px] mx-auto h-full">
-            {renderModuleContent()}
+            <Suspense fallback={<ModuleLoading />}>
+              {renderModuleContent()}
+            </Suspense>
           </div>
         </main>
 
       </div>
 
       {/* Modal for Creating New Notice/Notification */}
-      <CreateNoticeModal
-        isOpen={isCreateNoticeOpen}
-        onClose={() => setIsCreateNoticeOpen(false)}
-        onAddNotification={handleAddNotification}
-        currentOperator={currentOperator}
-        currentBranch={currentBranch}
-        branches={ALL_BRANCHES}
-        operators={operators}
-      />
+      <LazyWhen when={isCreateNoticeOpen}>
+        <CreateNoticeModal
+          isOpen={isCreateNoticeOpen}
+          onClose={() => setIsCreateNoticeOpen(false)}
+          onAddNotification={stableAddNotification}
+          currentOperator={currentOperator}
+          currentBranch={currentBranch}
+          branches={ALL_BRANCHES}
+          operators={operators}
+        />
+      </LazyWhen>
 
-      {/* Repair Price Catalog Modal */}
-      <RepairPriceCatalogModal
-        isOpen={isRepairPriceCatalogOpen}
-        onClose={() => setIsRepairPriceCatalogOpen(false)}
-        isAdmin={isAdmin}
-        repairPrices={repairPrices}
-        onAddRepairPrice={handleAddRepairPrice}
-        onUpdateRepairPrice={handleUpdateRepairPrice}
-        onDeleteRepairPrice={handleDeleteRepairPrice}
-      />
+      <LazyWhen when={isRepairPriceCatalogOpen}>
+        <RepairPriceCatalogModal
+          isOpen={isRepairPriceCatalogOpen}
+          onClose={() => setIsRepairPriceCatalogOpen(false)}
+          isAdmin={isAdmin}
+          repairPrices={repairPrices}
+          onAddRepairPrice={stableAddRepairPrice}
+          onUpdateRepairPrice={stableUpdateRepairPrice}
+          onDeleteRepairPrice={stableDeleteRepairPrice}
+        />
+      </LazyWhen>
 
       {nightClosing && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-4">

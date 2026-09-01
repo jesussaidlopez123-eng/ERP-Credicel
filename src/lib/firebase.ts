@@ -13,7 +13,10 @@ import {
   writeBatch,
   query,
   where,
-  runTransaction
+  orderBy,
+  limit,
+  runTransaction,
+  type QuerySnapshot
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord, PurchaseDraft } from '../types';
@@ -37,6 +40,8 @@ import {
 } from './shiftHours';
 import { loadLastSessionId } from './localCloudCache';
 import { registerOutboxExecutor } from './outbox';
+import { mergeByIdKeep } from './listMerge';
+import { HISTORY_PAGE, LIVE_LIMIT } from './queryLimits';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -331,14 +336,84 @@ export function subscribeToOpenCashSession(
 }
 
 function mergeById<T extends { id: string }>(primary: T[], extra: T[]): T[] {
-  const map = new Map<string, T>();
-  extra.forEach((item) => {
-    if (item?.id) map.set(item.id, item);
-  });
-  primary.forEach((item) => {
-    if (item?.id) map.set(item.id, item);
-  });
-  return Array.from(map.values());
+  return mergeByIdKeep(extra, primary);
+}
+
+function mapSnapDocs<T extends { id: string }>(snapshot: QuerySnapshot): T[] {
+  return snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+}
+
+/**
+ * Escucha en vivo con orderBy + limit. Si falta índice, baja a limit suelto.
+ * El cleanup cierra la escucha activa aunque haya habido reintento.
+ */
+function subscribeLimitedCollection<T extends { id: string }>(
+  collectionName: string,
+  orderField: string,
+  pageSize: number,
+  onUpdate: (rows: T[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  const colRef = collection(db, collectionName);
+  let unsub: (() => void) | null = null;
+  let stopped = false;
+  let mode: 'ordered' | 'limited' = 'ordered';
+
+  const attach = () => {
+    if (stopped) return;
+    const qRef =
+      mode === 'ordered'
+        ? query(colRef, orderBy(orderField, 'desc'), limit(pageSize))
+        : query(colRef, limit(pageSize));
+    unsub = onSnapshot(
+      qRef,
+      (snapshot) => {
+        onUpdate(mapSnapDocs<T>(snapshot));
+      },
+      (err) => {
+        console.warn(`[Firestore] ${collectionName} limitada (${mode}/${orderField}):`, err);
+        if (stopped) return;
+        if (mode === 'ordered') {
+          mode = 'limited';
+          unsub?.();
+          unsub = null;
+          attach();
+          return;
+        }
+        if (onError) onError(err);
+      }
+    );
+  };
+
+  attach();
+
+  return () => {
+    stopped = true;
+    unsub?.();
+    unsub = null;
+  };
+}
+
+export async function fetchOlderDocuments<T extends { id: string }>(
+  collectionName: string,
+  orderField: string,
+  beforeValue: string,
+  pageSize: number = HISTORY_PAGE
+): Promise<T[]> {
+  if (!beforeValue) return [];
+  try {
+    const qRef = query(
+      collection(db, collectionName),
+      where(orderField, '<', beforeValue),
+      orderBy(orderField, 'desc'),
+      limit(pageSize)
+    );
+    const snap = await getDocs(qRef);
+    return mapSnapDocs<T>(snap);
+  } catch (err) {
+    console.warn(`[Firestore] fetchOlder ${collectionName} failed:`, err);
+    return [];
+  }
 }
 
 async function queryDocsBySession<T extends { id: string }>(
@@ -1214,23 +1289,20 @@ function subscribeMergedCollection<T extends { id: string }>(
   primaryName: string,
   secondaryName: string,
   onUpdate: (rows: T[]) => void,
-  onError?: (err: any) => void
+  onError?: (err: any) => void,
+  options?: { orderField?: string; pageSize?: number }
 ) {
   let primary: T[] = [];
   let secondary: T[] = [];
   let primaryReady = false;
   let secondaryFetched = false;
+  let stopped = false;
+  const orderField = options?.orderField || 'timestamp';
+  const pageSize = options?.pageSize ?? LIVE_LIMIT.sales;
 
   const emit = () => {
-    if (!primaryReady) return;
-    const map = new Map<string, T>();
-    secondary.forEach((row) => {
-      if (row?.id) map.set(row.id, row);
-    });
-    primary.forEach((row) => {
-      if (row?.id) map.set(row.id, row);
-    });
-    const loaded = Array.from(map.values());
+    if (stopped || !primaryReady) return;
+    const loaded = mergeByIdKeep(secondary, primary);
     loaded.sort((a, b) =>
       String((b as { timestamp?: string }).timestamp || '').localeCompare(
         String((a as { timestamp?: string }).timestamp || '')
@@ -1246,9 +1318,15 @@ function subscribeMergedCollection<T extends { id: string }>(
       emit();
       return;
     }
-    getDocs(collection(db, secondaryName))
+    const secondaryQuery = query(
+      collection(db, secondaryName),
+      orderBy(orderField, 'desc'),
+      limit(pageSize)
+    );
+    getDocs(secondaryQuery)
       .then((snapshot) => {
-        secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+        if (stopped) return;
+        secondary = mapSnapDocs<T>(snapshot);
         emit();
       })
       .catch((err) => {
@@ -1257,10 +1335,12 @@ function subscribeMergedCollection<T extends { id: string }>(
       });
   };
 
-  const unsubPrimary = onSnapshot(
-    collection(db, primaryName),
-    (snapshot) => {
-      primary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  const unsubPrimary = subscribeLimitedCollection<T>(
+    primaryName,
+    orderField,
+    pageSize,
+    (rows) => {
+      primary = rows;
       primaryReady = true;
       emit();
       pullSecondaryOnce();
@@ -1268,11 +1348,17 @@ function subscribeMergedCollection<T extends { id: string }>(
     (err) => {
       console.error(`[Firestore] subscribe ${primaryName} error:`, err);
       if (onError) onError(err);
-      if (primaryReady) return;
-      getDocs(collection(db, secondaryName))
+      if (primaryReady || stopped) return;
+      const fallbackQuery = query(
+        collection(db, secondaryName),
+        orderBy(orderField, 'desc'),
+        limit(pageSize)
+      );
+      getDocs(fallbackQuery)
         .then((snapshot) => {
+          if (stopped) return;
           secondaryFetched = true;
-          secondary = snapshot.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+          secondary = mapSnapDocs<T>(snapshot);
           if (secondary.length === 0) return;
           primaryReady = true;
           emit();
@@ -1284,6 +1370,7 @@ function subscribeMergedCollection<T extends { id: string }>(
   );
 
   return () => {
+    stopped = true;
     unsubPrimary();
   };
 }
@@ -1292,7 +1379,21 @@ export function subscribeToSales(
   onSalesUpdate: (sales: SaleTicket[]) => void,
   onError?: (err: any) => void
 ) {
-  return subscribeMergedCollection<SaleTicket>(SALES_COLLECTION, VENTAS_COLLECTION, onSalesUpdate, onError);
+  return subscribeMergedCollection<SaleTicket>(
+    SALES_COLLECTION,
+    VENTAS_COLLECTION,
+    onSalesUpdate,
+    onError,
+    { orderField: 'timestamp', pageSize: LIVE_LIMIT.sales }
+  );
+}
+
+export async function fetchOlderSales(beforeTimestamp: string, pageSize = HISTORY_PAGE): Promise<SaleTicket[]> {
+  const [a, b] = await Promise.all([
+    fetchOlderDocuments<SaleTicket>(SALES_COLLECTION, 'timestamp', beforeTimestamp, pageSize),
+    fetchOlderDocuments<SaleTicket>(VENTAS_COLLECTION, 'timestamp', beforeTimestamp, pageSize)
+  ]);
+  return mergeByIdKeep(a, b).sort((x, y) => String(y.timestamp || '').localeCompare(String(x.timestamp || '')));
 }
 
 export async function allocateSaleFolio(branchId: string): Promise<string> {
@@ -1353,7 +1454,21 @@ export function subscribeToExpenses(
   onExpensesUpdate: (expenses: Expense[]) => void,
   onError?: (err: any) => void
 ) {
-  return subscribeMergedCollection<Expense>(EXPENSES_COLLECTION, GASTOS_COLLECTION, onExpensesUpdate, onError);
+  return subscribeMergedCollection<Expense>(
+    EXPENSES_COLLECTION,
+    GASTOS_COLLECTION,
+    onExpensesUpdate,
+    onError,
+    { orderField: 'timestamp', pageSize: LIVE_LIMIT.expenses }
+  );
+}
+
+export async function fetchOlderExpenses(beforeTimestamp: string, pageSize = HISTORY_PAGE): Promise<Expense[]> {
+  const [a, b] = await Promise.all([
+    fetchOlderDocuments<Expense>(EXPENSES_COLLECTION, 'timestamp', beforeTimestamp, pageSize),
+    fetchOlderDocuments<Expense>(GASTOS_COLLECTION, 'timestamp', beforeTimestamp, pageSize)
+  ]);
+  return mergeByIdKeep(a, b).sort((x, y) => String(y.timestamp || '').localeCompare(String(x.timestamp || '')));
 }
 
 export async function saveExpenseToFirestore(expense: Expense) {
@@ -1549,22 +1664,20 @@ export function subscribeToCortesX(
   onCortesUpdate: (cortes: CorteXRecord[]) => void,
   onError?: (err: any) => void
 ) {
-  const col = collection(db, CORTE_X_COLLECTION);
-  return onSnapshot(
-    col,
-    (snapshot) => {
-      const loaded: CorteXRecord[] = [];
-      snapshot.forEach((d) => {
-        loaded.push({ ...(d.data() as CorteXRecord), id: d.id });
-      });
+  return subscribeLimitedCollection<CorteXRecord>(
+    CORTE_X_COLLECTION,
+    'timestamp',
+    LIVE_LIMIT.cortes,
+    (loaded) => {
       loaded.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
       onCortesUpdate(loaded);
     },
-    (err) => {
-      console.error('[Firestore] subscribeToCortesX error:', err);
-      if (onError) onError(err);
-    }
+    onError
   );
+}
+
+export async function fetchOlderCortes(beforeTimestamp: string, pageSize = HISTORY_PAGE): Promise<CorteXRecord[]> {
+  return fetchOlderDocuments<CorteXRecord>(CORTE_X_COLLECTION, 'timestamp', beforeTimestamp, pageSize);
 }
 
 export async function deleteCorteXFromFirestore(corteId: string) {
@@ -1713,15 +1826,11 @@ export function subscribeToInventoryMovements(
   onMovementsUpdate: (movements: InventoryMovement[]) => void,
   onError?: (err: any) => void
 ) {
-  const colRef = collection(db, MOVEMENTS_COLLECTION);
-
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const movements: InventoryMovement[] = [];
-      snapshot.forEach((d) => {
-        movements.push({ ...(d.data() as InventoryMovement), id: d.id });
-      });
+  return subscribeLimitedCollection<InventoryMovement>(
+    MOVEMENTS_COLLECTION,
+    'timestamp',
+    LIVE_LIMIT.movements,
+    (movements) => {
       movements.sort((a, b) => {
         const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
         const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
@@ -1729,11 +1838,15 @@ export function subscribeToInventoryMovements(
       });
       onMovementsUpdate(movements);
     },
-    (err) => {
-      console.error('[Firestore] subscribeToInventoryMovements error:', err);
-      if (onError) onError(err);
-    }
+    onError
   );
+}
+
+export async function fetchOlderInventoryMovements(
+  beforeTimestamp: string,
+  pageSize = HISTORY_PAGE
+): Promise<InventoryMovement[]> {
+  return fetchOlderDocuments<InventoryMovement>(MOVEMENTS_COLLECTION, 'timestamp', beforeTimestamp, pageSize);
 }
 
 export async function saveInventoryMovementToFirestore(movement: InventoryMovement) {
@@ -1957,17 +2070,71 @@ export function subscribeToRepairRecords(
   onError?: (err: any) => void
 ) {
   const colRef = collection(db, REPAIR_RECORDS_COLLECTION);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const loaded: RepairRecord[] = [];
-      snapshot.forEach((d) => loaded.push({ ...(d.data() as RepairRecord), id: d.id }));
-      onUpdate(loaded);
-    },
-    (err) => {
-      console.error('[Firestore] subscribeToRepairRecords error:', err);
-      if (onError) onError(err);
-    }
+  let taller: RepairRecord[] = [];
+  let listo: RepairRecord[] = [];
+  let recent: RepairRecord[] = [];
+  let stopped = false;
+  const unsubs: Array<() => void> = [];
+
+  const emit = () => {
+    if (stopped) return;
+    onUpdate(mergeByIdKeep(mergeByIdKeep(recent, taller), listo));
+  };
+
+  unsubs.push(
+    onSnapshot(
+      query(colRef, where('status', '==', 'en_taller')),
+      (snapshot) => {
+        taller = mapSnapDocs<RepairRecord>(snapshot);
+        emit();
+      },
+      (err) => {
+        console.error('[Firestore] subscribeToRepairRecords en_taller:', err);
+        if (onError) onError(err);
+      }
+    )
+  );
+  unsubs.push(
+    onSnapshot(
+      query(colRef, where('status', '==', 'listo')),
+      (snapshot) => {
+        listo = mapSnapDocs<RepairRecord>(snapshot);
+        emit();
+      },
+      (err) => {
+        console.error('[Firestore] subscribeToRepairRecords listo:', err);
+        if (onError) onError(err);
+      }
+    )
+  );
+  unsubs.push(
+    subscribeLimitedCollection<RepairRecord>(
+      REPAIR_RECORDS_COLLECTION,
+      'receivedAtIso',
+      LIVE_LIMIT.repairsHistory,
+      (rows) => {
+        recent = rows;
+        emit();
+      },
+      onError
+    )
+  );
+
+  return () => {
+    stopped = true;
+    unsubs.forEach((u) => u());
+  };
+}
+
+export async function fetchOlderRepairRecords(
+  beforeReceivedAtIso: string,
+  pageSize = HISTORY_PAGE
+): Promise<RepairRecord[]> {
+  return fetchOlderDocuments<RepairRecord>(
+    REPAIR_RECORDS_COLLECTION,
+    'receivedAtIso',
+    beforeReceivedAtIso,
+    pageSize
   );
 }
 

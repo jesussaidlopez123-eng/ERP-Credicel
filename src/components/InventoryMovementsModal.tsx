@@ -6,6 +6,8 @@ import {
   Store, User, ShieldAlert, CheckCircle2, Info, AlertTriangle, Printer
 } from 'lucide-react';
 import { InventoryMovement, InventoryMovementType, Branch } from '../types';
+import LoadMoreButton from './LoadMoreButton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface InventoryMovementsModalProps {
   isOpen: boolean;
@@ -13,6 +15,9 @@ interface InventoryMovementsModalProps {
   movements?: InventoryMovement[];
   currentBranch?: Branch;
   branches?: Branch[];
+  onLoadOlder?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = ({
@@ -20,9 +25,13 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
   onClose,
   movements = [],
   currentBranch,
-  branches = []
+  branches = [],
+  onLoadOlder,
+  hasMore = false,
+  loadingMore = false
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<'15d' | '7d' | '3d' | 'today'>('15d');
@@ -104,8 +113,8 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
         }
 
         // Filter by Search Query
-        if (searchQuery && searchQuery.trim()) {
-          const q = searchQuery.toLowerCase().trim();
+        if (debouncedSearch && debouncedSearch.trim()) {
+          const q = debouncedSearch.toLowerCase().trim();
           const matchesName = String(m.productName || '').toLowerCase().includes(q);
           const matchesCode = String(m.productCode || '').toLowerCase().includes(q);
           const matchesOp = String(m.operatorName || '').toLowerCase().includes(q);
@@ -124,7 +133,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
       console.error('[InventoryMovementsModal] Filter calculation error:', err);
       return [];
     }
-  }, [movements, selectedBranchId, selectedType, timeRange, searchQuery]);
+  }, [movements, selectedBranchId, selectedType, timeRange, debouncedSearch]);
 
   // Statistics for summary banner
   const stats = useMemo(() => {
@@ -559,6 +568,12 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
               })}
             </div>
           )}
+          <LoadMoreButton
+            hasMore={hasMore}
+            loading={loadingMore}
+            onClick={onLoadOlder}
+            label="Cargar movimientos anteriores"
+          />
         </div>
 
         {/* FOOTER */}

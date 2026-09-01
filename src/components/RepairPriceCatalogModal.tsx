@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Wrench, Search, Plus, Trash2, Edit3, X, CheckCircle2, ShoppingCart, Smartphone, Battery, Zap, Lock, ListFilter } from 'lucide-react';
 import { RepairPriceItem, Product, CartItemMetadata } from '../types';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RepairPriceCatalogModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export default function RepairPriceCatalogModal({
   onAddToCart
 }: RepairPriceCatalogModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   // Admin Form state for Adding/Editing
@@ -38,17 +40,6 @@ export default function RepairPriceCatalogModal({
   const [estimatedTime, setEstimatedTime] = useState('');
   const [notes, setNotes] = useState('');
 
-  if (!isOpen) return null;
-
-  const CATEGORIES = [
-    { id: 'all', label: 'Todas', icon: ListFilter },
-    { id: 'Pantalla', label: 'Pantalla', icon: Smartphone },
-    { id: 'Batería', label: 'Batería', icon: Battery },
-    { id: 'Centro de Carga', label: 'Centro de Carga', icon: Zap },
-    { id: 'Desbloqueo', label: 'Desbloqueo', icon: Lock }
-  ];
-
-  // Helper to resolve category for items missing explicit category
   const getCategoryOfItem = (item: RepairPriceItem): string => {
     if (item.category) return item.category;
     const name = (item.serviceName + ' ' + item.model).toLowerCase();
@@ -59,19 +50,30 @@ export default function RepairPriceCatalogModal({
     return 'Otro';
   };
 
-  // Filter prices by Category and Search Query
-  const filteredPrices = repairPrices.filter((item) => {
-    const itemCat = getCategoryOfItem(item);
-    const matchesCat = selectedCategory === 'all' || itemCat === selectedCategory;
-    const q = searchQuery.toLowerCase().trim();
-    const matchesQuery =
-      !q ||
-      item.model.toLowerCase().includes(q) ||
-      item.brand.toLowerCase().includes(q) ||
-      item.serviceName.toLowerCase().includes(q) ||
-      (item.notes && item.notes.toLowerCase().includes(q));
-    return matchesCat && matchesQuery;
-  });
+  const filteredPrices = useMemo(() => {
+    const q = debouncedSearch.toLowerCase().trim();
+    return repairPrices.filter((item) => {
+      const itemCat = getCategoryOfItem(item);
+      const matchesCat = selectedCategory === 'all' || itemCat === selectedCategory;
+      const matchesQuery =
+        !q ||
+        item.model.toLowerCase().includes(q) ||
+        item.brand.toLowerCase().includes(q) ||
+        item.serviceName.toLowerCase().includes(q) ||
+        (item.notes && item.notes.toLowerCase().includes(q));
+      return matchesCat && matchesQuery;
+    });
+  }, [repairPrices, selectedCategory, debouncedSearch]);
+
+  if (!isOpen) return null;
+
+  const CATEGORIES = [
+    { id: 'all', label: 'Todas', icon: ListFilter },
+    { id: 'Pantalla', label: 'Pantalla', icon: Smartphone },
+    { id: 'Batería', label: 'Batería', icon: Battery },
+    { id: 'Centro de Carga', label: 'Centro de Carga', icon: Zap },
+    { id: 'Desbloqueo', label: 'Desbloqueo', icon: Lock }
+  ];
 
   const handleOpenCreateForm = () => {
     setEditingId(null);

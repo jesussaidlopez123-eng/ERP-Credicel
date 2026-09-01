@@ -6,6 +6,8 @@ import { trustedIso } from '../lib/clockGuard';
 import { safeDateIsoKey } from '../lib/dateUtils';
 import { getBranchDisplayName } from '../data/initialBranches';
 import { matchesRepairSearch, stampRepairLabel } from '../lib/repairUtils';
+import LoadMoreButton from './LoadMoreButton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 export type HistoryScope = 'entregados' | 'cancelados' | 'todos';
 
@@ -15,6 +17,9 @@ interface RepairHistoryPanelProps {
   showBranch?: boolean;
   isAdmin?: boolean;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onLoadOlder?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 export default function RepairHistoryPanel({
@@ -22,9 +27,13 @@ export default function RepairHistoryPanel({
   exportLabel = 'taller',
   showBranch = false,
   isAdmin = false,
-  onCancelRepairRecord
+  onCancelRepairRecord,
+  onLoadOlder,
+  hasMore = false,
+  loadingMore = false
 }: RepairHistoryPanelProps) {
   const [historySearch, setHistorySearch] = useState('');
+  const debouncedHistorySearch = useDebouncedValue(historySearch, 160);
   const [historyScope, setHistoryScope] = useState<HistoryScope>('entregados');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
@@ -37,13 +46,13 @@ export default function RepairHistoryPanel({
         if (historyScope === 'cancelados') return r.status === 'cancelado';
         return r.status === 'entregado' || r.status === 'cancelado';
       })
-      .filter((r) => matchesRepairSearch(r, historySearch))
+      .filter((r) => matchesRepairSearch(r, debouncedHistorySearch))
       .sort((a, b) =>
         String(b.deliveredAtIso || b.cancelledAt || b.receivedAtIso || '').localeCompare(
           String(a.deliveredAtIso || a.cancelledAt || a.receivedAtIso || '')
         )
       );
-  }, [records, historyScope, historySearch]);
+  }, [records, historyScope, debouncedHistorySearch]);
 
   const historyTotals = useMemo(() => {
     const cobrado = historyRecords
@@ -311,6 +320,13 @@ export default function RepairHistoryPanel({
           })}
         </div>
       )}
+
+      <LoadMoreButton
+        hasMore={hasMore}
+        loading={loadingMore}
+        onClick={onLoadOlder}
+        label="Cargar historial anterior"
+      />
 
       {cancelTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4">

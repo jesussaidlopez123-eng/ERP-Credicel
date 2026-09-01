@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   Users, 
   ShieldAlert, 
@@ -293,14 +293,16 @@ export default function SettingsModule({
     }
   };
 
-  // Filtered operators list
-  const filteredOperators = operators.filter((op) => {
-    const matchesSearch =
-      op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      op.username.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = selectedRoleFilter === 'all' || op.role === selectedRoleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const filteredOperators = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return operators.filter((op) => {
+      const matchesSearch =
+        op.name.toLowerCase().includes(q) ||
+        op.username.toLowerCase().includes(q);
+      const matchesRole = selectedRoleFilter === 'all' || op.role === selectedRoleFilter;
+      return matchesSearch && matchesRole;
+    });
+  }, [operators, searchTerm, selectedRoleFilter]);
 
   return (
     <div className="space-y-6">

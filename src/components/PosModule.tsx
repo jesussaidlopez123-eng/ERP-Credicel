@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, lazy } from 'react';
 import { 
   ShoppingBag, 
   Search, 
@@ -29,17 +29,8 @@ import {
   MonitorSmartphone
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
-import RechargeModal from './RechargeModal';
-import CreditDeviceModal from './CreditDeviceModal';
-import ExpenseModal from './ExpenseModal';
-import CorteXModal from './CorteXModal';
-import TicketReceiptModal from './TicketReceiptModal';
-import ReprintTicketModal from './ReprintTicketModal';
-import RepairModal from './RepairModal';
-import RepairPriceCatalogModal from './RepairPriceCatalogModal';
-import PaymentCheckoutModal from './PaymentCheckoutModal';
-import CreditPaymentModal from './CreditPaymentModal';
-import CaseModelModal from './CaseModelModal';
+import LazyWhen from './LazyWhen';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
@@ -48,6 +39,18 @@ import { hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { isPendingRepair } from '../lib/repairUtils';
 import RepairsModule from './RepairsModule';
+
+const RechargeModal = lazy(() => import('./RechargeModal'));
+const CreditDeviceModal = lazy(() => import('./CreditDeviceModal'));
+const ExpenseModal = lazy(() => import('./ExpenseModal'));
+const CorteXModal = lazy(() => import('./CorteXModal'));
+const TicketReceiptModal = lazy(() => import('./TicketReceiptModal'));
+const ReprintTicketModal = lazy(() => import('./ReprintTicketModal'));
+const RepairModal = lazy(() => import('./RepairModal'));
+const RepairPriceCatalogModal = lazy(() => import('./RepairPriceCatalogModal'));
+const PaymentCheckoutModal = lazy(() => import('./PaymentCheckoutModal'));
+const CreditPaymentModal = lazy(() => import('./CreditPaymentModal'));
+const CaseModelModal = lazy(() => import('./CaseModelModal'));
 
 interface PosModuleProps {
   products: Product[];
@@ -83,7 +86,7 @@ interface PosModuleProps {
 }
 
 
-export default function PosModule({
+function PosModule({
   products,
   currentBranch,
   currentOperator,
@@ -130,6 +133,7 @@ export default function PosModule({
   const [isBeepEnabled, setIsBeepEnabled] = useState<boolean>(true);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 140);
   const scannerInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,16 +164,26 @@ export default function PosModule({
   // nube. Tener aquí una copia aparte era otra forma de perderlos.
   const repairRecords = repairRecordsProp ?? [];
   const isAdminUser = normalizeRole(currentOperator.role) === 'admin';
-  const boardRepairRecords =
-    isAdminUser || currentBranch.id === 'b-bodega'
-      ? repairRecords
-      : repairRecords.filter(
-          (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
-        );
-  const counterRepairRecords = repairRecords.filter(
-    (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+  const boardRepairRecords = useMemo(
+    () =>
+      isAdminUser || currentBranch.id === 'b-bodega'
+        ? repairRecords
+        : repairRecords.filter(
+            (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+          ),
+    [isAdminUser, currentBranch.id, repairRecords]
   );
-  const pendingOnBoard = boardRepairRecords.filter(isPendingRepair).length;
+  const counterRepairRecords = useMemo(
+    () =>
+      repairRecords.filter(
+        (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
+      ),
+    [repairRecords, currentBranch.id]
+  );
+  const pendingOnBoard = useMemo(
+    () => boardRepairRecords.filter(isPendingRepair).length,
+    [boardRepairRecords]
+  );
   const [showRepairBoard, setShowRepairBoard] = useState(true);
   const [internalRepairOpen, setInternalRepairOpen] = useState(false);
   const [internalExpenseOpen, setInternalExpenseOpen] = useState(false);
@@ -370,7 +384,7 @@ export default function PosModule({
   // Products array (filtered by category/search and strictly ordered by rank and natural numerical code)
   const filteredProducts = useMemo(() => {
     const rawList = products.filter((p) => {
-      const q = searchQuery.trim().toLowerCase();
+      const q = debouncedSearch.trim().toLowerCase();
       const isSpecificDevice = (p.inventoryType === 'equipo' || p.category === 'equipo_credito' || p.category === 'telefonia') && 
         p.id !== 'prod-equipo-credito-gen' && 
         p.id !== 'prod-abono-gen';
@@ -430,7 +444,7 @@ export default function PosModule({
       // Secondary alphabetical sort by name
       return (a.name || '').localeCompare(b.name || '', 'es', { numeric: true, sensitivity: 'base' });
     });
-  }, [products, searchQuery, selectedCategory]);
+  }, [products, debouncedSearch, selectedCategory]);
 
 
   // Dynamic phone case detection: Any product with "funda" or "case" in name or category
@@ -1252,110 +1266,124 @@ export default function PosModule({
 
       </div>
 
-      {/* MODALS */}
-      <PaymentCheckoutModal
-        isOpen={isPaymentCheckoutModalOpen}
-        onClose={() => setIsPaymentCheckoutModalOpen(false)}
-        totalAmount={cartTotal}
-        itemCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
-        onConfirmPayment={handleConfirmPaymentFromModal}
-      />
-      <RechargeModal
-        isOpen={isRechargeModalOpen}
-        onClose={() => setIsRechargeModalOpen(false)}
-        product={selectedRechargeProduct}
-        onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
-      />
-
-      <CreditDeviceModal
-        isOpen={isCreditDeviceModalOpen}
-        onClose={() => setIsCreditDeviceModalOpen(false)}
-        product={selectedCreditProduct}
-        products={products}
-        currentBranch={currentBranch}
-        onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
-      />
-
-      <CreditPaymentModal
-        isOpen={isCreditPaymentModalOpen}
-        onClose={() => setIsCreditPaymentModalOpen(false)}
-        creditAccounts={creditAccounts}
-        onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
-      />
-
-      <RepairPriceCatalogModal
-        isOpen={isRepairPriceCatalogOpen}
-        onClose={() => setIsRepairPriceCatalogOpen(false)}
-        isAdmin={currentOperator.role === 'admin'}
-        repairPrices={repairPrices}
-        onAddRepairPrice={onAddRepairPrice}
-        onUpdateRepairPrice={onUpdateRepairPrice}
-        onDeleteRepairPrice={onDeleteRepairPrice}
-        onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
-      />
-
-      <RepairModal
-        isOpen={isRepairModalOpen}
-        onClose={() => setIsRepairModalOpen(false)}
-        repairRecords={isAdminUser ? boardRepairRecords : counterRepairRecords}
-        onAddRepairRecord={onAddRepairRecord}
-        onUpdateRepairRecord={onUpdateRepairRecord}
-        onCancelRepairRecord={onCancelRepairRecord}
-        onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-        isAdmin={currentOperator.role === 'admin'}
-        onEmitDirectTicket={async (ticket) => {
-          await commitSale(ticket);
-        }}
-      />
-
-      <ExpenseModal
-        isOpen={isExpenseModalOpen}
-        onClose={() => setIsExpenseModalOpen(false)}
-        onAddExpense={onAddExpense}
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-      />
-
-      <CorteXModal
-        isOpen={isCorteXOpen}
-        onClose={() => setIsCorteXOpen(false)}
-        tickets={salesTickets}
-        expenses={expenses}
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-        cortesX={cortesX}
-        initialCashFund={initialCashFund}
-        activeSessionId={activeCashSession?.id}
-        sessionOpenedAt={activeCashSession?.fecha_apertura}
-        onFinalizeCorteX={onFinalizeCorteX}
-        onLogout={onLogout}
-      />
-
-
-      <TicketReceiptModal
-        isOpen={isTicketReceiptOpen}
-        onClose={() => setIsTicketReceiptOpen(false)}
-        ticket={completedTicket}
-        currentBranch={currentBranch}
-      />
-
-      <ReprintTicketModal
-        isOpen={isReprintModalOpen}
-        onClose={() => setIsReprintModalOpen(false)}
-        salesTickets={salesTickets}
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-      />
-
-      <CaseModelModal
-        isOpen={isCaseModelModalOpen}
-        onClose={() => setIsCaseModelModalOpen(false)}
-        product={selectedFundaProduct}
-        onConfirm={handleConfirmCaseModel}
-      />
+      {/* MODALS: se piden al abrirlos, no al entrar al PDV */}
+      <LazyWhen when={isPaymentCheckoutModalOpen}>
+        <PaymentCheckoutModal
+          isOpen={isPaymentCheckoutModalOpen}
+          onClose={() => setIsPaymentCheckoutModalOpen(false)}
+          totalAmount={cartTotal}
+          itemCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+          onConfirmPayment={handleConfirmPaymentFromModal}
+        />
+      </LazyWhen>
+      <LazyWhen when={isRechargeModalOpen}>
+        <RechargeModal
+          isOpen={isRechargeModalOpen}
+          onClose={() => setIsRechargeModalOpen(false)}
+          product={selectedRechargeProduct}
+          onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
+        />
+      </LazyWhen>
+      <LazyWhen when={isCreditDeviceModalOpen}>
+        <CreditDeviceModal
+          isOpen={isCreditDeviceModalOpen}
+          onClose={() => setIsCreditDeviceModalOpen(false)}
+          product={selectedCreditProduct}
+          products={products}
+          currentBranch={currentBranch}
+          onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
+        />
+      </LazyWhen>
+      <LazyWhen when={isCreditPaymentModalOpen}>
+        <CreditPaymentModal
+          isOpen={isCreditPaymentModalOpen}
+          onClose={() => setIsCreditPaymentModalOpen(false)}
+          creditAccounts={creditAccounts}
+          onConfirm={(prod, amt, meta) => addToCart(prod, amt, meta)}
+        />
+      </LazyWhen>
+      <LazyWhen when={isRepairPriceCatalogOpen}>
+        <RepairPriceCatalogModal
+          isOpen={isRepairPriceCatalogOpen}
+          onClose={() => setIsRepairPriceCatalogOpen(false)}
+          isAdmin={currentOperator.role === 'admin'}
+          repairPrices={repairPrices}
+          onAddRepairPrice={onAddRepairPrice}
+          onUpdateRepairPrice={onUpdateRepairPrice}
+          onDeleteRepairPrice={onDeleteRepairPrice}
+          onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
+        />
+      </LazyWhen>
+      <LazyWhen when={isRepairModalOpen}>
+        <RepairModal
+          isOpen={isRepairModalOpen}
+          onClose={() => setIsRepairModalOpen(false)}
+          repairRecords={isAdminUser ? boardRepairRecords : counterRepairRecords}
+          onAddRepairRecord={onAddRepairRecord}
+          onUpdateRepairRecord={onUpdateRepairRecord}
+          onCancelRepairRecord={onCancelRepairRecord}
+          onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+          isAdmin={currentOperator.role === 'admin'}
+          onEmitDirectTicket={async (ticket) => {
+            await commitSale(ticket);
+          }}
+        />
+      </LazyWhen>
+      <LazyWhen when={isExpenseModalOpen}>
+        <ExpenseModal
+          isOpen={isExpenseModalOpen}
+          onClose={() => setIsExpenseModalOpen(false)}
+          onAddExpense={onAddExpense}
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+        />
+      </LazyWhen>
+      <LazyWhen when={isCorteXOpen}>
+        <CorteXModal
+          isOpen={isCorteXOpen}
+          onClose={() => setIsCorteXOpen(false)}
+          tickets={salesTickets}
+          expenses={expenses}
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+          cortesX={cortesX}
+          initialCashFund={initialCashFund}
+          activeSessionId={activeCashSession?.id}
+          sessionOpenedAt={activeCashSession?.fecha_apertura}
+          onFinalizeCorteX={onFinalizeCorteX}
+          onLogout={onLogout}
+        />
+      </LazyWhen>
+      <LazyWhen when={isTicketReceiptOpen}>
+        <TicketReceiptModal
+          isOpen={isTicketReceiptOpen}
+          onClose={() => setIsTicketReceiptOpen(false)}
+          ticket={completedTicket}
+          currentBranch={currentBranch}
+        />
+      </LazyWhen>
+      <LazyWhen when={isReprintModalOpen}>
+        <ReprintTicketModal
+          isOpen={isReprintModalOpen}
+          onClose={() => setIsReprintModalOpen(false)}
+          salesTickets={salesTickets}
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+        />
+      </LazyWhen>
+      <LazyWhen when={isCaseModelModalOpen}>
+        <CaseModelModal
+          isOpen={isCaseModelModalOpen}
+          onClose={() => setIsCaseModelModalOpen(false)}
+          product={selectedFundaProduct}
+          onConfirm={handleConfirmCaseModel}
+        />
+      </LazyWhen>
 
     </div>
   );
 }
+
+export default React.memo(PosModule);

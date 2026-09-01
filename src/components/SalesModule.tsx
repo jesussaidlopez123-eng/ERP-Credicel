@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy } from 'react';
 import { 
   Calculator, 
   Store, 
@@ -42,8 +42,12 @@ import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
-import CorteXModal from './CorteXModal';
-import TicketReceiptModal from './TicketReceiptModal';
+import LazyWhen from './LazyWhen';
+import LoadMoreButton from './LoadMoreButton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+
+const CorteXModal = lazy(() => import('./CorteXModal'));
+const TicketReceiptModal = lazy(() => import('./TicketReceiptModal'));
 
 interface SalesModuleProps {
   salesTickets?: SaleTicket[];
@@ -57,9 +61,16 @@ interface SalesModuleProps {
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onDeleteSaleTicket?: (ticket: SaleTicket | string, reason?: string) => Promise<void> | void;
   activeCashSession?: SesionCaja | null;
+  onLoadOlderSales?: () => void;
+  onLoadOlderExpenses?: () => void;
+  onLoadOlderCortes?: () => void;
+  salesHasMore?: boolean;
+  expensesHasMore?: boolean;
+  cortesHasMore?: boolean;
+  historyBusy?: string | null;
 }
 
-export default function SalesModule({
+function SalesModule({
   salesTickets = [],
   expenses = [],
   currentBranch,
@@ -70,12 +81,20 @@ export default function SalesModule({
   onOpenNoticeModal,
   onFinalizeCorteX,
   onDeleteSaleTicket,
-  activeCashSession = null
+  activeCashSession = null,
+  onLoadOlderSales,
+  onLoadOlderExpenses,
+  onLoadOlderCortes,
+  salesHasMore = false,
+  expensesHasMore = false,
+  cortesHasMore = false,
+  historyBusy = null
 }: SalesModuleProps) {
 
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
   
   // Modal states
   const [selectedCorte, setSelectedCorte] = useState<CorteXRecord | null>(null);
@@ -617,8 +636,8 @@ export default function SalesModule({
       if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
         return false;
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.toLowerCase();
         const matchesFolio = (corte.id || '').toLowerCase().includes(q);
         const matchesBranch = (corte.branchName || '').toLowerCase().includes(q);
         const matchesOperator = (corte.operatorName || '').toLowerCase().includes(q);
@@ -627,7 +646,7 @@ export default function SalesModule({
       }
       return true;
     });
-  }, [aggregatedCortesList, selectedBranchId, searchQuery]);
+  }, [aggregatedCortesList, selectedBranchId, debouncedSearch]);
 
   // Filtered Live Tickets
   const filteredTickets = useMemo(() => {
@@ -643,8 +662,8 @@ export default function SalesModule({
       if (ticketPaymentFilter !== 'all') {
         if (ticket.paymentMethod !== ticketPaymentFilter) return false;
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.toLowerCase();
         const matchesFolio = (ticket.folio || ticket.id || '').toLowerCase().includes(q);
         const matchesCustomer = (ticket.items?.[0]?.metadata?.clientName || '').toLowerCase().includes(q);
         const matchesOperator = (ticket.operatorName || '').toLowerCase().includes(q);
@@ -654,7 +673,7 @@ export default function SalesModule({
       }
       return true;
     }).sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-  }, [safeTickets, selectedBranchId, ticketDateFilter, ticketPaymentFilter, searchQuery, todayIso]);
+  }, [safeTickets, selectedBranchId, ticketDateFilter, ticketPaymentFilter, debouncedSearch, todayIso]);
 
   // Filtered Expenses
   const filteredExpenses = useMemo(() => {
@@ -667,15 +686,15 @@ export default function SalesModule({
       if (ticketDateFilter === 'today') {
         if (safeDateIsoKey(expense.timestamp || expense.date) !== todayIso) return false;
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.toLowerCase();
         const matchesConcept = (expense.concept || '').toLowerCase().includes(q);
         const matchesOperator = (expense.operatorName || '').toLowerCase().includes(q);
         return matchesConcept || matchesOperator;
       }
       return true;
     }).sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
-  }, [safeExpenses, selectedBranchId, ticketDateFilter, searchQuery, todayIso]);
+  }, [safeExpenses, selectedBranchId, ticketDateFilter, debouncedSearch, todayIso]);
 
 
   // Summary Metrics
@@ -1118,6 +1137,13 @@ export default function SalesModule({
             </div>
           )}
 
+          <LoadMoreButton
+            hasMore={cortesHasMore}
+            loading={historyBusy === 'cortes'}
+            onClick={onLoadOlderCortes}
+            label="Cargar cortes anteriores"
+          />
+
         </div>
       )}
 
@@ -1257,6 +1283,13 @@ export default function SalesModule({
             </div>
           )}
 
+          <LoadMoreButton
+            hasMore={salesHasMore}
+            loading={historyBusy === 'sales'}
+            onClick={onLoadOlderSales}
+            label="Cargar tickets anteriores"
+          />
+
         </div>
       )}
 
@@ -1350,6 +1383,13 @@ export default function SalesModule({
               })}
             </div>
           )}
+
+          <LoadMoreButton
+            hasMore={expensesHasMore}
+            loading={historyBusy === 'expenses'}
+            onClick={onLoadOlderExpenses}
+            label="Cargar gastos anteriores"
+          />
 
         </div>
       )}
@@ -1447,7 +1487,7 @@ export default function SalesModule({
       )}
 
       {/* Modal for viewing historic/selected Corte X */}
-      {selectedCorte && (
+      <LazyWhen when={!!selectedCorte}>
         <CorteXModal
           isOpen={isCorteModalOpen}
           onClose={() => {
@@ -1462,10 +1502,10 @@ export default function SalesModule({
           existingCorteRecord={selectedCorte}
           onFinalizeCorteX={onFinalizeCorteX}
         />
-      )}
+      </LazyWhen>
 
       {/* Modal for viewing active live Corte X for selected branch */}
-      {isLiveCorteModalOpen && (
+      <LazyWhen when={isLiveCorteModalOpen}>
         <CorteXModal
           isOpen={isLiveCorteModalOpen}
           onClose={() => setIsLiveCorteModalOpen(false)}
@@ -1486,20 +1526,20 @@ export default function SalesModule({
               : undefined
           }
         />
-      )}
+      </LazyWhen>
 
       {/* Modal for Ticket Receipt / Reprint */}
-      {isTicketReceiptOpen && selectedTicketForReceipt && (
+      <LazyWhen when={isTicketReceiptOpen && !!selectedTicketForReceipt}>
         <TicketReceiptModal
           isOpen={isTicketReceiptOpen}
           onClose={() => {
             setIsTicketReceiptOpen(false);
             setSelectedTicketForReceipt(null);
           }}
-          ticket={selectedTicketForReceipt}
-          currentBranch={getBranchObj(selectedTicketForReceipt.branchId)}
+          ticket={selectedTicketForReceipt as SaleTicket}
+          currentBranch={getBranchObj(selectedTicketForReceipt?.branchId)}
         />
-      )}
+      </LazyWhen>
 
       {deleteActionFeedback && (
         <div className="fixed bottom-4 right-4 z-[80] max-w-sm bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-4 py-3 rounded-xl shadow-lg flex items-start gap-2">
@@ -1601,3 +1641,5 @@ export default function SalesModule({
     </div>
   );
 }
+
+export default React.memo(SalesModule);

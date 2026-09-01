@@ -52,6 +52,8 @@ import { Branch, Operator, SaleTicket, Expense, Product, CartItem } from '../typ
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { ALL_BRANCHES, branchFolioCode, getBranchDisplayName, normalizeBranchId, compareBranchIds } from '../data/initialBranches';
 import { formatMoney, money } from '../lib/ids';
+import LoadMoreButton from './LoadMoreButton';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface ExecutiveModuleProps {
   currentBranch: Branch;
@@ -61,6 +63,9 @@ interface ExecutiveModuleProps {
   salesTickets?: SaleTicket[];
   expenses?: Expense[];
   products?: Product[];
+  onLoadOlderSales?: () => void;
+  salesHasMore?: boolean;
+  historyBusy?: string | null;
 }
 
 interface BranchStats {
@@ -91,12 +96,16 @@ export default function ExecutiveModule({
   onOpenNoticeModal,
   salesTickets = [],
   expenses = [],
-  products = []
+  products = [],
+  onLoadOlderSales,
+  salesHasMore = false,
+  historyBusy = null
 }: ExecutiveModuleProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('month');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
   const [activeMatrixTab, setActiveMatrixTab] = useState<'categories' | 'branches'>('categories');
 
   // Filter tickets by branch and period
@@ -396,8 +405,8 @@ export default function ExecutiveModule({
       }
 
       // Search query filter
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.toLowerCase();
         return (
           row.folio.toLowerCase().includes(q) ||
           row.concept.toLowerCase().includes(q) ||
@@ -412,7 +421,7 @@ export default function ExecutiveModule({
 
       return true;
     });
-  }, [filteredTickets, filteredExpenses, liveBranchesList, historyCategoryFilter, searchQuery]);
+  }, [filteredTickets, filteredExpenses, liveBranchesList, historyCategoryFilter, debouncedSearch]);
 
   return (
     <div className="space-y-6 pb-16 animate-in fade-in duration-200">
@@ -961,6 +970,13 @@ export default function ExecutiveModule({
             </tbody>
           </table>
         </div>
+
+        <LoadMoreButton
+          hasMore={salesHasMore}
+          loading={historyBusy === 'sales'}
+          onClick={onLoadOlderSales}
+          label="Cargar movimientos anteriores"
+        />
 
       </div>
 

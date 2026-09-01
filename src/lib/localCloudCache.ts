@@ -51,6 +51,19 @@ export function saveCachedList<T>(name: string, rows: T[]): void {
   writeJson(`${PREFIX}_${name}`, rows.slice(0, CACHE_MAX_ROWS));
 }
 
+const pendingCacheTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** No escribas localStorage en cada snapshot: agrupa y espera un instante. */
+export function scheduleSaveCachedList<T>(name: string, rows: T[], delayMs = 1200): void {
+  const prev = pendingCacheTimers.get(name);
+  if (prev) clearTimeout(prev);
+  const timer = setTimeout(() => {
+    pendingCacheTimers.delete(name);
+    saveCachedList(name, rows);
+  }, delayMs);
+  pendingCacheTimers.set(name, timer);
+}
+
 export function loadCachedProducts(fallback: Product[]): Product[] {
   const cached = loadCachedList<Product>('products');
   if (cached.length === 0) return fallback;

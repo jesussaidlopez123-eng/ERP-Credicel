@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy } from 'react';
 import { 
   Package, 
   Plus, 
@@ -28,10 +28,15 @@ import {
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement } from '../types';
 import { ALL_BRANCHES } from '../data/initialBranches';
-import { InventoryMovementsModal } from './InventoryMovementsModal';
-import InventoryPrintModal from './InventoryPrintModal';
-import InventoryLabelsModal from './InventoryLabelsModal';
-import EditProductModal from './EditProductModal';
+import LazyWhen from './LazyWhen';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+
+const InventoryMovementsModal = lazy(() =>
+  import('./InventoryMovementsModal').then((m) => ({ default: m.InventoryMovementsModal }))
+);
+const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
+const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
+const EditProductModal = lazy(() => import('./EditProductModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -43,9 +48,12 @@ interface InventoryModuleProps {
   allBranches?: Branch[];
   inventoryMovements?: InventoryMovement[];
   onRecordMovement?: (movement: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => void;
+  onLoadOlderMovements?: () => void;
+  movementsHasMore?: boolean;
+  movementsLoading?: boolean;
 }
 
-export default function InventoryModule({
+function InventoryModule({
   products,
   onAddProduct,
   onUpdateProduct,
@@ -54,13 +62,17 @@ export default function InventoryModule({
   currentOperator,
   allBranches = ALL_BRANCHES,
   inventoryMovements = [],
-  onRecordMovement
+  onRecordMovement,
+  onLoadOlderMovements,
+  movementsHasMore = false,
+  movementsLoading = false
 }: InventoryModuleProps) {
   // 1. Tab Principal: Accesorios vs Equipos
   const [activeInventoryTab, setActiveInventoryTab] = useState<'accesorio' | 'equipo'>('accesorio');
 
   // Search query
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 160);
 
   // Modal Impresión y Auditoría de Inventario
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -242,7 +254,7 @@ export default function InventoryModule({
 
   // Filter products by Accesorios vs Equipos AND Search Query (including full IMEI matching)
   const filteredProducts = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = debouncedSearch.toLowerCase().trim();
     const list = products.filter((p) => {
       const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
 
@@ -268,7 +280,7 @@ export default function InventoryModule({
     });
 
     return list.sort(naturalProductSort);
-  }, [products, searchQuery, activeInventoryTab]);
+  }, [products, debouncedSearch, activeInventoryTab]);
 
   // --- SISTEMA ANTI-DUPLICADOS (CÓDIGOS E IMEIS ESTRICTAMENTE ÚNICOS) ---
 
@@ -3246,48 +3258,58 @@ export default function InventoryModule({
         </div>
       )}
 
-      {/* MODAL 0: HISTORIAL DE MOVIMIENTOS DE LOS ÚLTIMOS 15 DÍAS */}
-      <InventoryMovementsModal
-        isOpen={isMovementsModalOpen}
-        onClose={() => setIsMovementsModalOpen(false)}
-        movements={inventoryMovements}
-        currentBranch={currentBranch || ALL_BRANCHES[0]}
-        branches={allBranches}
-      />
+      <LazyWhen when={isMovementsModalOpen}>
+        <InventoryMovementsModal
+          isOpen={isMovementsModalOpen}
+          onClose={() => setIsMovementsModalOpen(false)}
+          movements={inventoryMovements}
+          currentBranch={currentBranch || ALL_BRANCHES[0]}
+          branches={allBranches}
+          onLoadOlder={onLoadOlderMovements}
+          hasMore={movementsHasMore}
+          loadingMore={movementsLoading}
+        />
+      </LazyWhen>
 
-      <InventoryLabelsModal
-        isOpen={isLabelsModalOpen}
-        onClose={() => setIsLabelsModalOpen(false)}
-        products={products}
-        inventoryTab={activeInventoryTab}
-      />
+      <LazyWhen when={isLabelsModalOpen}>
+        <InventoryLabelsModal
+          isOpen={isLabelsModalOpen}
+          onClose={() => setIsLabelsModalOpen(false)}
+          products={products}
+          inventoryTab={activeInventoryTab}
+        />
+      </LazyWhen>
 
-      {/* MODAL DE IMPRESIÓN Y REPORTE DE INVENTARIO */}
-      <InventoryPrintModal
-        isOpen={isPrintModalOpen}
-        onClose={() => {
-          setIsPrintModalOpen(false);
-          setPrintBranchId('all');
-        }}
-        products={products}
-        currentBranch={currentBranch}
-        currentOperator={currentOperator}
-        allBranches={allBranches}
-        initialCategory={activeInventoryTab}
-        initialBranchId={printBranchId}
-      />
+      <LazyWhen when={isPrintModalOpen}>
+        <InventoryPrintModal
+          isOpen={isPrintModalOpen}
+          onClose={() => {
+            setIsPrintModalOpen(false);
+            setPrintBranchId('all');
+          }}
+          products={products}
+          currentBranch={currentBranch}
+          currentOperator={currentOperator}
+          allBranches={allBranches}
+          initialCategory={activeInventoryTab}
+          initialBranchId={printBranchId}
+        />
+      </LazyWhen>
 
-      {/* MODAL DE MODIFICACIÓN / EDICIÓN DE REGISTRO (TELÉFONOS Y ARTÍCULOS) */}
-      <EditProductModal
-        isOpen={Boolean(editingProduct)}
-        onClose={() => setEditingProduct(null)}
-        product={editingProduct}
-        products={tabProducts}
-        onSave={handleSaveEditedProduct}
-        currentOperator={currentOperator}
-        branches={allBranches}
-      />
+      <LazyWhen when={Boolean(editingProduct)}>
+        <EditProductModal
+          isOpen={Boolean(editingProduct)}
+          onClose={() => setEditingProduct(null)}
+          product={editingProduct}
+          products={tabProducts}
+          onSave={handleSaveEditedProduct}
+          currentOperator={currentOperator}
+          branches={allBranches}
+        />
+      </LazyWhen>
 
     </div>
   );
 }
+
+export default React.memo(InventoryModule);
