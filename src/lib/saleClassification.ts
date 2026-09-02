@@ -96,6 +96,18 @@ export function executiveVentas(totals: ExecutiveCatTotals): number {
   );
 }
 
+/** Un celular vendido (contado o crédito). No cuenta abonos ni taller. */
+export function isPhoneUnitSale(item: CartItem): boolean {
+  const sale = classifySaleItem(item);
+  if (sale === 'abonos' || sale === 'recargas' || sale === 'reparaciones') return false;
+  return classifyExecutiveItem(item) === 'equipos';
+}
+
+export function phoneUnitsSold(item: CartItem): number {
+  if (!isPhoneUnitSale(item)) return 0;
+  return item.quantity > 0 ? item.quantity : 1;
+}
+
 /** Línea de corte: equipo de contado va a accesorios/productos, no a enganche. */
 export function classifySaleItem(item: CartItem): SaleCategoryKey {
   const pName = (item.product?.name || '').toLowerCase();

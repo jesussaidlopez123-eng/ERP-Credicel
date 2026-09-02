@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Calendar,
@@ -6,9 +6,11 @@ import {
   ChevronRight,
   Megaphone,
   ShieldCheck,
-  Store
+  Smartphone,
+  Store,
+  X
 } from 'lucide-react';
-import { Branch, Expense, Operator, Product, SaleTicket } from '../types';
+import { Branch, CartItem, Expense, Operator, Product, SaleTicket } from '../types';
 import {
   ALL_BRANCHES,
   COMMERCIAL_BRANCHES,
@@ -20,13 +22,18 @@ import {
   currentWeekStartKey,
   formatWeekRangeLabel,
   safeDateIsoKey,
+  safeFormatDate,
+  safeFormatTime,
   weekStartDateKey
 } from '../lib/dateUtils';
-import { formatMoney, money } from '../lib/ids';
+import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import {
   addExecutiveItem,
+  classifySaleItem,
   emptyExecutiveCats,
   executiveVentas,
+  isPhoneUnitSale,
+  phoneUnitsSold,
   type ExecutiveCatKey,
   type ExecutiveCatTotals
 } from '../lib/saleClassification';
@@ -53,12 +60,34 @@ const CATEGORIES: { key: ExecutiveCatKey; label: string; tone: string }[] = [
   { key: 'recargas', label: 'Recargas', tone: 'text-emerald-900 bg-emerald-50 border-emerald-200' }
 ];
 
+type PhoneSale = {
+  id: string;
+  folio: string;
+  dateLabel: string;
+  branchId: string;
+  branchName: string;
+  operatorName: string;
+  model: string;
+  imei: string;
+  clientName: string;
+  clientPhone: string;
+  saleKind: 'contado' | 'credito';
+  financing: string;
+  paymentMethod: string;
+  collected: number;
+  fullPrice: number;
+  downPayment: number;
+  remaining: number;
+  quantity: number;
+};
+
 type BranchWeekRow = {
   branchId: string;
   branchName: string;
   cats: ExecutiveCatTotals;
   gastos: number;
   tickets: number;
+  phonesSold: number;
   ventas: number;
   utilidad: number;
 };
@@ -70,6 +99,7 @@ type WeekBlock = {
   isCurrent: boolean;
   branches: BranchWeekRow[];
   totals: BranchWeekRow;
+  phones: PhoneSale[];
 };
 
 function emptyRow(branchId: string, branchName: string): BranchWeekRow {
@@ -79,6 +109,7 @@ function emptyRow(branchId: string, branchName: string): BranchWeekRow {
     cats: emptyExecutiveCats(),
     gastos: 0,
     tickets: 0,
+    phonesSold: 0,
     ventas: 0,
     utilidad: 0
   };
@@ -88,6 +119,39 @@ function finalizeRow(row: BranchWeekRow): BranchWeekRow {
   row.ventas = executiveVentas(row.cats);
   row.utilidad = money(row.ventas - row.gastos);
   return row;
+}
+
+function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSale | null {
+  if (!isPhoneUnitSale(item)) return null;
+  const meta = item.metadata || {};
+  const qty = phoneUnitsSold(item);
+  const collected = money(Number(item.totalPrice) || 0);
+  const fullPrice = money(Number(meta.fullPrice ?? item.totalPrice) || 0);
+  const downPayment = money(Number(meta.downPayment ?? (meta.saleType === 'credito' ? item.totalPrice : fullPrice)) || 0);
+  const remaining = money(
+    Number(meta.remainingBalance ?? Math.max(0, fullPrice - downPayment)) || 0
+  );
+  const credit = classifySaleItem(item) === 'enganches' || meta.saleType === 'credito';
+  return {
+    id: `${ticket.id}-${item.cartItemId || index}`,
+    folio: ticketFolioLabel(ticket),
+    dateLabel: `${safeFormatDate(ticket.timestamp)} ${safeFormatTime(ticket.timestamp)}`,
+    branchId: normalizeBranchId(ticket.branchId),
+    branchName: getBranchDisplayName(ticket.branchId),
+    operatorName: ticket.operatorName || 'Cajero',
+    model: meta.deviceModel || item.product?.name || 'Celular',
+    imei: meta.imei || '',
+    clientName: meta.clientName || 'Mostrador',
+    clientPhone: meta.clientPhone || '',
+    saleKind: credit ? 'credito' : 'contado',
+    financing: credit ? (meta.financingPlatform || 'Crédito') : 'Contado',
+    paymentMethod: ticket.paymentMethod || 'Efectivo',
+    collected,
+    fullPrice,
+    downPayment,
+    remaining,
+    quantity: qty
+  };
 }
 
 function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilter: string): WeekBlock[] {
@@ -125,6 +189,7 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
     const pack = bucket.get(weekStart) || { tickets: [], expenses: [] };
     const byBranch = new Map<string, BranchWeekRow>();
     visibleBranches.forEach((b) => byBranch.set(b.id, emptyRow(b.id, getBranchDisplayName(b.id))));
+    const phones: PhoneSale[] = [];
 
     pack.tickets.forEach((ticket) => {
       const bid = normalizeBranchId(ticket.branchId);
@@ -134,7 +199,14 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
       const row = byBranch.get(bid);
       if (!row) return;
       row.tickets += 1;
-      (ticket.items || []).forEach((item) => addExecutiveItem(row.cats, item));
+      (ticket.items || []).forEach((item, index) => {
+        addExecutiveItem(row.cats, item);
+        const phone = toPhoneSale(ticket, item, index);
+        if (phone) {
+          row.phonesSold += phone.quantity;
+          phones.push(phone);
+        }
+      });
     });
 
     pack.expenses.forEach((expense) => {
@@ -154,13 +226,19 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
     const totals = emptyRow('all', 'Todas las sucursales');
     branches.forEach((row) => {
       totals.tickets += row.tickets;
+      totals.phonesSold += row.phonesSold;
       totals.gastos = money(totals.gastos + row.gastos);
       (Object.keys(row.cats) as (keyof ExecutiveCatTotals)[]).forEach((key) => {
         if (typeof row.cats[key] === 'number') {
-          (totals.cats[key] as number) = money((totals.cats[key] as number) + (row.cats[key] as number));
+          (totals.cats[key] as number) = (totals.cats[key] as number) + (row.cats[key] as number);
         }
       });
     });
+    totals.cats.accesorios = money(totals.cats.accesorios);
+    totals.cats.equipos = money(totals.cats.equipos);
+    totals.cats.abonos = money(totals.cats.abonos);
+    totals.cats.reparaciones = money(totals.cats.reparaciones);
+    totals.cats.recargas = money(totals.cats.recargas);
     finalizeRow(totals);
 
     return {
@@ -169,7 +247,8 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
       label: formatWeekRangeLabel(weekStart),
       isCurrent: weekStart === currentStart,
       branches,
-      totals
+      totals,
+      phones
     };
   });
 }
@@ -179,29 +258,59 @@ function moneyCell(value: number, emptyDash = true) {
   return `$${formatMoney(value)}`;
 }
 
-function CategoryStrip({ cats, gastos }: { cats: ExecutiveCatTotals; gastos: number }) {
+function CategoryStrip({
+  cats,
+  gastos,
+  phonesSold,
+  onOpenPhones
+}: {
+  cats: ExecutiveCatTotals;
+  gastos: number;
+  phonesSold: number;
+  onOpenPhones?: () => void;
+}) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-      {CATEGORIES.map((cat) => (
-        <div key={cat.key} className={`rounded-xl border px-3 py-2 ${cat.tone}`}>
-          <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{cat.label}</p>
-          <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats[cat.key])}</p>
-          <p className="text-[10px] opacity-70">
-            {cats[
-              cat.key === 'accesorios'
-                ? 'countAccesorios'
-                : cat.key === 'equipos'
-                  ? 'countEquipos'
-                  : cat.key === 'abonos'
-                    ? 'countAbonos'
-                    : cat.key === 'reparaciones'
-                      ? 'countReparaciones'
-                      : 'countRecargas'
-            ]}{' '}
-            ops
-          </p>
-        </div>
-      ))}
+      {CATEGORIES.map((cat) => {
+        const count =
+          cat.key === 'accesorios'
+            ? cats.countAccesorios
+            : cat.key === 'equipos'
+              ? phonesSold
+              : cat.key === 'abonos'
+                ? cats.countAbonos
+                : cat.key === 'reparaciones'
+                  ? cats.countReparaciones
+                  : cats.countRecargas;
+
+        if (cat.key === 'equipos') {
+          return (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={phonesSold > 0 ? onOpenPhones : undefined}
+              className={`rounded-xl border px-3 py-2 text-left ${cat.tone} ${phonesSold > 0 ? 'cursor-pointer hover:shadow-sm hover:border-amber-400' : ''}`}
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{cat.label}</p>
+              <p className="text-sm font-bold mt-0.5">
+                {phonesSold} celular{phonesSold === 1 ? '' : 'es'}
+              </p>
+              <p className="text-[10px] font-mono opacity-80">${formatMoney(cats.equipos)} cobrado</p>
+              {phonesSold > 0 && (
+                <p className="text-[10px] font-semibold mt-0.5 underline underline-offset-2">Ver cuáles</p>
+              )}
+            </button>
+          );
+        }
+
+        return (
+          <div key={cat.key} className={`rounded-xl border px-3 py-2 ${cat.tone}`}>
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{cat.label}</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats[cat.key])}</p>
+            <p className="text-[10px] opacity-70">{count} ops</p>
+          </div>
+        );
+      })}
       <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
         <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Gastos</p>
         <p className="text-sm font-bold font-mono mt-0.5">-${formatMoney(gastos)}</p>
@@ -211,7 +320,13 @@ function CategoryStrip({ cats, gastos }: { cats: ExecutiveCatTotals; gastos: num
   );
 }
 
-function WeekTable({ block }: { block: WeekBlock }) {
+function WeekTable({
+  block,
+  onOpenPhones
+}: {
+  block: WeekBlock;
+  onOpenPhones: (branchId?: string, branchName?: string) => void;
+}) {
   const hasRows = block.branches.some((row) => row.tickets > 0 || row.gastos > 0 || row.ventas > 0);
 
   if (!hasRows) {
@@ -224,7 +339,7 @@ function WeekTable({ block }: { block: WeekBlock }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200">
-      <table className="w-full text-left text-xs min-w-[720px]">
+      <table className="w-full text-left text-xs min-w-[760px]">
         <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px]">
           <tr>
             <th className="px-3 py-2.5 font-semibold">Sucursal</th>
@@ -250,7 +365,21 @@ function WeekTable({ block }: { block: WeekBlock }) {
               </td>
               {CATEGORIES.map((cat) => (
                 <td key={cat.key} className="px-3 py-2.5 text-right font-mono text-slate-800">
-                  {moneyCell(row.cats[cat.key])}
+                  {cat.key === 'equipos' ? (
+                    <button
+                      type="button"
+                      disabled={row.phonesSold === 0}
+                      onClick={() => onOpenPhones(row.branchId, row.branchName)}
+                      className={`text-right ${row.phonesSold > 0 ? 'cursor-pointer hover:text-amber-800' : 'cursor-default'}`}
+                    >
+                      <span className="block">{moneyCell(row.cats.equipos)}</span>
+                      <span className="block text-[10px] font-semibold text-amber-800">
+                        {row.phonesSold} celular{row.phonesSold === 1 ? '' : 'es'}
+                      </span>
+                    </button>
+                  ) : (
+                    moneyCell(row.cats[cat.key])
+                  )}
                 </td>
               ))}
               <td className="px-3 py-2.5 text-right font-mono text-rose-700">
@@ -269,7 +398,21 @@ function WeekTable({ block }: { block: WeekBlock }) {
               <td className="px-3 py-2.5 text-slate-900">Total semana</td>
               {CATEGORIES.map((cat) => (
                 <td key={cat.key} className="px-3 py-2.5 text-right font-mono text-slate-900">
-                  {moneyCell(block.totals.cats[cat.key], false)}
+                  {cat.key === 'equipos' ? (
+                    <button
+                      type="button"
+                      disabled={block.totals.phonesSold === 0}
+                      onClick={() => onOpenPhones()}
+                      className={`text-right ${block.totals.phonesSold > 0 ? 'cursor-pointer' : 'cursor-default'}`}
+                    >
+                      <span className="block">${formatMoney(block.totals.cats.equipos)}</span>
+                      <span className="block text-[10px] text-amber-800">
+                        {block.totals.phonesSold} celular{block.totals.phonesSold === 1 ? '' : 'es'}
+                      </span>
+                    </button>
+                  ) : (
+                    moneyCell(block.totals.cats[cat.key], false)
+                  )}
                 </td>
               ))}
               <td className="px-3 py-2.5 text-right font-mono text-rose-700">
@@ -289,9 +432,125 @@ function WeekTable({ block }: { block: WeekBlock }) {
   );
 }
 
+function PhoneSalesModal({
+  weekLabel,
+  branchName,
+  phones,
+  onClose
+}: {
+  weekLabel: string;
+  branchName?: string;
+  phones: PhoneSale[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const units = phones.reduce((sum, phone) => sum + phone.quantity, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 overflow-y-auto">
+      <div className="bg-white w-full max-w-4xl rounded-2xl border border-slate-200 shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex items-start justify-between gap-3 bg-amber-50">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">Celulares vendidos</p>
+            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-amber-700" />
+              {units} equipo{units === 1 ? '' : 's'} · {weekLabel}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {branchName || 'Todas las sucursales'} · no incluye abonos ni taller
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg text-slate-500 hover:bg-white cursor-pointer"
+            aria-label="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {phones.length === 0 ? (
+            <div className="px-4 py-10 text-center text-sm text-slate-500">
+              No hay celulares vendidos en este recorte.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs min-w-[720px]">
+              <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px] sticky top-0">
+                <tr>
+                  <th className="px-3 py-2.5 font-semibold">Folio / Fecha</th>
+                  <th className="px-3 py-2.5 font-semibold">Equipo</th>
+                  <th className="px-3 py-2.5 font-semibold">Cliente</th>
+                  <th className="px-3 py-2.5 font-semibold">Tipo</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Precio</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Enganche</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Saldo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {phones.map((phone) => (
+                  <tr key={phone.id} className="hover:bg-amber-50/40">
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <span className="block font-mono font-semibold text-slate-900">{phone.folio}</span>
+                      <span className="block text-[10px] text-slate-500">{phone.dateLabel}</span>
+                      <span className="block text-[10px] text-slate-500">{phone.branchName} · {phone.operatorName}</span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="block font-semibold text-slate-900">{phone.model}</span>
+                      {phone.imei ? (
+                        <span className="block font-mono text-[10px] text-slate-600">IMEI {phone.imei}</span>
+                      ) : (
+                        <span className="block text-[10px] text-slate-400">Sin IMEI</span>
+                      )}
+                      {phone.quantity > 1 && (
+                        <span className="block text-[10px] text-amber-800">{phone.quantity} pzas</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="block font-semibold text-slate-900">{phone.clientName}</span>
+                      {phone.clientPhone && (
+                        <span className="block text-[10px] text-slate-600">{phone.clientPhone}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        phone.saleKind === 'credito'
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {phone.saleKind === 'credito' ? phone.financing : 'Contado'}
+                      </span>
+                      <span className="block text-[10px] text-slate-500 mt-0.5">{phone.paymentMethod}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-900">
+                      ${formatMoney(phone.fullPrice)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
+                      ${formatMoney(phone.downPayment)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono text-indigo-800">
+                      {phone.remaining > 0 ? `$${formatMoney(phone.remaining)}` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ExecutiveModule({
-  currentBranch,
-  currentOperator,
   onOpenNoticeModal,
   salesTickets = [],
   expenses = [],
@@ -301,6 +560,12 @@ export default function ExecutiveModule({
 }: ExecutiveModuleProps) {
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [openHistory, setOpenHistory] = useState<Record<string, boolean>>({});
+  const [phoneView, setPhoneView] = useState<{
+    weekStart: string;
+    weekLabel: string;
+    branchId?: string;
+    branchName?: string;
+  } | null>(null);
 
   const weeks = useMemo(
     () => buildWeekBlocks(salesTickets, expenses, selectedBranchId),
@@ -309,6 +574,20 @@ export default function ExecutiveModule({
 
   const currentWeek = weeks.find((week) => week.isCurrent) || weeks[0];
   const historyWeeks = weeks.filter((week) => !week.isCurrent);
+
+  const phoneModalWeek = phoneView ? weeks.find((week) => week.weekStart === phoneView.weekStart) : null;
+  const phoneModalList = (phoneModalWeek?.phones || []).filter((phone) =>
+    phoneView?.branchId ? phone.branchId === phoneView.branchId : true
+  );
+
+  const openPhones = (week: WeekBlock, branchId?: string, branchName?: string) => {
+    setPhoneView({
+      weekStart: week.weekStart,
+      weekLabel: week.label,
+      branchId,
+      branchName
+    });
+  };
 
   return (
     <div className="space-y-5 pb-16">
@@ -371,6 +650,15 @@ export default function ExecutiveModule({
                 </p>
               </div>
               <div className="flex flex-wrap gap-3 text-right">
+                <button
+                  type="button"
+                  disabled={currentWeek.totals.phonesSold === 0}
+                  onClick={() => openPhones(currentWeek)}
+                  className={`text-right ${currentWeek.totals.phonesSold > 0 ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Celulares</p>
+                  <p className="text-lg font-bold text-amber-800">{currentWeek.totals.phonesSold}</p>
+                </button>
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Ventas</p>
                   <p className="text-lg font-bold font-mono text-slate-900">${formatMoney(currentWeek.totals.ventas)}</p>
@@ -390,8 +678,13 @@ export default function ExecutiveModule({
           </div>
 
           <div className="p-4 sm:p-5 space-y-4">
-            <CategoryStrip cats={currentWeek.totals.cats} gastos={currentWeek.totals.gastos} />
-            <WeekTable block={currentWeek} />
+            <CategoryStrip
+              cats={currentWeek.totals.cats}
+              gastos={currentWeek.totals.gastos}
+              phonesSold={currentWeek.totals.phonesSold}
+              onOpenPhones={() => openPhones(currentWeek)}
+            />
+            <WeekTable block={currentWeek} onOpenPhones={(id, name) => openPhones(currentWeek, id, name)} />
           </div>
         </section>
       )}
@@ -428,7 +721,9 @@ export default function ExecutiveModule({
                     )}
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{week.label}</p>
-                      <p className="text-xs text-slate-500">{week.totals.tickets} tickets</p>
+                      <p className="text-xs text-slate-500">
+                        {week.totals.phonesSold} celular{week.totals.phonesSold === 1 ? '' : 'es'} · {week.totals.tickets} tickets
+                      </p>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono sm:text-right">
@@ -445,8 +740,13 @@ export default function ExecutiveModule({
                 </button>
 
                 <div className="px-4 sm:px-5 pb-4 space-y-3">
-                  <CategoryStrip cats={week.totals.cats} gastos={week.totals.gastos} />
-                  {open && <WeekTable block={week} />}
+                  <CategoryStrip
+                    cats={week.totals.cats}
+                    gastos={week.totals.gastos}
+                    phonesSold={week.totals.phonesSold}
+                    onOpenPhones={() => openPhones(week)}
+                  />
+                  {open && <WeekTable block={week} onOpenPhones={(id, name) => openPhones(week, id, name)} />}
                   {!open && (
                     <p className="text-[11px] text-slate-400">Toca la semana para ver el desglose por sucursal.</p>
                   )}
@@ -463,6 +763,15 @@ export default function ExecutiveModule({
           label="Cargar semanas anteriores"
         />
       </section>
+
+      {phoneView && (
+        <PhoneSalesModal
+          weekLabel={phoneView.weekLabel}
+          branchName={phoneView.branchName}
+          phones={phoneModalList}
+          onClose={() => setPhoneView(null)}
+        />
+      )}
     </div>
   );
 }
