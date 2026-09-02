@@ -171,7 +171,7 @@ export const scheduledMidnightCleanup = functions.pubsub
 
       batch.set(
         db.collection('branchOpenSessions').doc(branchId),
-        { branchId, openSessionId: null, fundAmount: initialFund, updatedAt: fechaCierre },
+        { branchId, openSessionId: null, updatedAt: fechaCierre },
         { merge: true }
       );
 

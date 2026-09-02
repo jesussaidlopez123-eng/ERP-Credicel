@@ -6,6 +6,7 @@ import {
   getHermosilloClock,
   hermosilloDateKey,
   isActiveCorteRecord,
+  isAutomaticCloseNote,
   isPrematureAutoCorte,
   isPrematureAutoCorteRecord,
   parseSessionInstant,
@@ -73,5 +74,8 @@ assert.equal(afterClose[0], todayKey);
 assert.equal(isActiveCorteRecord({ reverted: true, timestamp: `${todayKey}T23:00:00-07:00` }, evening), false);
 assert.equal(isActiveCorteRecord(autoRecord, evening), true);
 assert.equal(isActiveCorteRecord(autoRecord, morning), false);
+assert.equal(isAutomaticCloseNote(AUTO_CORTE_NOTE), true);
+assert.equal(isAutomaticCloseNote('Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.'), true);
+assert.equal(isAutomaticCloseNote('Fondo de $200 en monedas'), false);
 
 console.log('shiftHours self-test ok');

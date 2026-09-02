@@ -35,6 +35,7 @@ import {
   getHermosilloClock,
   hermosilloDateKey,
   isAfterCashClose,
+  isAutomaticCloseNote,
   isPrematureAutoCorte,
   sessionNeedsAutomaticCorte
 } from './shiftHours';
@@ -107,7 +108,7 @@ function bodegaPlaceholderSession(operatorName: string): SesionCaja {
   };
 }
 
-async function readBranchFundAmount(branchId: string, fallback: number): Promise<number> {
+async function readBranchFundAmount(branchId: string, fallback: number = 0): Promise<number> {
   try {
     const fundSnap = await getDoc(doc(db, BRANCH_FUNDS_COLLECTION, branchId));
     if (fundSnap.exists()) {
@@ -177,7 +178,7 @@ export async function getActiveCashSession(
   branchId: string,
   branchName: string = '',
   operatorName: string = 'Cajero',
-  initialFund: number = 1000,
+  initialFund: number = 0,
   operatorUid: string = ''
 ): Promise<SesionCaja> {
   const normBId = normalizeBranchId(branchId);
@@ -529,6 +530,7 @@ export async function executeCorteSesionCajaTransaction(params: {
   operadorCierre: { uid: string; nombre: string };
   efectivoContado: number;
   fondoDejado: number;
+  persistOperatorFund?: boolean;
   notas?: string;
   ticketsSnapshot?: SaleTicket[];
   expensesSnapshot?: Expense[];
@@ -541,6 +543,7 @@ export async function executeCorteSesionCajaTransaction(params: {
     operadorCierre,
     efectivoContado,
     fondoDejado,
+    persistOperatorFund = true,
     notas = '',
     ticketsSnapshot = [],
     expensesSnapshot = [],
@@ -688,16 +691,25 @@ export async function executeCorteSesionCajaTransaction(params: {
     { ref: doc(db, SESIONES_CAJA_COLLECTION, sesionId), data: cleanForFirestore(sesionCerrada), isMerge: true },
     { ref: doc(db, CORTE_X_COLLECTION, sesionId), data: cleanForFirestore(corteRecord), isMerge: false },
     {
-      ref: doc(db, BRANCH_FUNDS_COLLECTION, normBId),
-      data: { branchId: normBId, fundAmount: leftFund, updatedAt: fechaCierre },
-      isMerge: true
-    },
-    {
       ref: doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId),
-      data: { branchId: normBId, openSessionId: null, fundAmount: leftFund, updatedAt: fechaCierre },
+      data: persistOperatorFund
+        ? { branchId: normBId, openSessionId: null, fundAmount: leftFund, updatedAt: fechaCierre }
+        : { branchId: normBId, openSessionId: null, updatedAt: fechaCierre },
       isMerge: true
     }
   ];
+  if (persistOperatorFund) {
+    operations.push({
+      ref: doc(db, BRANCH_FUNDS_COLLECTION, normBId),
+      data: {
+        branchId: normBId,
+        fundAmount: leftFund,
+        source: 'operator',
+        updatedAt: fechaCierre
+      },
+      isMerge: true
+    });
+  }
 
   ticketsForCorte.forEach((t) => {
     operations.push({ ref: doc(db, SALES_COLLECTION, t.id), data: closeStamp, isMerge: true });
@@ -719,9 +731,11 @@ export async function executeCorteSesionCajaTransaction(params: {
     await batch.commit();
   }
 
-  try {
-    localStorage.setItem(`erp_branch_fund_${normBId}`, String(leftFund));
-  } catch {}
+  if (persistOperatorFund) {
+    try {
+      localStorage.setItem(`erp_branch_fund_${normBId}`, String(leftFund));
+    } catch {}
+  }
 
   console.log(`[Firestore] Corte de caja cerrado: ${sesionId} (contado ${counted} vs esperado ${expectedCashInDrawer})`);
   return { success: true, sesion: sesionCerrada, corteRecord };
@@ -833,7 +847,7 @@ export async function reopenPrematureAutoCorteIfNeeded(branchId: string): Promis
     if (normBId === 'b-bodega') return false;
     if (!canOpenNewCashSession()) return false;
 
-    const fund = await readBranchFundAmount(normBId, 1000);
+    const fund = await readBranchFundAmount(normBId, 0);
     const live = await findExistingOpenSession(normBId, fund);
     if (live) return false;
 
@@ -917,7 +931,7 @@ export async function findSessionForCorteClose(
     if (!openedKey || openedKey === key) return preferred;
   }
 
-  const fund = await readBranchFundAmount(normBId, 1000);
+  const fund = await readBranchFundAmount(normBId, 0);
   try {
     const open = await findExistingOpenSession(normBId, fund);
     if (open && (!key || hermosilloDateKey(open.fecha_apertura) === key || !hermosilloDateKey(open.fecha_apertura))) {
@@ -987,6 +1001,7 @@ export async function closeOpenShiftForBranch(params: {
   operatorName: string;
   efectivoContado?: number;
   fondoDejado?: number;
+  persistOperatorFund?: boolean;
   notas?: string;
   ticketsSnapshot?: SaleTicket[];
   expensesSnapshot?: Expense[];
@@ -1006,7 +1021,7 @@ export async function closeOpenShiftForBranch(params: {
     hermosilloDateKey(params.fechaCierreIso) ||
     getHermosilloClock().dateKey;
   const displayName = params.branchName || getBranchDisplayName(normBId);
-  const fund = await readBranchFundAmount(normBId, params.initialFund ?? params.fondoDejado ?? 1000);
+  const fund = await readBranchFundAmount(normBId, params.initialFund ?? params.fondoDejado ?? 0);
   const session = await ensureSessionForClose(
     normBId,
     displayName,
@@ -1034,6 +1049,7 @@ export async function closeOpenShiftForBranch(params: {
     operadorCierre: { uid: params.operatorUid, nombre: params.operatorName },
     efectivoContado: params.efectivoContado ?? expected,
     fondoDejado: params.fondoDejado ?? fund,
+    persistOperatorFund: params.persistOperatorFund ?? !isAutomaticCloseNote(params.notas),
     notas: params.notas || '',
     ticketsSnapshot: localDay.tickets,
     expensesSnapshot: localDay.expenses,
@@ -1055,7 +1071,7 @@ export async function closeCashSessionIfDue(params: {
     return { closed: false, session: null };
   }
 
-  const fund = await readBranchFundAmount(normBId, params.initialFund ?? 1000);
+  const fund = await readBranchFundAmount(normBId, params.initialFund ?? 0);
   let existing: SesionCaja | null = null;
   try {
     existing = await findExistingOpenSession(normBId, fund);
@@ -1088,6 +1104,7 @@ export async function closeCashSessionIfDue(params: {
     operadorCierre: { uid: params.operatorUid, nombre: params.operatorName },
     efectivoContado: expected,
     fondoDejado: fund,
+    persistOperatorFund: false,
     notas: AUTO_CORTE_NOTE,
     ticketsSnapshot: tickets,
     expensesSnapshot: expenses,
@@ -1115,7 +1132,7 @@ export async function recoverMissingDailyCortes(params: {
       const unstampedTickets = localDay.tickets.filter((t) => !t.corteXId);
       const unstampedExpenses = localDay.expenses.filter((e) => !e.corteXId);
       try {
-        const fund = await readBranchFundAmount(branch.id, 1000);
+        const fund = await readBranchFundAmount(branch.id, 0);
         const open = await findExistingOpenSession(branch.id, fund);
         const needsAuto = !!(open && sessionNeedsAutomaticCorte(open));
         const finishedDay = dateKey !== getHermosilloClock().dateKey || isAfterCashClose();
@@ -1132,6 +1149,7 @@ export async function recoverMissingDailyCortes(params: {
           expensesSnapshot: unstampedExpenses,
           dateKey,
           notas: AUTO_CORTE_NOTE,
+          persistOperatorFund: false,
           fechaCierreIso: `${dateKey}T23:00:00-07:00`,
           fondoDejado: fund,
           createIfMissing: unstampedTickets.length > 0 || unstampedExpenses.length > 0,
@@ -1182,6 +1200,7 @@ export async function syncPosCashSession(params: {
             ticketsSnapshot: params.ticketsSnapshot,
             expensesSnapshot: params.expensesSnapshot,
             notas: AUTO_CORTE_NOTE,
+            persistOperatorFund: false,
             fechaCierreIso: automaticCloseIso(due.session?.fecha_apertura || new Date().toISOString()),
             initialFund: params.initialFund
           });
@@ -1194,7 +1213,7 @@ export async function syncPosCashSession(params: {
     }
     let stillOpen: SesionCaja | null = null;
     try {
-      const fund = await readBranchFundAmount(params.branchId, params.initialFund ?? 1000);
+      const fund = await readBranchFundAmount(params.branchId, params.initialFund ?? 0);
       stillOpen = await findExistingOpenSession(params.branchId, fund);
     } catch {
       stillOpen = due.session?.estado === 'ABIERTA' ? due.session : null;
@@ -1205,7 +1224,7 @@ export async function syncPosCashSession(params: {
     params.branchId,
     params.branchName,
     params.operatorName,
-    params.initialFund ?? 1000,
+    params.initialFund ?? 0,
     params.operatorUid
   );
   return { session, tillLocked: false, autoClosed: due.closed };
@@ -1618,6 +1637,7 @@ export async function saveBranchFundToFirestore(branchId: string, fundAmount: nu
     await setDoc(docRef, {
       branchId: normId,
       fundAmount: Math.max(0, fundAmount),
+      source: 'operator',
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
@@ -1633,6 +1653,50 @@ export async function saveBranchFundToFirestore(branchId: string, fundAmount: nu
 /**
  * Escucha en tiempo real los fondos iniciales configurados para cada sucursal
  */
+const BRANCH_FUNDS_ZERO_FLAG = 'branchFundsResetZero-20260902';
+
+/** Una sola vez: el fondo inventado ($1000) queda en 0. Después solo lo cambia el corte del cajero. */
+export async function ensureBranchFundsZeroedOnce(): Promise<void> {
+  try {
+    const flagRef = doc(db, 'systemFlags', BRANCH_FUNDS_ZERO_FLAG);
+    const flagSnap = await getDoc(flagRef);
+    if (flagSnap.exists()) return;
+
+    const existing = await getDocs(collection(db, BRANCH_FUNDS_COLLECTION));
+    const ids = new Set<string>(COMMERCIAL_BRANCHES.map((branch) => branch.id));
+    existing.forEach((d) => {
+      if (d.id && d.id !== 'b-bodega') ids.add(d.id);
+    });
+
+    const resetAt = new Date().toISOString();
+    await Promise.all(
+      Array.from(ids).map((id) =>
+        setDoc(
+          doc(db, BRANCH_FUNDS_COLLECTION, id),
+          {
+            branchId: id,
+            fundAmount: 0,
+            source: 'reset',
+            updatedAt: resetAt
+          },
+          { merge: true }
+        )
+      )
+    );
+    ids.forEach((id) => {
+      try {
+        localStorage.setItem(`erp_branch_fund_${id}`, '0');
+      } catch {}
+    });
+    await setDoc(flagRef, {
+      at: resetAt,
+      reason: 'Fondo solo lo deja el operador al cerrar el turno.'
+    });
+  } catch (err) {
+    console.warn('[Fondo] No se pudo dejar el fondo en 0:', err);
+  }
+}
+
 export function subscribeToBranchFunds(
   onFundsUpdate: (funds: Record<string, number>) => void,
   onError?: (err: any) => void

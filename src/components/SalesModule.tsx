@@ -70,6 +70,22 @@ interface SalesModuleProps {
   historyBusy?: string | null;
 }
 
+/** Fondo de apertura: lo que dejó el cajero en branchCashFunds. Nunca inventar $1000. */
+function openingFundForBranch(branchId: string, funds: Record<string, number> = {}): number {
+  const fromCloud = funds[branchId];
+  if (typeof fromCloud === 'number' && !isNaN(fromCloud) && fromCloud >= 0) {
+    return fromCloud;
+  }
+  try {
+    const saved = localStorage.getItem(`erp_branch_fund_${branchId}`);
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed >= 0) return parsed;
+    }
+  } catch {}
+  return 0;
+}
+
 function SalesModule({
   salesTickets = [],
   expenses = [],
@@ -186,14 +202,7 @@ function SalesModule({
         openExpensesAmt += (e.amount || 0);
       });
 
-      let initialCashFund = 1000;
-      try {
-        const savedFund = localStorage.getItem(`erp_branch_fund_${branch.id}`);
-        if (savedFund) {
-          const parsed = parseFloat(savedFund);
-          if (!isNaN(parsed) && parsed >= 0) initialCashFund = parsed;
-        }
-      } catch {}
+      const initialCashFund = openingFundForBranch(branch.id, branchCashFunds);
 
       const expectedCashInDrawer = initialCashFund + openCashSales - openExpensesAmt;
 
@@ -232,7 +241,7 @@ function SalesModule({
         hasOpenShift: openTickets.length > 0 || openExpenses.length > 0 || hasActivityToday
       };
     });
-  }, [monitoredBranches, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator]);
+  }, [monitoredBranches, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]);
 
   // Build Official Cortes X List + Open/Historical Shifts for all active branches across natural days
   const aggregatedCortesList = useMemo(() => {
@@ -323,14 +332,14 @@ function SalesModule({
           branchId: data.branchId,
           branchName: getBranchName(data.branchId),
           operatorName: data.tickets[0]?.operatorName || 'Cajero',
-          initialCashFund: 1000,
+          initialCashFund: 0,
           cashSales: cash,
           cardSales: card,
           transferSales: transfer,
           totalSales,
           totalExpenses: totalExp,
           netIncome: totalSales - totalExp,
-          expectedCashInDrawer: 1000 + cash - totalExp,
+          expectedCashInDrawer: cash - totalExp,
           ticketIds: data.tickets.map(t => t.id),
           expenseIds: data.expenses.map(e => e.id),
           ticketsSnapshot: data.tickets,
@@ -449,24 +458,7 @@ function SalesModule({
           const totalSales = cash + card + transfer;
           const targetDate = parseSafeDate(dateIso);
 
-          let initialCashFund = 1000;
-          if (branchCashFunds && branchCashFunds[branch.id] !== undefined && !isNaN(branchCashFunds[branch.id])) {
-            initialCashFund = branchCashFunds[branch.id];
-          } else {
-            const priorCortes = (cortesX || []).filter(c => c && normalizeBranchId(c.branchId) === branch.id);
-            priorCortes.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-            if (priorCortes[0] && typeof priorCortes[0].cashFundLeftForNextShift === 'number' && !isNaN(priorCortes[0].cashFundLeftForNextShift)) {
-              initialCashFund = priorCortes[0].cashFundLeftForNextShift;
-            } else {
-              try {
-                const savedFund = localStorage.getItem(`erp_branch_fund_${branch.id}`);
-                if (savedFund) {
-                  const parsed = parseFloat(savedFund);
-                  if (!isNaN(parsed) && parsed >= 0) initialCashFund = parsed;
-                }
-              } catch {}
-            }
-          }
+          const initialCashFund = openingFundForBranch(branch.id, branchCashFunds);
 
           let shiftLoginTime = '09:00 AM';
           let loggedOperatorName = '';
@@ -550,14 +542,14 @@ function SalesModule({
             branchId: branch.id,
             branchName: branch.name,
             operatorName: branchTickets[0]?.operatorName || 'Cajero en Turno',
-            initialCashFund: 1000,
+            initialCashFund: 0,
             cashSales: cash,
             cardSales: card,
             transferSales: transfer,
             totalSales,
             totalExpenses: totalExp,
             netIncome: totalSales - totalExp,
-            expectedCashInDrawer: 1000 + cash - totalExp,
+            expectedCashInDrawer: cash - totalExp,
             ticketIds: branchTickets.map(t => t.id),
             expenseIds: branchExpenses.map(e => e.id),
             ticketsSnapshot: branchTickets,
@@ -627,7 +619,7 @@ function SalesModule({
       // 6. Final tiebreaker by ID
       return (a.id || '').localeCompare(b.id || '');
     });
-  }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator, activeCashSession]);
+  }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator, activeCashSession, branchCashFunds]);
 
   // Filtered Cortes list
   const filteredCortes = useMemo(() => {

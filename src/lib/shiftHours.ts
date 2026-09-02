@@ -6,6 +6,12 @@ export const CASH_CLOSE_HOUR = 23;
 export const AUTO_CORTE_NOTE =
   'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.';
 
+/** Cierre de las 11 p.m. o recuperación: no pisa el fondo que dejó el cajero. */
+export function isAutomaticCloseNote(notas?: string): boolean {
+  const n = String(notas || '');
+  return n === AUTO_CORTE_NOTE || n.includes('Cierre automático 23:00');
+}
+
 export type HermosilloClock = {
   dateKey: string;
   hour: number;

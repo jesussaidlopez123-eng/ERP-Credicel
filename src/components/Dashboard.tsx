@@ -24,6 +24,7 @@ import {
   subscribeToInventoryMovements,
   saveInventoryMovementToFirestore,
   subscribeToBranchFunds,
+  ensureBranchFundsZeroedOnce,
   getActiveCashSession,
   subscribeToOpenCashSession,
   closeCashSessionIfDue,
@@ -277,6 +278,7 @@ export default function Dashboard({
         setBranchCashFunds(funds);
       }
     });
+    void ensureBranchFundsZeroedOnce();
 
     const unsubCredits = subscribeToCreditAccounts((accounts) => {
       setCreditAccounts(accounts || []);
@@ -627,7 +629,7 @@ export default function Dashboard({
           branchName: currentBranch.name,
           operatorUid: currentOperator.id,
           operatorName: currentOperator.name,
-          initialFund: branchCashFunds[currentBranch.id] ?? 1000,
+          initialFund: branchCashFunds[currentBranch.id] ?? 0,
           ticketsSnapshot: salesTicketsRef.current,
           expensesSnapshot: expensesRef.current
         });
@@ -695,7 +697,7 @@ export default function Dashboard({
             branchName: currentBranch.name,
             operatorUid: currentOperator.id,
             operatorName: currentOperator.name,
-            initialFund: branchCashFunds[currentBranch.id] ?? 1000,
+            initialFund: branchCashFunds[currentBranch.id] ?? 0,
             ticketsSnapshot: salesTicketsRef.current,
             expensesSnapshot: expensesRef.current
           });
@@ -715,6 +717,7 @@ export default function Dashboard({
               expensesSnapshot: expensesRef.current,
               preferredSessionId: due.session?.id || activeCashSession?.id,
               notas: 'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.',
+              persistOperatorFund: false,
               createIfMissing: unstampedTickets.length > 0
             });
           }
@@ -737,7 +740,8 @@ export default function Dashboard({
             branchName: currentBranch.name,
             operatorUid: currentOperator.id,
             operatorName: currentOperator.name,
-            fondoDejado: branchCashFunds[currentBranch.id] ?? 1000,
+            fondoDejado: branchCashFunds[currentBranch.id] ?? 0,
+            persistOperatorFund: false,
             notas: 'Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.',
             fechaCierreIso: `${dateKey}T23:00:00-07:00`,
             preferredSessionId: activeCashSession?.id,
@@ -826,7 +830,7 @@ export default function Dashboard({
           branchName: currentBranch.name,
           operatorUid: currentOperator.id,
           operatorName: currentOperator.name,
-          initialFund: branchCashFunds[ticket.branchId] ?? 1000
+          initialFund: branchCashFunds[ticket.branchId] ?? 0
         });
         throw new CashTillLockedError();
       }
@@ -845,7 +849,7 @@ export default function Dashboard({
             ticket.branchId,
             currentBranch.name,
             currentOperator.name,
-            branchCashFunds[ticket.branchId] ?? 1000,
+            branchCashFunds[ticket.branchId] ?? 0,
             currentOperator.id
           );
           setActiveCashSession(session);
@@ -1119,7 +1123,7 @@ export default function Dashboard({
           expense.branchId,
           currentBranch.name,
           currentOperator.name,
-          branchCashFunds[expense.branchId] ?? 1000,
+          branchCashFunds[expense.branchId] ?? 0,
           currentOperator.id
         );
         activeSessionId = activeSes.id;

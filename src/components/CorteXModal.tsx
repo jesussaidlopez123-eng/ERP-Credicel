@@ -90,7 +90,7 @@ export default function CorteXModal({
   expenses,
   currentBranch,
   currentOperator,
-  initialCashFund = 1000.00,
+  initialCashFund = 0,
   existingCorteRecord,
   onFinalizeCorteX,
   onLogout,
@@ -167,36 +167,9 @@ export default function CorteXModal({
     : null;
   const isCorteAlreadyDoneToday = !isHistoric && !!todaySavedCorte;
 
-  // Stored branch initial cash fund calculation (with fallback hierarchy)
-  const previousBranchCortes = (cortesX || []).filter(c => 
-    c &&
-    normalizeBranchId(c.branchId) === normalizeBranchId(effectiveBranchId) &&
-    isActiveCorteRecord(c) &&
-    (!existingCorteRecord || c.id !== existingCorteRecord.id) &&
-    (!activeSessionId || (c.id !== activeSessionId && c.sesion_caja_id !== activeSessionId))
-  );
-  previousBranchCortes.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-  const lastClosedCorte = previousBranchCortes[0];
-
-  let storedBranchFund = initialCashFund !== undefined ? initialCashFund : 1000.00;
-
-  if (lastClosedCorte && typeof lastClosedCorte.cashFundLeftForNextShift === 'number' && !isNaN(lastClosedCorte.cashFundLeftForNextShift)) {
-    storedBranchFund = lastClosedCorte.cashFundLeftForNextShift;
-  }
-
-  try {
-    const saved = localStorage.getItem(`erp_branch_fund_${effectiveBranchId}`);
-    if (saved) {
-      const parsed = parseFloat(saved);
-      if (!isNaN(parsed) && parsed >= 0) {
-        storedBranchFund = parsed;
-      }
-    }
-  } catch {}
-
-  if (initialCashFund !== undefined && initialCashFund !== null && !isNaN(initialCashFund)) {
-    storedBranchFund = initialCashFund;
-  }
+  // Opening fund = last amount the cashier typed at close (Firestore branchCashFunds). Never invent $1000.
+  const storedBranchFund =
+    typeof initialCashFund === 'number' && !isNaN(initialCashFund) ? Math.max(0, initialCashFund) : 0;
 
   const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : storedBranchFund;
 
@@ -544,10 +517,7 @@ export default function CorteXModal({
       setFinishStatusMessage('Este turno ya tiene corte registrado.');
       return;
     }
-    const defaultLeftFund = storedBranchFund > 0 
-      ? storedBranchFund 
-      : Math.min(1000, Math.max(0, expectedCashInDrawer));
-    setNextCashFundInput(defaultLeftFund.toFixed(2));
+    setNextCashFundInput('0');
     setCountedCashInput(expectedCashInDrawer.toFixed(2));
     setShiftClosureNotes('');
     setShouldPrintOnClose(true);
@@ -1815,7 +1785,7 @@ export default function CorteXModal({
               {/* Fund Left Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-black text-slate-800 uppercase">
-                  Fondo en Efectivo para el Siguiente Turno:
+                  Fondo que dejas para el siguiente turno:
                 </label>
                 <div className="relative">
                   <DollarSign className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -1826,7 +1796,7 @@ export default function CorteXModal({
                     value={nextCashFundInput}
                     onChange={(e) => setNextCashFundInput(e.target.value)}
                     className="w-full pl-8 pr-3 py-2 text-sm font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-mono"
-                    placeholder="1000.00"
+                    placeholder="0.00"
                   />
                 </div>
                 {(() => {
