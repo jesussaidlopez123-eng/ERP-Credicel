@@ -33,11 +33,70 @@ export function emptyCategoryTotals(): CategoryTotals {
   };
 }
 
-/**
- * Classify a cart line for corte / reports.
- * Contado equipment is a product sale, not an enganche.
- * Abonos are payments against a credit, not new financing.
- */
+export type ExecutiveCatKey = 'accesorios' | 'equipos' | 'abonos' | 'reparaciones' | 'recargas';
+
+export interface ExecutiveCatTotals {
+  accesorios: number;
+  equipos: number;
+  abonos: number;
+  reparaciones: number;
+  recargas: number;
+  countAccesorios: number;
+  countEquipos: number;
+  countAbonos: number;
+  countReparaciones: number;
+  countRecargas: number;
+}
+
+export function emptyExecutiveCats(): ExecutiveCatTotals {
+  return {
+    accesorios: 0,
+    equipos: 0,
+    abonos: 0,
+    reparaciones: 0,
+    recargas: 0,
+    countAccesorios: 0,
+    countEquipos: 0,
+    countAbonos: 0,
+    countReparaciones: 0,
+    countRecargas: 0
+  };
+}
+
+export function classifyExecutiveItem(item: CartItem): ExecutiveCatKey {
+  const sale = classifySaleItem(item);
+  if (sale === 'abonos') return 'abonos';
+  if (sale === 'recargas') return 'recargas';
+  if (sale === 'reparaciones') return 'reparaciones';
+  if (sale === 'enganches') return 'equipos';
+  const cat = (item.product?.category || '').toLowerCase();
+  const inv = (item.product?.inventoryType || '').toLowerCase();
+  if (inv === 'equipo' || cat === 'equipo' || cat === 'equipo_credito' || cat === 'telefonia') {
+    return 'equipos';
+  }
+  if (item.metadata?.imei && !item.metadata?.repairType) return 'equipos';
+  return 'accesorios';
+}
+
+export function addExecutiveItem(totals: ExecutiveCatTotals, item: CartItem): void {
+  const key = classifyExecutiveItem(item);
+  const tot = money(Number(item.totalPrice) || 0);
+  const qty = item.quantity > 0 ? item.quantity : 1;
+  totals[key] = money(totals[key] + tot);
+  if (key === 'abonos') totals.countAbonos += qty;
+  else if (key === 'equipos') totals.countEquipos += qty;
+  else if (key === 'reparaciones') totals.countReparaciones += qty;
+  else if (key === 'recargas') totals.countRecargas += qty;
+  else totals.countAccesorios += qty;
+}
+
+export function executiveVentas(totals: ExecutiveCatTotals): number {
+  return money(
+    totals.accesorios + totals.equipos + totals.abonos + totals.reparaciones + totals.recargas
+  );
+}
+
+/** Línea de corte: equipo de contado va a accesorios/productos, no a enganche. */
 export function classifySaleItem(item: CartItem): SaleCategoryKey {
   const pName = (item.product?.name || '').toLowerCase();
   const cat = (item.product?.category || '').toLowerCase();

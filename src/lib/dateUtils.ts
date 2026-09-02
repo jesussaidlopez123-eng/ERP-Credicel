@@ -3,7 +3,7 @@
  * Prevents RangeError: Invalid time value when handling legacy or Firestore dates
  */
 
-import { formatHermosilloDate, formatHermosilloTime, getHermosilloClock, parseSessionInstant } from './shiftHours';
+import { CASH_TIME_ZONE, formatHermosilloDate, formatHermosilloTime, getHermosilloClock, parseSessionInstant } from './shiftHours';
 
 export function tryParseDate(val: any): Date | null {
   if (val === null || val === undefined || val === '') return null;
@@ -93,6 +93,54 @@ export function safeDateIsoKey(val: any): string {
 
 export function todayCashDateKey(): string {
   return getHermosilloClock().dateKey;
+}
+
+export function addCashDays(dateKey: string, days: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return dateKey;
+  const noon = new Date(`${dateKey}T12:00:00-07:00`);
+  if (Number.isNaN(noon.getTime())) return dateKey;
+  return getHermosilloClock(new Date(noon.getTime() + days * 24 * 60 * 60 * 1000)).dateKey;
+}
+
+/** Lunes de la semana (hora Sonora) para una fecha YYYY-MM-DD. */
+export function weekStartDateKey(dateKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';
+  const noon = new Date(`${dateKey}T12:00:00-07:00`);
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: CASH_TIME_ZONE,
+    weekday: 'short'
+  }).format(noon);
+  const fromMonday: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6
+  };
+  return addCashDays(dateKey, -(fromMonday[weekday] ?? 0));
+}
+
+export function currentWeekStartKey(): string {
+  return weekStartDateKey(todayCashDateKey());
+}
+
+export function formatWeekRangeLabel(weekStart: string): string {
+  const weekEnd = addCashDays(weekStart, 6);
+  const start = new Date(`${weekStart}T12:00:00-07:00`);
+  const end = new Date(`${weekEnd}T12:00:00-07:00`);
+  const fmt = (d: Date, withYear: boolean) =>
+    new Intl.DateTimeFormat('es-MX', {
+      timeZone: CASH_TIME_ZONE,
+      day: 'numeric',
+      month: 'short',
+      ...(withYear ? { year: 'numeric' } : {})
+    }).format(d);
+  if (weekStart.slice(0, 4) !== weekEnd.slice(0, 4)) {
+    return `${fmt(start, true)} – ${fmt(end, true)}`;
+  }
+  return `${fmt(start, false)} – ${fmt(end, true)}`;
 }
 
 export function safeFormatDate(val: any): string {
