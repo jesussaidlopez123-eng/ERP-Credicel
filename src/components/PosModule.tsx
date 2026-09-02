@@ -924,6 +924,7 @@ function PosModule({
           </div>
         </div>
 
+        {isAdminUser && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 space-y-2 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -953,6 +954,7 @@ function PosModule({
             </div>
           )}
         </div>
+        )}
         
         {filteredProducts.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16">

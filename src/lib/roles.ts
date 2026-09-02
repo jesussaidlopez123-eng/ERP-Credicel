@@ -20,18 +20,15 @@ export function roleLabel(role?: string): string {
   return 'Cajero';
 }
 
+const MANAGER_MODULES: ModuleId[] = ['pos', 'inventory', 'sales'];
+const ADMIN_ONLY_MODULES: ModuleId[] = ['repairs', 'purchases', 'executive', 'settings'];
+
 export function canOpenModule(role: string | undefined, moduleId: ModuleId): boolean {
   const normalized = normalizeRole(role);
   if (normalized === 'admin') return true;
-  if (normalized === 'manager') {
-    return (
-      moduleId === 'pos' ||
-      moduleId === 'inventory' ||
-      moduleId === 'sales' ||
-      moduleId === 'repairs'
-    );
-  }
-  return moduleId === 'pos' || moduleId === 'repairs';
+  if (ADMIN_ONLY_MODULES.includes(moduleId)) return false;
+  if (normalized === 'manager') return MANAGER_MODULES.includes(moduleId);
+  return moduleId === 'pos';
 }
 
 export function defaultModuleForRole(role?: string): ModuleId {

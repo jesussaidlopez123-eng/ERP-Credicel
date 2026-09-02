@@ -442,8 +442,9 @@ export default function Dashboard({
   }, [historyBusy, repairRecords]);
 
   const handleModuleChange = useCallback((id: ModuleId) => {
+    if (!canOpenModule(currentOperator.role, id)) return;
     startTransition(() => setActiveModule(id));
-  }, []);
+  }, [currentOperator.role]);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);
@@ -609,7 +610,6 @@ export default function Dashboard({
   }, [currentBranch.id, currentBranch.name]);
 
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
-  const isCashierOnly = normalizeRole(currentOperator.role) === 'cashier';
 
   useEffect(() => {
     if (!hasCashTill(currentBranch.id)) {
@@ -777,12 +777,10 @@ export default function Dashboard({
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, onLogout]);
 
   useEffect(() => {
-    if (isCashierOnly && activeModule !== 'pos' && activeModule !== 'repairs') {
-      setActiveModule('pos');
-    } else if (!canOpenModule(currentOperator.role, activeModule)) {
+    if (!canOpenModule(currentOperator.role, activeModule)) {
       setActiveModule(defaultModuleForRole(currentOperator.role));
     }
-  }, [isCashierOnly, currentOperator.role, activeModule]);
+  }, [currentOperator.role, activeModule]);
 
   // Inventory Movement Recording Helper
   const handleRecordInventoryMovement = (movementData: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => {
@@ -1488,6 +1486,9 @@ export default function Dashboard({
 
   // Render Module Content based on activeModule
   const renderModuleContent = () => {
+    if (!canOpenModule(currentOperator.role, activeModule)) {
+      return null;
+    }
     switch (activeModule) {
       case 'pos':
         return (

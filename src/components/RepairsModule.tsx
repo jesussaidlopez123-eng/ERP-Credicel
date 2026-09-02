@@ -150,6 +150,8 @@ function RepairsModule({
     setCancelReason('');
   };
 
+  if (!isAdmin) return null;
+
   return (
     <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
       <div className={`bg-white rounded-2xl border border-slate-200 ${embedded ? 'p-3' : 'p-5'}`}>
