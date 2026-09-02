@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode, Store, Clock, User, ShieldCheck } from 'lucide-react';
+import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
 import { printThermalFromElement } from '../lib/printWindow';
 import { formatMoney, money, newUniqueId } from '../lib/ids';
@@ -86,15 +86,15 @@ export default function ExpenseModal({
             top: 0 !important;
             width: 56mm !important;
             max-width: 58mm !important;
-            padding: 2mm 2mm 12mm 2mm !important;
+            padding: 0.5mm 0.8mm 5mm 0.8mm !important;
             margin: 0 auto !important;
             background: #ffffff !important;
             color: #000000 !important;
             box-shadow: none !important;
             border: none !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 10px !important;
-            line-height: 1.22 !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
           }
           .no-print {
             display: none !important;
@@ -125,54 +125,32 @@ export default function ExpenseModal({
             </div>
 
             {/* RECEIPT CONTENT (PRINTABLE THERMAL AREA) */}
-            <div id="thermal-expense-receipt" className="p-5 font-mono text-xs text-slate-800 space-y-3 bg-slate-50 border-b border-slate-200 overflow-y-auto flex-1">
+            <div id="thermal-expense-receipt" className="px-1.5 py-1 font-mono text-[8px] leading-tight text-slate-800 bg-white border-b border-slate-200 overflow-y-auto flex-1">
               
-              {/* Business & Branch Header */}
-              <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-400">
-                <h2 className="text-xl font-black tracking-tight text-slate-900 uppercase">CrediCel POS</h2>
-                <p className="text-xs text-slate-700 font-bold font-sans">Sucursal: {currentBranch.name}</p>
-                <p className="text-[11px] font-black text-red-700 uppercase tracking-wide my-1">
-                  *** VALE DE SALIDA DE CAJA ***
-                </p>
-                <p className="text-[11px] text-slate-600 font-sans">Registró: {createdExpense.operatorName}</p>
-                <p className="text-[11px] text-slate-500 font-sans">{createdExpense.timestamp}</p>
-                <div className="inline-block mt-1 px-2 py-0.5 bg-red-100 text-red-900 font-extrabold font-mono text-[11px] rounded border border-red-300">
-                  FOLIO GASTO: {createdExpense.id}
+              <div className="text-center pb-0.5 border-b border-dashed border-slate-800">
+                <h2 className="text-[11px] font-black tracking-tight text-black uppercase leading-none m-0">CrediCel</h2>
+                <p className="text-[8px] font-bold m-0">{currentBranch.name} · {createdExpense.operatorName}</p>
+                <p className="text-[7.5px] text-slate-700 m-0">{createdExpense.timestamp}</p>
+                <p className="text-[8px] font-black uppercase m-0">VALE DE SALIDA</p>
+                <div className="inline-block mt-0.5 px-1 bg-black text-white font-black font-mono text-[8px]">
+                  {createdExpense.id}
                 </div>
               </div>
 
-              {/* Concept Body */}
-              <div className="py-2 space-y-2 border-b border-dashed border-slate-400">
-                <div className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                  CONCEPTO / MOTIVO DEL GASTO:
-                </div>
-                <div className="p-2.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 leading-relaxed font-sans">
-                  {createdExpense.concept}
-                </div>
+              <div className="py-0.5 border-b border-dashed border-slate-800">
+                <div className="font-black uppercase">Concepto</div>
+                <div className="font-bold leading-tight">{createdExpense.concept}</div>
               </div>
 
-              {/* Total Amount */}
-              <div className="space-y-1 py-1.5 border-b border-dashed border-slate-400">
-                <div className="flex justify-between items-center text-sm font-black text-slate-900">
-                  <span>TOTAL SALIDA:</span>
-                  <span className="text-red-700 text-base font-extrabold">-${formatMoney(createdExpense.amount)} MXN</span>
-                </div>
+              <div className="flex justify-between text-[9px] font-black text-black border-t border-black">
+                <span>SALIDA</span>
+                <span className="font-mono">-${formatMoney(createdExpense.amount)}</span>
               </div>
 
-              {/* Status Note (Sin firmas según solicitud de blindaje) */}
-              <div className="py-1 text-center font-bold text-[9.5px] text-slate-600">
-                *** SALIDA DE EFECTIVO AUTORIZADA ***
-              </div>
-
-              {/* Footer */}
-              <div className="text-center pt-2 border-t border-dashed border-slate-400 space-y-1">
-                <div className="flex justify-center items-center py-0.5">
-                  <Barcode className="w-40 h-8 text-slate-900" />
-                </div>
-                <p className="font-mono text-[9px] tracking-widest text-slate-600">*{createdExpense.id}*</p>
-                <p className="text-[9px] text-slate-500 font-sans leading-tight">
-                  Comprobante interno para respaldo de salida de efectivo en Corte X.
-                </p>
+              <div className="text-center pt-0.5 border-t border-dashed border-slate-800">
+                <Barcode className="w-full text-black" style={{ height: '10px', maxWidth: '46mm' }} />
+                <p className="font-mono text-[8px] font-black tracking-widest m-0">*{createdExpense.id}*</p>
+                <p className="text-[7.5px] m-0">Salida de efectivo autorizada</p>
               </div>
 
             </div>

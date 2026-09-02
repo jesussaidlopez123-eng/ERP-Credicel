@@ -112,7 +112,6 @@ export default function TicketReceiptModal({
           year: 'numeric',
           hour: '2-digit',
           minute: '2-digit',
-          second: '2-digit',
           hour12: true
         });
       }
@@ -152,15 +151,15 @@ export default function TicketReceiptModal({
             top: 0 !important;
             width: 56mm !important;
             max-width: 58mm !important;
-            padding: 1.5mm 2mm 12mm 2mm !important;
+            padding: 0.5mm 0.8mm 5mm 0.8mm !important;
             margin: 0 auto !important;
             background: #ffffff !important;
             color: #000000 !important;
             box-shadow: none !important;
             border: none !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 10px !important;
-            line-height: 1.22 !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
             word-break: break-word !important;
           }
           .no-print {
@@ -172,11 +171,23 @@ export default function TicketReceiptModal({
           }
           .thermal-divider {
             border-bottom: 1px dashed #000000 !important;
-            margin: 3px 0 !important;
+            margin: 1px 0 !important;
           }
           .thermal-divider-double {
             border-bottom: 2px solid #000000 !important;
-            margin: 4px 0 !important;
+            margin: 2px 0 !important;
+          }
+          #thermal-receipt-container h2 {
+            font-size: 10px !important;
+            margin: 0 !important;
+          }
+          #thermal-receipt-container p {
+            margin: 0 !important;
+            font-size: 8px !important;
+          }
+          #thermal-receipt-container svg {
+            height: 10px !important;
+            max-height: 10px !important;
           }
         }
       `}</style>
@@ -247,118 +258,75 @@ export default function TicketReceiptModal({
           {/* RECEIPT CONTENT (58mm Printable Thermal Element) */}
           <div 
             id="thermal-receipt-container" 
-            className="font-mono text-slate-900 bg-white shadow-md border border-slate-300 w-[270px] p-3 text-[11px]"
-            style={{ minHeight: '320px' }}
+            className="font-mono text-slate-900 bg-white shadow-md border border-slate-300 w-[232px] px-1.5 py-1 text-[8px] leading-tight"
           >
-            {/* Business & Branch Header */}
-            <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-slate-800">
-              <h2 className="text-lg font-black tracking-tight text-black uppercase leading-none">
+            <div className="text-center pb-0.5 border-b border-dashed border-slate-800">
+              <h2 className="text-[11px] font-black tracking-tight text-black uppercase leading-none m-0">
                 CrediCel
               </h2>
-              <p className="text-[10px] text-black font-extrabold uppercase">
-                PUNTO DE VENTA Y ACCESORIOS
+              <p className="text-[8px] text-black font-bold m-0">
+                {currentBranch.name} · {ticket.operatorName}
               </p>
-              <p className="text-[10px] text-slate-800 font-bold">
-                Sucursal: {currentBranch.name}
-              </p>
-              <p className="text-[9.5px] text-slate-700">
-                Atendió: {ticket.operatorName}
-              </p>
-              <p className="text-[9px] text-slate-600">
+              <p className="text-[7.5px] text-slate-700 m-0">
                 {formattedDate}
               </p>
-              
-              <div className="inline-block mt-1 px-2 py-0.5 bg-black text-white font-black font-mono text-[10px] rounded tracking-wider">
-                TICKET: {ticketFolioLabel(ticket)}
+              <div className="inline-block mt-0.5 px-1 bg-black text-white font-black font-mono text-[8px] tracking-wide">
+                {ticketFolioLabel(ticket)}
               </div>
             </div>
 
-            {/* Table Header */}
-            <div className="space-y-1 py-1.5 border-b border-dashed border-slate-800">
-              <div className="flex justify-between font-black text-black text-[10px] uppercase border-b border-slate-400 pb-0.5">
-                <span>CANT / DESCRIPCIÓN</span>
-                <span className="text-right">TOTAL</span>
-              </div>
-
-              {/* Item Rows */}
+            <div className="py-0.5 border-b border-dashed border-slate-800">
               {ticket.items.map((item, idx) => (
-                <div key={item.cartItemId || idx} className="py-1 space-y-0.5 border-b border-dotted border-slate-200 last:border-none">
-                  <div className="flex justify-between items-start font-black text-black">
-                    <span className="leading-tight pr-1 text-[10px]">
+                <div key={item.cartItemId || idx} className="py-px">
+                  <div className="flex justify-between items-start font-black text-black gap-1">
+                    <span className="leading-tight pr-0.5 text-[8px]">
                       {item.quantity}x {item.product.name}
                     </span>
-                    <span className="shrink-0 text-right font-mono font-bold text-[10px]">
+                    <span className="shrink-0 text-right font-mono font-bold text-[8px]">
                       ${item.totalPrice.toFixed(2)}
                     </span>
                   </div>
 
-                  <div className="text-[9px] text-slate-600 font-sans flex justify-between">
-                    <span>P.Unit: ${item.unitPrice.toFixed(2)}</span>
-                    <span>Cód: {item.product.code}</span>
-                  </div>
-
                   {/* Specific metadata for Credit Abonos */}
                   {item.product.code.startsWith('ABO-') && (
-                    <div className="text-[9px] bg-slate-100 p-1 rounded border border-slate-300 text-black space-y-0.5 mt-0.5 font-sans">
-                      <div className="font-black text-[9px] text-indigo-900">
-                        💳 ABONO DE CRÉDITO
-                      </div>
+                    <div className="text-[7.5px] text-black mt-px">
+                      <div className="font-black">ABONO CREDITO</div>
                       {item.metadata?.issueDescription && (
-                        <div>📝 Concepto: {item.metadata.issueDescription}</div>
+                        <div>{item.metadata.issueDescription}</div>
                       )}
-                      <div>💵 Monto Abonado: <strong className="font-mono">${item.totalPrice.toFixed(2)}</strong></div>
                     </div>
                   )}
 
                   {/* Specific metadata for Airtime Recharges */}
                   {item.metadata?.phoneNumber && (
-                    <div className="text-[9px] text-black bg-slate-100 p-1 rounded border border-slate-300 font-mono space-y-0.5 mt-0.5">
-                      <div>📱 TEL: <strong className="font-black text-black">{item.metadata.phoneNumber}</strong></div>
-                      {item.metadata.carrier && <div>📡 COMPAÑÍA: <strong>{item.metadata.carrier.toUpperCase()}</strong></div>}
+                    <div className="text-[7.5px] text-black mt-px">
+                      <div>TEL {item.metadata.phoneNumber}</div>
+                      {item.metadata.carrier && <div>{item.metadata.carrier.toUpperCase()}</div>}
                     </div>
                   )}
 
                   {/* Specific metadata for Equipment / Cell Phone Sales */}
                   {item.metadata?.deviceModel && !item.product.code.startsWith('ABO-') && (
-                    <div className="text-[9.5px] bg-slate-100 p-1.5 rounded border border-slate-400 text-black space-y-1 mt-1 font-sans">
-                      <div className="font-black text-[10px] uppercase text-center border-b border-dashed border-slate-400 pb-0.5">
+                    <div className="text-[7.5px] text-black mt-px leading-tight">
+                      <div className="font-black">
                         {item.metadata.saleType === 'contado' || item.metadata.financingPlatform === 'Contado'
-                          ? '📱 VENTA DE CELULAR (CONTADO)'
-                          : `🏦 VENTA A CRÉDITO (${item.metadata.financingPlatform || 'FINANCIERA'})`}
+                          ? 'CELULAR CONTADO'
+                          : `CREDITO ${item.metadata.financingPlatform || ''}`.trim()}
                       </div>
-                      
-                      <div className="space-y-0.5">
-                        {item.metadata.clientName && (
-                          <div>👤 <strong>Cliente:</strong> {item.metadata.clientName}</div>
-                        )}
-                        {item.metadata.clientPhone && (
-                          <div>📞 <strong>Teléfono:</strong> {item.metadata.clientPhone}</div>
-                        )}
-                        <div>📱 <strong>Modelo:</strong> {item.metadata.deviceModel}</div>
-                        {item.metadata.imei && (
-                          <div>🔢 <strong>IMEI:</strong> <span className="font-mono font-black">{item.metadata.imei}</span></div>
-                        )}
-                      </div>
-
+                      {item.metadata.clientName && <div>{item.metadata.clientName}</div>}
+                      {item.metadata.clientPhone && <div>{item.metadata.clientPhone}</div>}
+                      <div>{item.metadata.deviceModel}</div>
+                      {item.metadata.imei && <div className="font-mono">IMEI {item.metadata.imei}</div>}
                       {item.metadata.saleType === 'credito' && item.metadata.financingPlatform !== 'Contado' && item.metadata.fullPrice !== undefined ? (
-                        <div className="pt-1 mt-1 border-t border-dashed border-slate-400 text-[9px] font-mono space-y-0.5">
-                          <div className="flex justify-between">
-                            <span>Precio Total Equipo:</span>
-                            <strong>${item.metadata.fullPrice.toFixed(2)}</strong>
-                          </div>
-                          <div className="flex justify-between font-black text-emerald-950">
-                            <span>Enganche Cobrado:</span>
-                            <strong>${(item.metadata.downPayment || item.totalPrice).toFixed(2)}</strong>
-                          </div>
-                          <div className="flex justify-between font-black text-indigo-950 border-t border-dotted border-slate-300 pt-0.5">
-                            <span>Saldo Financiado:</span>
-                            <strong>${(item.metadata.remainingBalance ?? Math.max(0, item.metadata.fullPrice - (item.metadata.downPayment || item.totalPrice))).toFixed(2)}</strong>
-                          </div>
+                        <div className="font-mono">
+                          <div className="flex justify-between"><span>Precio</span><span>${item.metadata.fullPrice.toFixed(2)}</span></div>
+                          <div className="flex justify-between"><span>Enganche</span><span>${(item.metadata.downPayment || item.totalPrice).toFixed(2)}</span></div>
+                          <div className="flex justify-between font-black"><span>Saldo</span><span>${(item.metadata.remainingBalance ?? Math.max(0, item.metadata.fullPrice - (item.metadata.downPayment || item.totalPrice))).toFixed(2)}</span></div>
                         </div>
                       ) : (
-                        <div className="pt-1 mt-1 border-t border-dashed border-slate-400 text-[9px] font-mono flex justify-between font-black">
-                          <span>Liquidación Total:</span>
-                          <strong>${(item.metadata.fullPrice || item.totalPrice).toFixed(2)}</strong>
+                        <div className="flex justify-between font-mono font-black">
+                          <span>Total</span>
+                          <span>${(item.metadata.fullPrice || item.totalPrice).toFixed(2)}</span>
                         </div>
                       )}
                     </div>
@@ -366,74 +334,32 @@ export default function TicketReceiptModal({
 
                   {/* Specific metadata for Repairs (Recepción de Equipo y Entrega en Taller) */}
                   {item.metadata?.repairId && (
-                    <div className="text-[9.5px] bg-slate-100 p-1.5 rounded border border-slate-400 text-black space-y-1 mt-1 font-sans">
-                      <div className="font-black text-[10px] uppercase text-center border-b border-dashed border-slate-400 pb-0.5">
-                        {item.metadata.repairType === 'saldo_final'
-                          ? '🔧 ENTREGA Y LIQUIDACIÓN'
-                          : '🔧 RECEPCIÓN DE EQUIPO A TALLER'}
+                    <div className="text-[7.5px] text-black mt-px leading-tight">
+                      <div className="font-black">
+                        {item.metadata.repairType === 'saldo_final' ? 'ENTREGA TALLER' : 'RECEPCION TALLER'} {item.metadata.repairId}
                       </div>
-
-                      <div className="space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>Folio Taller:</span>
-                          <strong className="font-mono font-black text-amber-950">{item.metadata.repairId}</strong>
-                        </div>
-                        {item.metadata.clientName && (
-                          <div>👤 <strong>Cliente:</strong> {item.metadata.clientName}</div>
-                        )}
-                        {item.metadata.deviceModel && (
-                          <div>📱 <strong>Equipo:</strong> {item.metadata.deviceModel}</div>
-                        )}
-                        {item.metadata.repairType !== 'saldo_final' && item.metadata.issueDescription && (
-                          <div className="text-[8.5px] bg-white p-1 rounded border border-slate-300 italic text-slate-800">
-                            <strong>Falla:</strong> {item.metadata.issueDescription}
-                          </div>
-                        )}
-                        {item.metadata.repairType !== 'saldo_final' && item.metadata.passcodePattern && item.metadata.passcodePattern !== 'Sin contraseña / Desbloqueado' && (
-                          <div className="text-[8.5px] text-slate-700">
-                            🔒 <strong>PIN:</strong> {item.metadata.passcodePattern}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Desglose de costos de reparación */}
+                      {item.metadata.clientName && <div>{item.metadata.clientName}</div>}
+                      {item.metadata.deviceModel && <div>{item.metadata.deviceModel}</div>}
+                      {item.metadata.repairType !== 'saldo_final' && item.metadata.issueDescription && (
+                        <div>{item.metadata.issueDescription}</div>
+                      )}
+                      {item.metadata.repairType !== 'saldo_final' && item.metadata.passcodePattern && item.metadata.passcodePattern !== 'Sin contraseña / Desbloqueado' && (
+                        <div>PIN {item.metadata.passcodePattern}</div>
+                      )}
                       {item.metadata.totalRepairCost !== undefined && (
-                        <div className="pt-1 mt-1 border-t border-dashed border-slate-400 text-[9px] font-mono space-y-0.5">
+                        <div className="font-mono">
                           {item.metadata.repairType === 'saldo_final' ? (
                             <>
-                              <div className="flex justify-between text-slate-700">
-                                <span>Total Servicio:</span>
-                                <strong>${item.metadata.totalRepairCost.toFixed(2)}</strong>
-                              </div>
-                              <div className="flex justify-between text-slate-700">
-                                <span>Anticipo:</span>
-                                <strong>${(item.metadata.advancePayment || 0).toFixed(2)}</strong>
-                              </div>
-                              <div className="flex justify-between font-black text-emerald-950 border-t border-dotted border-slate-300 pt-0.5 text-[10px]">
-                                <span>Pagado Hoy:</span>
-                                <strong>${item.totalPrice.toFixed(2)}</strong>
-                              </div>
-                              <div className="text-center font-bold text-[8.5px] text-emerald-800 pt-0.5">
-                                ✓ EQUIPO ENTREGADO Y PAGADO
-                              </div>
+                              <div className="flex justify-between"><span>Servicio</span><span>${item.metadata.totalRepairCost.toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Anticipo</span><span>${(item.metadata.advancePayment || 0).toFixed(2)}</span></div>
+                              <div className="flex justify-between font-black"><span>Hoy</span><span>${item.totalPrice.toFixed(2)}</span></div>
+                              <div>ENTREGADO Y PAGADO</div>
                             </>
                           ) : (
                             <>
-                              <div className="flex justify-between">
-                                <span>Costo Total:</span>
-                                <strong>${item.metadata.totalRepairCost.toFixed(2)}</strong>
-                              </div>
-                              <div className="flex justify-between font-black text-emerald-950">
-                                <span>Anticipo Hoy:</span>
-                                <strong>${(item.metadata.advancePayment ?? item.totalPrice).toFixed(2)}</strong>
-                              </div>
-                              <div className="flex justify-between font-black text-amber-950 border-t border-dotted border-slate-300 pt-0.5">
-                                <span>Resta al Entregar:</span>
-                                <strong>${(item.metadata.pendingBalance ?? Math.max(0, item.metadata.totalRepairCost - (item.metadata.advancePayment ?? item.totalPrice))).toFixed(2)}</strong>
-                              </div>
-                              <div className="text-[8px] text-slate-600 italic text-center pt-0.5">
-                                * Conserva este ticket para recoger.
-                              </div>
+                              <div className="flex justify-between"><span>Costo</span><span>${item.metadata.totalRepairCost.toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Anticipo</span><span>${(item.metadata.advancePayment ?? item.totalPrice).toFixed(2)}</span></div>
+                              <div className="flex justify-between font-black"><span>Resta</span><span>${(item.metadata.pendingBalance ?? Math.max(0, item.metadata.totalRepairCost - (item.metadata.advancePayment ?? item.totalPrice))).toFixed(2)}</span></div>
                             </>
                           )}
                         </div>
@@ -443,45 +369,34 @@ export default function TicketReceiptModal({
 
                   {/* Specific metadata for Case Models */}
                   {item.metadata?.caseModel && (
-                    <div className="text-[9px] bg-slate-100 p-0.5 px-1 rounded border border-slate-300 text-black font-sans mt-0.5">
-                      <span>📱 Para: <strong>{item.metadata.caseModel}</strong></span>
+                    <div className="text-[7.5px] text-black mt-px">
+                      Para {item.metadata.caseModel}
                     </div>
                   )}
                 </div>
               ))}
             </div>
 
-            {/* Totals Section */}
-            <div className="space-y-1 pt-1.5">
-              <div className="flex justify-between text-xs font-black text-black border-b-2 border-black pb-0.5">
-                <span>TOTAL:</span>
-                <span className="font-mono">${formatMoney(ticket.total)} MXN</span>
+            <div className="pt-0.5">
+              <div className="flex justify-between text-[9px] font-black text-black border-t border-black">
+                <span>TOTAL</span>
+                <span className="font-mono">${formatMoney(ticket.total)}</span>
               </div>
-
-              <div className="flex justify-between text-[9.5px] text-slate-800">
-                <span>Forma de Pago:</span>
-                <span className="font-black text-black uppercase">{ticket.paymentMethod}</span>
+              <div className="flex justify-between text-[8px] text-black">
+                <span>{ticket.paymentMethod}</span>
+                {ticket.paymentMethod === 'Efectivo' && ticket.cashReceived !== undefined ? (
+                  <span>Rec ${ticket.cashReceived.toFixed(2)}  Cam ${(ticket.change || 0).toFixed(2)}</span>
+                ) : null}
               </div>
-
-              {ticket.paymentMethod === 'Efectivo' && ticket.cashReceived !== undefined && (
-                <>
-                  <div className="flex justify-between text-[9.5px] text-slate-700">
-                    <span>Efectivo Recibido:</span>
-                    <span className="font-mono font-bold text-black">${ticket.cashReceived.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-[10px] font-black text-black">
-                    <span>Cambio Devuelto:</span>
-                    <span className="font-mono font-black">${(ticket.change || 0).toFixed(2)}</span>
-                  </div>
-                </>
-              )}
             </div>
 
-            {/* Barcode Graphic & Footer */}
-            <div className="text-center pt-2 border-t border-dashed border-slate-800 space-y-1">
-              {/* Crisp SVG Barcode optimized for 58mm thermal resolution */}
-              <div className="flex justify-center items-center py-1">
-                <svg className="w-full h-7 max-w-[180px]" viewBox="0 0 200 40" preserveAspectRatio="none">
+            <div className="text-center pt-0.5 border-t border-dashed border-slate-800">
+              <svg
+                className="w-full"
+                viewBox="0 0 200 40"
+                preserveAspectRatio="none"
+                style={{ height: '10px', maxWidth: '46mm', display: 'block', margin: '1px auto 0' }}
+              >
                   <rect x="0" y="0" width="4" height="40" fill="#000" />
                   <rect x="6" y="0" width="2" height="40" fill="#000" />
                   <rect x="10" y="0" width="6" height="40" fill="#000" />
@@ -515,19 +430,12 @@ export default function TicketReceiptModal({
                   <rect x="192" y="0" width="4" height="40" fill="#000" />
                   <rect x="198" y="0" width="2" height="40" fill="#000" />
                 </svg>
-              </div>
 
-              <p className="font-mono text-[9.5px] font-black tracking-widest text-black">*{ticketFolioLabel(ticket)}*</p>
-              
-              <div className="text-[9px] text-slate-800 font-sans leading-tight pt-1">
-                <p className="font-bold">¡Gracias por su compra en CrediCel!</p>
-                <p className="text-[8px] text-slate-600 mt-0.5">
-                  Conserve este ticket para cualquier aclaración o garantía.
-                </p>
-              </div>
+              <p className="font-mono text-[8px] font-black tracking-widest text-black">*{ticketFolioLabel(ticket)}*</p>
+              <p className="text-[8px] font-bold m-0">¡Gracias por su compra!</p>
 
-              {/* Feed margin spacing for physical tear-bar */}
-              <div className="h-5 no-screen" style={{ height: '20px' }}>
+              {/* Feed corto para la cuchilla de 58 mm */}
+              <div className="h-2 no-screen" style={{ height: '8px' }}>
                 <span className="text-[8px] text-slate-300 no-print">.</span>
               </div>
             </div>

@@ -706,13 +706,13 @@ export default function CorteXModal({
             top: 0 !important;
             width: 56mm !important;
             max-width: 58mm !important;
-            padding: 2mm 2mm 14mm 2mm !important;
+            padding: 0.5mm 0.8mm 5mm 0.8mm !important;
             margin: 0 auto !important;
             background: #ffffff !important;
             color: #000000 !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 10px !important;
-            line-height: 1.25 !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
             word-break: break-word !important;
           }
           #corte-thermal-receipt-container .flex {
@@ -1219,10 +1219,10 @@ export default function CorteXModal({
 
                 {/* Simulated Thermal Ticket Preview Container */}
                 <div className="flex justify-center p-3 sm:p-6 bg-slate-200/70 rounded-2xl border border-slate-300">
-                  <div className="w-[300px] bg-white p-4 rounded-xl shadow-xl border border-slate-300 font-mono text-slate-950 text-[10.5px] leading-snug space-y-2">
+                  <div className="w-[232px] bg-white px-1.5 py-1 rounded-xl shadow-xl border border-slate-300 font-mono text-slate-950 text-[8px] leading-tight">
                     {/* Header */}
                     <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-slate-400">
-                      <h2 className="text-base font-black tracking-tight uppercase leading-none text-slate-950">
+                      <h2 className="text-[11px] font-black tracking-tight uppercase leading-none text-slate-950 m-0">
                         CrediCel
                       </h2>
                       <p className="text-[9.5px] font-extrabold uppercase text-slate-800">
@@ -1529,89 +1529,86 @@ export default function CorteXModal({
       {/* =================================================================================== */}
       <div 
         id="corte-thermal-receipt-container" 
-        className="printable-thermal-receipt no-screen font-mono text-black bg-white w-[270px] p-2 text-[10px]"
+        className="printable-thermal-receipt no-screen font-mono text-black bg-white w-[232px] px-1 py-1 text-[8px] leading-tight"
       >
         {/* Header */}
-        <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-black">
-          <h2 className="text-base font-black tracking-tight text-black uppercase leading-none">
+        <div className="text-center pb-0.5 border-b border-dashed border-black">
+          <h2 className="text-[11px] font-black tracking-tight text-black uppercase leading-none m-0">
             CrediCel
           </h2>
-          <p className="text-[9.5px] font-extrabold uppercase">
-            REPORTE DE CORTE DE CAJA (X)
+          <p className="text-[8px] font-extrabold uppercase m-0">
+            CORTE DE CAJA (X)
           </p>
-          <p className="text-[9.5px] font-bold">
-            Sucursal: {effectiveBranchName}
+          <p className="text-[8px] font-bold m-0">
+            {effectiveBranchName} · {effectiveOperatorName}
           </p>
-          <p className="text-[9px]">
-            Cajero: {effectiveOperatorName}
+          <p className="text-[7.5px] m-0">
+            {currentDateStr} · {currentTimeStr}
           </p>
-          <p className="text-[8.5px]">
-            {currentDateStr} • {currentTimeStr}
-          </p>
-          <div className="inline-block mt-1 px-2 py-0.5 bg-black text-white font-mono font-black text-[9.5px] rounded">
-            FOLIO: {corteFolio}
+          <div className="inline-block mt-0.5 px-1 bg-black text-white font-mono font-black text-[8px]">
+            {corteFolio}
           </div>
         </div>
 
         {/* Financial Summary */}
-        <div className="py-2 border-b border-dashed border-black space-y-1">
-          <div className="font-black text-[9.5px] uppercase border-b border-black pb-0.5">
-            RESUMEN FINANCIERO
+        <div className="py-0.5 border-b border-dashed border-black">
+          <div className="font-black text-[8px] uppercase border-b border-black">
+            RESUMEN
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Accesorios ({countAccesoriosProductos} pzs):</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Accesorios ({countAccesoriosProductos})</span>
             <span className="font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Abonos Crédito ({countAbonos} ops):</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Abonos ({countAbonos})</span>
             <span className="font-bold">${totalAbonos.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Enganches ({countEnganches} ops):</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Enganches ({countEnganches})</span>
             <span className="font-bold">${totalEnganches.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Reparaciones ({countReparaciones} ops):</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Reparaciones ({countReparaciones})</span>
             <span className="font-bold">${totalReparaciones.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Recargas ({countRecargas} ops):</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Recargas ({countRecargas})</span>
             <span className="font-bold">${totalRecargas.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9.5px] font-black border-t border-black pt-0.5">
-            <span>TOTAL VENTAS:</span>
+          <div className="flex justify-between text-[8px] font-black border-t border-black">
+            <span>TOTAL VENTAS</span>
             <span>${totalSalesAll.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px] text-black">
-            <span>(-) GASTOS CAJA:</span>
+          <div className="flex justify-between text-[8px] text-black">
+            <span>(-) Gastos</span>
             <span>-${totalExpenses.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[10px] font-black border-t border-double border-black pt-0.5">
-            <span>UTILIDAD NETA:</span>
+          <div className="flex justify-between text-[9px] font-black border-t border-black">
+            <span>UTILIDAD</span>
             <span>${netIncome.toFixed(2)}</span>
           </div>
         </div>
 
         {/* Detalle de Productos y Ventas Realizadas */}
-        <div className="py-2 border-b border-dashed border-black space-y-1">
-          <div className="font-black text-[9.5px] uppercase border-b border-black pb-0.5 flex justify-between">
-            <span>DETALLE DE ARTÍCULOS VENDIDOS</span>
-            <span>({allDetailedSoldItems.length} PZS)</span>
+        <div className="py-0.5 border-b border-dashed border-black">
+          <div className="font-black text-[8px] uppercase border-b border-black flex justify-between">
+            <span>ARTICULOS</span>
+            <span>({allDetailedSoldItems.length})</span>
           </div>
 
           {allDetailedSoldItems.length === 0 ? (
-            <div className="text-[9px] italic text-center py-1">Sin ventas registradas</div>
+            <div className="text-[8px] italic text-center">Sin ventas</div>
           ) : (
-            <div className="space-y-1">
+            <div>
               {allDetailedSoldItems.map((item, idx) => (
-                <div key={item.id || idx} className="text-[9px] leading-tight">
+                <div key={item.id || idx} className="text-[8px] leading-tight">
                   <div className="flex justify-between font-bold">
                     <span className="truncate pr-1">{item.quantity}x {item.productName}</span>
                     <span className="shrink-0">${item.totalPrice.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-[8px] text-slate-800">
-                    <span>Folio: {item.ticketFolio}</span>
-                    <span>{item.paymentMethod.toUpperCase()} • {item.time}</span>
+                  <div className="flex justify-between text-[7.5px]">
+                    <span>{item.ticketFolio}</span>
+                    <span>{item.paymentMethod} {item.time}</span>
                   </div>
                 </div>
               ))}
@@ -1621,15 +1618,15 @@ export default function CorteXModal({
 
         {/* Detalle de Gastos de Caja */}
         {branchExpenses.length > 0 && (
-          <div className="py-2 border-b border-dashed border-black space-y-1">
-            <div className="font-black text-[9.5px] uppercase border-b border-black pb-0.5 flex justify-between">
-              <span>SALIDAS / GASTOS DE CAJA</span>
+          <div className="py-0.5 border-b border-dashed border-black">
+            <div className="font-black text-[8px] uppercase border-b border-black flex justify-between">
+              <span>GASTOS</span>
               <span>({branchExpenses.length})</span>
             </div>
-            <div className="space-y-0.5">
+            <div>
               {branchExpenses.map((exp, idx) => (
-                <div key={exp.id || idx} className="flex justify-between text-[9px]">
-                  <span className="truncate pr-1">• {exp.concept}</span>
+                <div key={exp.id || idx} className="flex justify-between text-[8px]">
+                  <span className="truncate pr-1">{exp.concept}</span>
                   <span className="font-bold shrink-0">-${exp.amount.toFixed(2)}</span>
                 </div>
               ))}
@@ -1638,43 +1635,43 @@ export default function CorteXModal({
         )}
 
         {/* Payment Methods */}
-        <div className="py-2 border-b border-dashed border-black space-y-0.5">
-          <div className="font-black text-[9.5px] uppercase">
-            FORMAS DE PAGO
+        <div className="py-0.5 border-b border-dashed border-black">
+          <div className="font-black text-[8px] uppercase">
+            PAGOS
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Efectivo:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Efectivo</span>
             <span>${cashSalesTotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Tarjeta:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Tarjeta</span>
             <span>${cardSalesTotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>Transferencia:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>Transferencia</span>
             <span>${transferSalesTotal.toFixed(2)}</span>
           </div>
         </div>
 
         {/* Cash Drawer Balance */}
-        <div className="py-2 border-b-2 border-black space-y-0.5">
-          <div className="font-black text-[9.5px] uppercase">
-            ARQUEO DE CAJÓN
+        <div className="py-0.5 border-b-2 border-black">
+          <div className="font-black text-[8px] uppercase">
+            CAJON
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>(+) Fondo Inicial:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>(+) Fondo</span>
             <span>${effectiveInitialCash.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>(+) Efectivo Ventas:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>(+) Efectivo</span>
             <span>+${cashSalesTotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
-            <span>(-) Gastos en Efectivo:</span>
+          <div className="flex justify-between text-[8px]">
+            <span>(-) Gastos</span>
             <span>-${totalExpenses.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between text-[10px] font-black border-t border-black pt-0.5">
-            <span>TOTAL EN CAJA:</span>
+          <div className="flex justify-between text-[9px] font-black border-t border-black">
+            <span>TOTAL CAJA</span>
             <span>${expectedCashInDrawer.toFixed(2)}</span>
           </div>
           {(() => {
@@ -1691,20 +1688,20 @@ export default function CorteXModal({
             return (
               <>
                 {fundLeftToDisplay !== undefined && (
-                  <div className="flex justify-between text-[9px] pt-1">
-                    <span>Fondo Dejado Sig. Turno:</span>
+                  <div className="flex justify-between text-[8px]">
+                    <span>Fondo sig. turno</span>
                     <span className="font-bold">${fundLeftToDisplay.toFixed(2)}</span>
                   </div>
                 )}
                 {cashWithdrawnToDisplay !== undefined && (
-                  <div className="flex justify-between text-[9px]">
-                    <span>Efectivo a Entregar:</span>
+                  <div className="flex justify-between text-[8px]">
+                    <span>A entregar</span>
                     <span className="font-bold">${cashWithdrawnToDisplay.toFixed(2)}</span>
                   </div>
                 )}
                 {notesToDisplay && (
-                  <div className="text-[8.5px] pt-1 border-t border-dotted border-black mt-1">
-                    <span className="font-bold">Observaciones:</span> {notesToDisplay}
+                  <div className="text-[7.5px] border-t border-dotted border-black">
+                    <span className="font-bold">Obs:</span> {notesToDisplay}
                   </div>
                 )}
               </>
@@ -1712,31 +1709,25 @@ export default function CorteXModal({
           })()}
         </div>
 
-        {/* Firmas de Conformidad */}
-        <div className="pt-4 pb-2 space-y-3 text-center">
-          <div>
-            <div className="border-b border-black w-3/4 mx-auto mb-0.5"></div>
-            <p className="text-[8px] font-bold text-black uppercase">
-              Firma Cajero(a): {effectiveOperatorName}
+        {/* Firmas — un poco de espacio para escribir, sin desperdiciar papel */}
+        <div className="text-center" style={{ paddingTop: '8px' }}>
+          <div style={{ marginBottom: '10px' }}>
+            <div className="border-b border-black" style={{ width: '80%', margin: '0 auto 1px' }}></div>
+            <p className="text-[7.5px] font-bold uppercase m-0">
+              Cajero: {effectiveOperatorName}
             </p>
           </div>
           <div>
-            <div className="border-b border-black w-3/4 mx-auto mb-0.5"></div>
-            <p className="text-[8px] font-bold text-black uppercase">
-              Firma Auditoría / Recibió
+            <div className="border-b border-black" style={{ width: '80%', margin: '0 auto 1px' }}></div>
+            <p className="text-[7.5px] font-bold uppercase m-0">
+              Recibió
             </p>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="pt-2 pb-2 text-center space-y-0.5">
-          <p className="text-[8.5px] font-bold text-black">
-            *** FIN DEL REPORTE DE CORTE ***
-          </p>
-          <p className="text-[8px] text-black">
-            CrediCel ERP • Sistema Punto de Venta
-          </p>
-        </div>
+        <p className="text-center text-[8px] font-bold m-0" style={{ paddingTop: '4px' }}>
+          FIN DE CORTE
+        </p>
       </div>
 
       {/* Finalizing & Auto-Logout Overlay */}

@@ -355,15 +355,40 @@ html, body, #root {
     width: 54mm !important;
     max-width: 58mm !important;
     margin: 0 auto !important;
-    padding: 1.5mm 1mm 12mm 1mm !important;
+    padding: 0.5mm 0.4mm 5mm 0.4mm !important;
     background: #ffffff !important;
     color: #000000 !important;
     box-shadow: none !important;
     border: none !important;
     font-family: 'Courier New', Courier, monospace !important;
-    font-size: 10px !important;
-    line-height: 1.25 !important;
+    font-size: 8px !important;
+    line-height: 1.1 !important;
     word-break: break-word !important;
+  }
+
+  #corte-thermal-receipt-container h2,
+  #thermal-receipt-container h2,
+  #thermal-expense-receipt h2,
+  .printable-thermal-receipt h2 {
+    font-size: 10px !important;
+    margin: 0 !important;
+    line-height: 1.05 !important;
+  }
+
+  #corte-thermal-receipt-container p,
+  #thermal-receipt-container p,
+  #thermal-expense-receipt p,
+  .printable-thermal-receipt p {
+    margin: 0 !important;
+    font-size: 8px !important;
+  }
+
+  #corte-thermal-receipt-container svg,
+  #thermal-receipt-container svg,
+  #thermal-expense-receipt svg,
+  .printable-thermal-receipt svg {
+    height: 10px !important;
+    max-height: 10px !important;
   }
 
   #corte-thermal-receipt-container *,
