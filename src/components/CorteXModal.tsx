@@ -26,11 +26,12 @@ import {
   Square
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
-import { safeDateIsoKey, safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
-import { printThermalFromElement } from '../lib/printWindow';
+import { printThermalHtml } from '../lib/printWindow';
+import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { normalizeBranchId } from '../data/initialBranches';
 
@@ -128,6 +129,7 @@ export default function CorteXModal({
   const [isFinishingShift, setIsFinishingShift] = useState<boolean>(false);
   const [finishStatusMessage, setFinishStatusMessage] = useState<string>('');
   const [closedShiftFundSnapshot, setClosedShiftFundSnapshot] = useState<{ fundLeft: number; cashWithdrawn: number; notes: string } | null>(null);
+  const [closedPrint, setClosedPrint] = useState<CorteTicketView | null>(null);
 
   // Track selected items for custom WhatsApp sharing
   const [selectedSoldItemIds, setSelectedSoldItemIds] = useState<Set<string>>(new Set());
@@ -140,7 +142,7 @@ export default function CorteXModal({
   const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : (currentBranch?.id || 'main');
   const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : (currentOperator?.name || 'Cajero');
   
-  const todayDateIsoKey = safeDateIsoKey(new Date());
+  const todayDateIsoKey = todayCashDateKey();
   const todayFormatted = safeFormatDate(new Date());
   const realClosedCorteIds = new Set(
     (cortesX || [])
@@ -204,18 +206,31 @@ export default function CorteXModal({
       );
     }
   } else {
-    const todayIso = safeDateIsoKey(new Date());
+    const todayIso = todayCashDateKey();
+    const sessionId = activeSessionId || '';
     branchTickets = (tickets || []).filter((t) => {
       if (!t || normalizeBranchId(t.branchId || t.sucursal_id) !== normalizeBranchId(effectiveBranchId)) return false;
-      if (t.corteXId && realClosedCorteIds.has(t.corteXId)) return false;
-      if (t.sesion_caja_id && realClosedCorteIds.has(t.sesion_caja_id)) return false;
-      return !!todayIso && safeDateIsoKey(t.timestamp) === todayIso;
+      const tiedToThisSession = !!(
+        sessionId &&
+        (t.sesion_caja_id === sessionId || t.corteXId === sessionId)
+      );
+      const isToday = !!todayIso && safeDateIsoKey(t.timestamp) === todayIso;
+      if (!tiedToThisSession && !isToday) return false;
+      const closedBy = t.corteXId || t.sesion_caja_id;
+      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) return false;
+      return true;
     });
     branchExpenses = (expenses || []).filter((e) => {
       if (!e || normalizeBranchId(e.branchId) !== normalizeBranchId(effectiveBranchId)) return false;
-      if (e.corteXId && realClosedCorteIds.has(e.corteXId)) return false;
-      if (e.sesion_caja_id && realClosedCorteIds.has(e.sesion_caja_id)) return false;
-      return !!todayIso && safeDateIsoKey(e.timestamp || e.date) === todayIso;
+      const tiedToThisSession = !!(
+        sessionId &&
+        (e.sesion_caja_id === sessionId || e.corteXId === sessionId)
+      );
+      const isToday = !!todayIso && safeDateIsoKey(e.timestamp || e.date) === todayIso;
+      if (!tiedToThisSession && !isToday) return false;
+      const closedBy = e.corteXId || e.sesion_caja_id;
+      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) return false;
+      return true;
     });
   }
 
@@ -248,7 +263,7 @@ export default function CorteXModal({
     recargas: {},
   };
 
-  const allDetailedSoldItems: DetailedSoldItem[] = [];
+  let allDetailedSoldItems: DetailedSoldItem[] = [];
 
   branchTickets.forEach((ticket) => {
     if (!ticket) return;
@@ -395,23 +410,116 @@ export default function CorteXModal({
     }
   }
 
-  const totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
-  const totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : branchExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
-  const expectedCashInDrawer = isHistoric ? existingCorteRecord.expectedCashInDrawer : (effectiveInitialCash + cashSalesTotal - totalExpenses);
+  let totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
+  let totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : branchExpenses.reduce((sum, e) => sum + e.amount, 0);
+  let netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
+  let expectedCashInDrawer = isHistoric ? existingCorteRecord.expectedCashInDrawer : (effectiveInitialCash + cashSalesTotal - totalExpenses);
+
+  if (closedPrint) {
+    cashSalesTotal = closedPrint.cashSales;
+    cardSalesTotal = closedPrint.cardSales;
+    transferSalesTotal = closedPrint.transferSales;
+    totalAccesoriosProductos = closedPrint.accesoriosTotal;
+    countAccesoriosProductos = closedPrint.accesoriosCount;
+    totalAbonos = closedPrint.abonosTotal;
+    countAbonos = closedPrint.abonosCount;
+    totalEnganches = closedPrint.enganchesTotal;
+    countEnganches = closedPrint.enganchesCount;
+    totalReparaciones = closedPrint.reparacionesTotal;
+    countReparaciones = closedPrint.reparacionesCount;
+    totalRecargas = closedPrint.recargasTotal;
+    countRecargas = closedPrint.recargasCount;
+    totalSalesAll = closedPrint.totalSales;
+    totalExpenses = closedPrint.totalExpenses;
+    netIncome = closedPrint.netIncome;
+    expectedCashInDrawer = closedPrint.expectedCashInDrawer;
+    allDetailedSoldItems = closedPrint.items.map((item, idx) => ({
+      id: `closed-${idx}`,
+      ticketId: item.ticketFolio,
+      ticketFolio: item.ticketFolio,
+      time: item.time,
+      productName: item.productName,
+      category: 'accesorios',
+      categoryLabel: '',
+      quantity: item.quantity,
+      unitPrice: item.totalPrice,
+      totalPrice: item.totalPrice,
+      paymentMethod: item.paymentMethod
+    }));
+    branchExpenses = closedPrint.expenses.map((exp, idx) => ({
+      id: `snap-exp-${idx}`,
+      amount: exp.amount,
+      concept: exp.concept,
+      timestamp: '',
+      operatorName: effectiveOperatorName,
+      branchId: effectiveBranchId
+    }));
+  }
 
   // Initialize selection
   useEffect(() => {
     if (isOpen) {
       setSelectedSoldItemIds(new Set(allDetailedSoldItems.map(i => i.id)));
       setSelectedExpenseIds(new Set(branchExpenses.map(e => e.id)));
-      setHasPrinted(false);
     }
   }, [isOpen, branchTickets.length, branchExpenses.length]);
 
+  useEffect(() => {
+    if (isOpen) {
+      setHasPrinted(false);
+      setClosedPrint(null);
+    }
+  }, [isOpen]);
+
+  const buildTicketView = (fundLeft?: number, cashWithdrawn?: number, notes?: string): CorteTicketView =>
+    closedPrint || {
+      folio: corteFolio,
+      branchName: effectiveBranchName,
+      operatorName: effectiveOperatorName,
+      dateStr: currentDateStr,
+      timeStr: currentTimeStr,
+      accesoriosTotal: totalAccesoriosProductos,
+      accesoriosCount: countAccesoriosProductos,
+      abonosTotal: totalAbonos,
+      abonosCount: countAbonos,
+      enganchesTotal: totalEnganches,
+      enganchesCount: countEnganches,
+      reparacionesTotal: totalReparaciones,
+      reparacionesCount: countReparaciones,
+      recargasTotal: totalRecargas,
+      recargasCount: countRecargas,
+      totalSales: totalSalesAll,
+      totalExpenses,
+      netIncome,
+      cashSales: cashSalesTotal,
+      cardSales: cardSalesTotal,
+      transferSales: transferSalesTotal,
+      initialCashFund: effectiveInitialCash,
+      expectedCashInDrawer,
+      fundLeft,
+      cashWithdrawn,
+      notes,
+      items: allDetailedSoldItems.map((item) => ({
+        quantity: item.quantity,
+        productName: item.productName,
+        ticketFolio: item.ticketFolio,
+        paymentMethod: item.paymentMethod,
+        time: item.time,
+        totalPrice: item.totalPrice
+      })),
+      expenses: branchExpenses.map((exp) => ({
+        concept: exp.concept,
+        amount: exp.amount
+      }))
+    };
+
   const handlePrintThermal = () => {
     try {
-      printThermalFromElement('corte-thermal-receipt-container', 'Corte de caja');
+      printThermalHtml(buildCorteThermalInnerHtml(buildTicketView(
+        closedShiftFundSnapshot?.fundLeft,
+        closedShiftFundSnapshot?.cashWithdrawn,
+        closedShiftFundSnapshot?.notes
+      )), 'Corte de caja');
       setHasPrinted(true);
     } catch (e) {
       console.error('Error triggering window.print():', e);
@@ -527,6 +635,47 @@ export default function CorteXModal({
   const handleFinalizeShift = async (fundLeft: number, notes: string, printTicket: boolean, countedCash: number) => {
     if (isFinishingShift) return;
     const cashWithdrawn = Math.max(0, money(countedCash) - fundLeft);
+    const printView: CorteTicketView = {
+      folio: corteFolio,
+      branchName: effectiveBranchName,
+      operatorName: effectiveOperatorName,
+      dateStr: currentDateStr,
+      timeStr: currentTimeStr,
+      accesoriosTotal: totalAccesoriosProductos,
+      accesoriosCount: countAccesoriosProductos,
+      abonosTotal: totalAbonos,
+      abonosCount: countAbonos,
+      enganchesTotal: totalEnganches,
+      enganchesCount: countEnganches,
+      reparacionesTotal: totalReparaciones,
+      reparacionesCount: countReparaciones,
+      recargasTotal: totalRecargas,
+      recargasCount: countRecargas,
+      totalSales: totalSalesAll,
+      totalExpenses,
+      netIncome,
+      cashSales: cashSalesTotal,
+      cardSales: cardSalesTotal,
+      transferSales: transferSalesTotal,
+      initialCashFund: effectiveInitialCash,
+      expectedCashInDrawer,
+      fundLeft,
+      cashWithdrawn,
+      notes: notes || undefined,
+      items: allDetailedSoldItems.map((item) => ({
+        quantity: item.quantity,
+        productName: item.productName,
+        ticketFolio: item.ticketFolio,
+        paymentMethod: item.paymentMethod,
+        time: item.time,
+        totalPrice: item.totalPrice
+      })),
+      expenses: branchExpenses.map((exp) => ({
+        concept: exp.concept,
+        amount: exp.amount
+      }))
+    };
+    setClosedPrint(printView);
     setClosedShiftFundSnapshot({ fundLeft, cashWithdrawn, notes });
     setIsFinishingShift(true);
     setIsClosingShiftDialog(false);
@@ -596,35 +745,25 @@ export default function CorteXModal({
       }
     }
 
-    // 3. Imprimir resumen de ventas del día y cerrar sesión en automático
+    // 3. Imprimir el corte con los totales del día (no el DOM, que ya quedó en 0 al cerrar).
     if (printTicket) {
       setFinishStatusMessage('Imprimiendo resumen de ventas del día...');
-
+      try {
+        printThermalHtml(buildCorteThermalInnerHtml(printView), 'Corte de caja');
+        setHasPrinted(true);
+      } catch (e) {
+        console.error('Error al imprimir el corte:', e);
+      }
       setTimeout(() => {
-        let sessionTerminated = false;
-        const doAutoLogout = () => {
-          if (sessionTerminated) return;
-          sessionTerminated = true;
-          setFinishStatusMessage('Corte X generado e impreso. Cerrando sesión de turno...');
-          setTimeout(() => {
-            if (onLogout) {
-              onLogout();
-            } else {
-              onClose();
-            }
-          }, 350);
-        };
-
-        try {
-          printThermalFromElement('corte-thermal-receipt-container', 'Corte de caja');
-        } catch (e) {
-          console.error('Error triggering window.print:', e);
-        }
-
+        setFinishStatusMessage('Corte X generado e impreso. Cerrando sesión de turno...');
         setTimeout(() => {
-          doAutoLogout();
-        }, 2200);
-      }, 400);
+          if (onLogout) {
+            onLogout();
+          } else {
+            onClose();
+          }
+        }, 350);
+      }, 2200);
 
     } else {
       // Si desmarcó imprimir: finalizar y cerrar sesión directamente

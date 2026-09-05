@@ -145,3 +145,7 @@ export function printThermalFromElement(elementId: string, title = 'Ticket CREDI
   }
   printHtmlDocument(`<div class="sheet">${el.innerHTML}</div>`, title, THERMAL_PAGE_CSS);
 }
+
+export function printThermalHtml(innerHtml: string, title = 'Ticket CREDI CEL'): void {
+  printHtmlDocument(`<div class="sheet">${innerHtml}</div>`, title, THERMAL_PAGE_CSS);
+}
