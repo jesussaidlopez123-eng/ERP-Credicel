@@ -21,6 +21,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Taller:** el equipo del cliente queda registrado con folio en cuanto se guarda, aunque no haya internet. Un equipo con saldo se marca **entregado solo cuando el cobro se completa**, así un cobro cancelado no deja el celular como entregado. Los registros no desaparecen: los entregados y los dados de baja pasan a **Historial**, con la información completa y exportable.
 - **Reparaciones (admin):** el menú **Reparaciones** muestra los equipos que siguen en taller **hasta hoy**, de todas las sucursales. Si una recepción vieja quedó solo en el ticket (sin ficha), se reconstruye y no se pierde. Desde ahí se **agrega o modifica el costo** (el saldo se recalcula contra el anticipo ya cobrado) y se abre el **Historial**. El cobro de anticipo o liquidación sigue en el punto de venta.
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
+- **IMEI de equipos:** un celular solo puede estar en Bodega, Navojoa o Huatabampo. Al venderse sale de las tres. Si quedó en una ubicación que no se veía, pasa a Bodega. En Inventario → **Trazar IMEI** se ve sucursal, venta y movimientos.
 
 ## Sistema híbrido: primero el equipo, luego la nube
 

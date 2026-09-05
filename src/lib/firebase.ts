@@ -24,6 +24,7 @@ import { formatTicketFolio, money, newSessionId } from './ids';
 import { branchFolioCode, COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
+import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
 import {
   AUTO_CORTE_NOTE,
   CashTillLockedError,
@@ -1998,27 +1999,24 @@ export async function deleteSaleTicketFromFirestore(
         const newBranchStock = currentBranchStock + qty;
         const newTotalStock = currentTotalStock + qty;
         const imeiSold = item.metadata?.imei;
-        const updatedImeiMap = { ...(currentProd.branchImeiMap || {}) };
-        const updatedImeis = [...(currentProd.imeis || currentProd.imeiList || [])];
-
-        if (imeiSold) {
-          const currentBranchImeis = updatedImeiMap[normBId] || [];
-          if (!currentBranchImeis.includes(imeiSold)) {
-            updatedImeiMap[normBId] = [...currentBranchImeis, imeiSold];
-          }
-          if (!updatedImeis.includes(imeiSold)) {
-            updatedImeis.push(imeiSold);
-          }
-        }
+        const restored = isEquipmentProduct(currentProd) && imeiSold
+          ? addImeisToProduct(currentProd, normBId, [imeiSold])
+          : {
+              ...currentProd,
+              stock: newTotalStock,
+              branchStock: {
+                ...(currentProd.branchStock || {}),
+                [normBId]: newBranchStock
+              }
+            };
 
         await updateDoc(prodRef, {
-          stock: newTotalStock,
-          branchStock: {
-            ...(currentProd.branchStock || {}),
-            [normBId]: newBranchStock
-          },
-          branchImeiMap: updatedImeiMap,
-          imeis: updatedImeis
+          stock: restored.stock,
+          branchStock: restored.branchStock,
+          branchImeiMap: restored.branchImeiMap || {},
+          imeiList: restored.imeiList || [],
+          imeis: restored.imeis || restored.imeiList || [],
+          imei: restored.imei || ''
         });
 
         const movId = `mov-rev-${ticketId}-${Math.random().toString(36).slice(2, 7)}`;

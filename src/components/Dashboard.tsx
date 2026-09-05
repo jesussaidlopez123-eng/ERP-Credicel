@@ -44,6 +44,13 @@ import {
   fetchOlderRepairRecords
 } from '../lib/firebase';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
+import {
+  applyEquipmentIntegrity,
+  collectSoldImeis,
+  isEquipmentProduct,
+  normalizeImei,
+  removeImeisFromProduct
+} from '../lib/imeiInventory';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
 import {
@@ -181,6 +188,9 @@ export default function Dashboard({
   });
   const cloudRepairIdsRef = useRef<Set<string> | null>(null);
   const rescuedRepairIdsRef = useRef(new Set<string>());
+  const recentlySoldImeisRef = useRef(new Set<string>());
+  const imeiOrphanPersistRef = useRef(false);
+  const imeiSoldPersistRef = useRef(false);
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
@@ -204,7 +214,9 @@ export default function Dashboard({
           INITIAL_PRODUCTS.forEach((p) => {
             if (!byId.has(p.id)) byId.set(p.id, p);
           });
-          const next = Array.from(byId.values());
+          const sold = collectSoldImeis(salesTicketsRef.current);
+          recentlySoldImeisRef.current.forEach((im) => sold.add(im));
+          const next = applyEquipmentIntegrity(Array.from(byId.values()), sold).next;
           setProducts(next);
           scheduleSaveCachedList('products', next);
           setCloudSynced(true);
@@ -447,6 +459,30 @@ export default function Dashboard({
     if (!canOpenModule(currentOperator.role, id)) return;
     startTransition(() => setActiveModule(id));
   }, [currentOperator.role]);
+
+  useEffect(() => {
+    if (!cloudSynced || products.length === 0) return;
+    const sold = collectSoldImeis(salesTickets);
+    recentlySoldImeisRef.current.forEach((im) => sold.add(im));
+    const { next, changed } = applyEquipmentIntegrity(products, sold);
+    if (changed.length === 0) {
+      if (!imeiOrphanPersistRef.current) imeiOrphanPersistRef.current = true;
+      if (sold.size > 0) imeiSoldPersistRef.current = true;
+      return;
+    }
+    const shouldPersist =
+      !imeiOrphanPersistRef.current || (!imeiSoldPersistRef.current && sold.size > 0);
+    if (!shouldPersist) return;
+    imeiOrphanPersistRef.current = true;
+    if (sold.size > 0) imeiSoldPersistRef.current = true;
+    setProducts(next);
+    scheduleSaveCachedList('products', next);
+    changed.forEach((product) => {
+      commitProduct(product).catch((err) =>
+        console.error('Error alineando inventario de IMEI:', err)
+      );
+    });
+  }, [cloudSynced, products, salesTickets]);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);
@@ -938,33 +974,24 @@ export default function Dashboard({
         const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => im.toUpperCase());
         if (qty <= 0 && soldImeis.length === 0) return p;
 
-        const currentBStock = p.branchStock || { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
-        const currentBranchQty = currentBStock[enrichedTicket.branchId] || 0;
-        const deductQty = qty || soldImeis.length;
-        const newBranchQty = Math.max(0, currentBranchQty - deductQty);
-        const newBranchStock = { ...currentBStock, [enrichedTicket.branchId]: newBranchQty };
-        const newTotalStock = Math.max(0, (p.stock || 0) - deductQty);
+        soldImeis.forEach((im) => recentlySoldImeisRef.current.add(normalizeImei(im)));
 
-        let updatedImeiMap = p.branchImeiMap ? { ...p.branchImeiMap } : {};
-        if (soldImeis.length > 0) {
-          const currentList = updatedImeiMap[enrichedTicket.branchId] || [];
-          updatedImeiMap[enrichedTicket.branchId] = currentList.filter((im) => !soldImeis.includes(im.toUpperCase()));
+        let updatedProduct: Product;
+        if (isEquipmentProduct(p) && soldImeis.length > 0) {
+          updatedProduct = removeImeisFromProduct(p, soldImeis);
+        } else {
+          const currentBStock = p.branchStock || { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
+          const currentBranchQty = currentBStock[enrichedTicket.branchId] || 0;
+          const deductQty = qty || soldImeis.length;
+          const newBranchQty = Math.max(0, currentBranchQty - deductQty);
+          const newBranchStock = { ...currentBStock, [enrichedTicket.branchId]: newBranchQty };
+          const newTotalStock = Math.max(0, (p.stock || 0) - deductQty);
+          updatedProduct = {
+            ...p,
+            stock: newTotalStock,
+            branchStock: newBranchStock
+          };
         }
-
-        const updatedImeiList = p.imeiList
-          ? (soldImeis.length ? p.imeiList.filter((im) => !soldImeis.includes(im.toUpperCase())) : p.imeiList)
-          : undefined;
-
-        const updatedProduct: Product = {
-          ...p,
-          stock: newTotalStock,
-          branchStock: newBranchStock,
-          branchImeiMap: Object.keys(updatedImeiMap).length > 0 ? updatedImeiMap : p.branchImeiMap,
-          imeiList: updatedImeiList,
-          imei: updatedImeiList && updatedImeiList.length > 0
-            ? updatedImeiList[0]
-            : (p.imei && soldImeis.includes(p.imei.toUpperCase()) ? '' : p.imei)
-        };
 
         commitProduct(updatedProduct).catch((err) =>
           console.error('Error encolando el descuento de inventario:', err)
@@ -1540,6 +1567,8 @@ export default function Dashboard({
             currentOperator={currentOperator}
             allBranches={ALL_BRANCHES}
             inventoryMovements={inventoryMovements}
+            salesTickets={salesTickets}
+            creditAccounts={creditAccounts}
             onRecordMovement={stableRecordMovement}
             onLoadOlderMovements={loadOlderMovements}
             movementsHasMore={movementsHasMore}

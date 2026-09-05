@@ -26,8 +26,17 @@ import {
   Pencil,
   Tag
 } from 'lucide-react';
-import { Product, Branch, Operator, InventoryMovement } from '../types';
-import { ALL_BRANCHES } from '../data/initialBranches';
+import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
+import { ALL_BRANCHES, isAdminWorkspace } from '../data/initialBranches';
+import {
+  addImeisToProduct,
+  imeisAtBranch,
+  imeisGroupedByBranch,
+  isEquipmentProduct,
+  moveImeisOnProduct,
+  removeImeisFromProduct,
+  toInventoryBranchId
+} from '../lib/imeiInventory';
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -37,6 +46,7 @@ const InventoryMovementsModal = lazy(() =>
 const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
 const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
+const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -47,6 +57,8 @@ interface InventoryModuleProps {
   currentOperator?: Operator;
   allBranches?: Branch[];
   inventoryMovements?: InventoryMovement[];
+  salesTickets?: SaleTicket[];
+  creditAccounts?: CreditAccount[];
   onRecordMovement?: (movement: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => void;
   onLoadOlderMovements?: () => void;
   movementsHasMore?: boolean;
@@ -62,6 +74,8 @@ function InventoryModule({
   currentOperator,
   allBranches = ALL_BRANCHES,
   inventoryMovements = [],
+  salesTickets = [],
+  creditAccounts = [],
   onRecordMovement,
   onLoadOlderMovements,
   movementsHasMore = false,
@@ -126,6 +140,8 @@ function InventoryModule({
   const [viewingImeisProduct, setViewingImeisProduct] = useState<Product | null>(null);
   const [imeiSearchQuery, setImeiSearchQuery] = useState('');
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
+  const [isImeiTraceOpen, setIsImeiTraceOpen] = useState(false);
+  const [traceInitialImei, setTraceInitialImei] = useState('');
 
   // Modal 2: Transferir
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -212,6 +228,9 @@ function InventoryModule({
 
   // Helper stock per branch
   const getBranchStock = (p: Product, branchId: string): number => {
+    if (isEquipmentProduct(p)) {
+      return imeisAtBranch(p, branchId).length;
+    }
     if (p.branchStock && p.branchStock[branchId] !== undefined) {
       return p.branchStock[branchId];
     }
@@ -222,6 +241,10 @@ function InventoryModule({
   };
 
   const getTotalStock = (p: Product): number => {
+    if (isEquipmentProduct(p)) {
+      const g = imeisGroupedByBranch(p);
+      return g['b-bodega'].length + g['b-navojoa'].length + g['b-huatabampo'].length;
+    }
     if (p.branchStock) {
       return (p.branchStock['b-bodega'] || 0) + (p.branchStock['b-navojoa'] || 0) + (p.branchStock['b-huatabampo'] || 0);
     }
@@ -428,7 +451,9 @@ function InventoryModule({
     setIngresarMode('existente');
     const firstProd = tabProducts[0];
     setIngresarSelectedProdId(firstProd ? firstProd.id : '');
-    setIngresarBranchId(currentBranch?.id || 'b-bodega');
+    setIngresarBranchId(
+      isAdminWorkspace(currentBranch?.id) ? 'b-bodega' : toInventoryBranchId(currentBranch?.id)
+    );
     setIngresarQuantity('1');
     setNewCode('');
     setNewName('');
@@ -688,42 +713,10 @@ function InventoryModule({
       const prod = products.find((p) => p.id === selectedProdId);
       if (!prod) return;
 
-      const existingImeis = prod.imeiList && prod.imeiList.length > 0
-        ? prod.imeiList
-        : (prod.imei ? [prod.imei] : []);
+      const destBranch = toInventoryBranchId(branchId);
+      const updated = addImeisToProduct(prod, destBranch, finalImeis);
 
-      const updatedImeis = [...existingImeis, ...finalImeis];
-
-      const currentBranchImeis = prod.branchImeiMap?.[branchId] || [];
-      const updatedBranchImeis = [...currentBranchImeis, ...finalImeis];
-      const updatedBranchImeiMap = {
-        ...(prod.branchImeiMap || {}),
-        [branchId]: updatedBranchImeis
-      };
-
-      const currentBStock = prod.branchStock || {
-        'b-bodega': getBranchStock(prod, 'b-bodega'),
-        'b-navojoa': getBranchStock(prod, 'b-navojoa'),
-        'b-huatabampo': getBranchStock(prod, 'b-huatabampo'),
-      };
-
-      const newBranchStock = {
-        ...currentBStock,
-        [branchId]: (currentBStock[branchId] || 0) + qty
-      };
-
-      const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-      const updated: Product = {
-        ...prod,
-        imeiList: updatedImeis,
-        branchImeiMap: updatedBranchImeiMap,
-        imei: updatedImeis[0] || prod.imei || '',
-        branchStock: newBranchStock,
-        stock: newTotalStock
-      };
-
-      const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
       onRecordMovement?.({
         type: 'ingreso',
         productId: prod.id,
@@ -732,7 +725,7 @@ function InventoryModule({
         category: prod.category,
         inventoryType: 'equipo',
         quantity: qty,
-        targetBranchId: branchId,
+        targetBranchId: destBranch,
         targetBranchName: branchName,
         operatorName: currentOperator?.name || 'Admin',
         operatorId: currentOperator?.id,
@@ -844,9 +837,7 @@ function InventoryModule({
     // Si es un equipo celular, abrir el modal de selección de IMEIs para el traspaso
     const isEquipment = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
     if (isEquipment) {
-      const availImeis = prod.imeiList && prod.imeiList.length > 0
-        ? prod.imeiList
-        : (prod.imei ? [prod.imei] : []);
+      const availImeis = imeisAtBranch(prod, fromBranchId);
 
       setPendingTransferData({
         product: prod,
@@ -918,39 +909,7 @@ function InventoryModule({
       return;
     }
 
-    const currentBStock = product.branchStock || {
-      'b-bodega': getBranchStock(product, 'b-bodega'),
-      'b-navojoa': getBranchStock(product, 'b-navojoa'),
-      'b-huatabampo': getBranchStock(product, 'b-huatabampo'),
-    };
-
-    const originAvailable = currentBStock[fromBranchId] || 0;
-    const newBranchStock = {
-      ...currentBStock,
-      [fromBranchId]: Math.max(0, originAvailable - qty),
-      [toBranchId]: (currentBStock[toBranchId] || 0) + qty
-    };
-
-    const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-    const currentFromImeis = product.branchImeiMap?.[fromBranchId] || product.imeiList || [];
-    const currentToImeis = product.branchImeiMap?.[toBranchId] || [];
-
-    const newFromImeis = currentFromImeis.filter((im) => !selectedTransferImeis.some(s => s.toUpperCase() === im.toUpperCase()));
-    const newToImeis = [...currentToImeis, ...selectedTransferImeis];
-
-    const updatedImeiMap = {
-      ...(product.branchImeiMap || {}),
-      [fromBranchId]: newFromImeis,
-      [toBranchId]: newToImeis
-    };
-
-    const updated: Product = {
-      ...product,
-      branchStock: newBranchStock,
-      branchImeiMap: updatedImeiMap,
-      stock: newTotalStock
-    };
+    const updated = moveImeisOnProduct(product, fromBranchId, toBranchId, selectedTransferImeis);
 
     const fromName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
     const toName = ALL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
@@ -1029,9 +988,7 @@ function InventoryModule({
           return;
         }
 
-        const availImeis = prod.imeiList && prod.imeiList.length > 0
-          ? prod.imeiList
-          : (prod.imei ? [prod.imei] : []);
+        const availImeis = imeisAtBranch(prod, ajustarBranchId);
 
         setPendingAjustarData({
           product: prod,
@@ -1132,35 +1089,7 @@ function InventoryModule({
       return;
     }
 
-    const currentImeis = product.imeiList && product.imeiList.length > 0
-      ? product.imeiList
-      : (product.imei ? [product.imei] : []);
-
-    const remainingImeis = currentImeis.filter(i => !selectedAjustarImeis.includes(i));
-
-    const currentBStock = product.branchStock || {
-      'b-bodega': getBranchStock(product, 'b-bodega'),
-      'b-navojoa': getBranchStock(product, 'b-navojoa'),
-      'b-huatabampo': getBranchStock(product, 'b-huatabampo'),
-    };
-
-    const currentQtyInBranch = currentBStock[branchId] || 0;
-    const newBranchQty = Math.max(0, currentQtyInBranch - qty);
-
-    const newBranchStock = {
-      ...currentBStock,
-      [branchId]: newBranchQty
-    };
-
-    const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-    const updated: Product = {
-      ...product,
-      imeiList: remainingImeis,
-      imei: remainingImeis[0] || '',
-      branchStock: newBranchStock,
-      stock: newTotalStock
-    };
+    const updated = removeImeisFromProduct(product, selectedAjustarImeis);
 
     const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
 
@@ -1394,6 +1323,19 @@ function InventoryModule({
               <span>Transferir</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                setTraceInitialImei('');
+                setIsImeiTraceOpen(true);
+              }}
+              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Buscar un IMEI y ver en qué sucursal está o si ya se vendió"
+            >
+              <Fingerprint className="w-3.5 h-3.5" />
+              <span>Trazar IMEI</span>
+            </button>
+
             {/* Botón AJUSTAR */}
             <button
               onClick={handleOpenAjustar}
@@ -1570,19 +1512,35 @@ function InventoryModule({
                         {activeInventoryTab === 'equipo' && (
                           <td className="p-3 font-mono font-bold text-xs bg-blue-50/30">
                             {(() => {
-                              const imeiList = p.imeiList && p.imeiList.length > 0 
-                                ? p.imeiList 
-                                : (p.imei ? [p.imei] : []);
+                              const grouped = imeisGroupedByBranch(p);
+                              const imeiList = [
+                                ...grouped['b-bodega'],
+                                ...grouped['b-navojoa'],
+                                ...grouped['b-huatabampo']
+                              ];
 
                               if (imeiList.length === 0) {
                                 return <span className="text-slate-300 italic font-normal">Sin IMEI</span>;
                               }
 
+                              const locLabel = `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length}`;
+
                               if (imeiList.length === 1) {
                                 return (
-                                  <span className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
-                                    {imeiList[0]}
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setTraceInitialImei(imeiList[0]);
+                                      setIsImeiTraceOpen(true);
+                                    }}
+                                    className="text-left"
+                                    title="Ver trazado de este IMEI"
+                                  >
+                                    <span className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                                      {imeiList[0]}
+                                    </span>
+                                    <span className="block text-[10px] text-slate-500 font-sans font-bold mt-0.5">{locLabel}</span>
+                                  </button>
                                 );
                               }
 
@@ -1590,11 +1548,14 @@ function InventoryModule({
                                 <button
                                   type="button"
                                   onClick={() => setViewingImeisProduct(p)}
-                                  className="inline-flex items-center gap-1.5 font-mono text-xs font-extrabold bg-amber-100 hover:bg-amber-200 text-amber-950 px-2.5 py-1 rounded-lg border border-amber-300 transition-all cursor-pointer shadow-2xs"
-                                  title="Haz clic para ver la lista completa de IMEIs"
+                                  className="inline-flex flex-col items-start gap-0.5 font-mono text-xs font-extrabold bg-amber-100 hover:bg-amber-200 text-amber-950 px-2.5 py-1 rounded-lg border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                                  title="Haz clic para ver la lista completa de IMEIs por sucursal"
                                 >
-                                  <Smartphone className="w-3.5 h-3.5 text-amber-700" />
-                                  <span>{imeiList.length} IMEIs Registrados</span>
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <Smartphone className="w-3.5 h-3.5 text-amber-700" />
+                                    <span>{imeiList.length} IMEIs</span>
+                                  </span>
+                                  <span className="font-sans text-[10px] font-bold">{locLabel}</span>
                                 </button>
                               );
                             })()}
@@ -2782,29 +2743,42 @@ function InventoryModule({
               {/* Lista de IMEIs */}
               <div className="max-h-64 overflow-y-auto space-y-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                 {(() => {
-                  const list = viewingImeisProduct.imeiList && viewingImeisProduct.imeiList.length > 0
-                    ? viewingImeisProduct.imeiList
-                    : (viewingImeisProduct.imei ? [viewingImeisProduct.imei] : []);
-
-                  const filtered = list.filter(i => !imeiSearchQuery || i.toLowerCase().includes(imeiSearchQuery.toLowerCase()));
+                  const grouped = imeisGroupedByBranch(viewingImeisProduct);
+                  const rows = ALL_BRANCHES.flatMap((branch) =>
+                    (grouped[branch.id as keyof typeof grouped] || []).map((imei) => ({ imei, branchName: branch.name }))
+                  );
+                  const filtered = rows.filter((row) =>
+                    !imeiSearchQuery || row.imei.toLowerCase().includes(imeiSearchQuery.toLowerCase())
+                  );
 
                   if (filtered.length === 0) {
                     return <p className="p-4 text-center text-slate-400">No se encontraron IMEIs con ese criterio.</p>;
                   }
 
-                  return filtered.map((imei, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 font-mono text-xs font-bold text-slate-800">
-                      <span>#{idx + 1}: <strong className="text-blue-900">{imei}</strong></span>
+                  return filtered.map((row, idx) => (
+                    <div key={`${row.imei}-${idx}`} className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 font-mono text-xs font-bold text-slate-800">
+                      <button
+                        type="button"
+                        className="text-left"
+                        onClick={() => {
+                          setViewingImeisProduct(null);
+                          setTraceInitialImei(row.imei);
+                          setIsImeiTraceOpen(true);
+                        }}
+                      >
+                        <span className="text-blue-900">{row.imei}</span>
+                        <span className="block font-sans text-[10px] text-slate-500">{row.branchName}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
-                          navigator.clipboard.writeText(imei);
-                          setCopiedImei(imei);
+                          navigator.clipboard.writeText(row.imei);
+                          setCopiedImei(row.imei);
                           setTimeout(() => setCopiedImei(null), 1500);
                         }}
                         className="px-2 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-all cursor-pointer font-sans font-extrabold"
                       >
-                        {copiedImei === imei ? '¡Copiado!' : 'Copiar'}
+                        {copiedImei === row.imei ? '¡Copiado!' : 'Copiar'}
                       </button>
                     </div>
                   ));
@@ -2813,7 +2787,7 @@ function InventoryModule({
 
               <div className="flex justify-between items-center pt-2">
                 <span className="text-slate-500 font-bold text-[11px]">
-                  Total: {(viewingImeisProduct.imeiList?.length || (viewingImeisProduct.imei ? 1 : 0))} unidades
+                  Total: {Object.values(imeisGroupedByBranch(viewingImeisProduct)).flat().length} unidades
                 </span>
                 <button
                   type="button"
@@ -2897,9 +2871,7 @@ function InventoryModule({
                   <button
                     type="button"
                     onClick={() => {
-                      const avail = pendingTransferData.product.imeiList && pendingTransferData.product.imeiList.length > 0
-                        ? pendingTransferData.product.imeiList
-                        : (pendingTransferData.product.imei ? [pendingTransferData.product.imei] : []);
+                      const avail = imeisAtBranch(pendingTransferData.product, pendingTransferData.fromBranchId);
                       setSelectedTransferImeis(avail.slice(0, pendingTransferData.qty));
                     }}
                     className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-900 font-extrabold text-[11px] rounded-xl border border-blue-300 transition-all cursor-pointer whitespace-nowrap"
@@ -2920,9 +2892,7 @@ function InventoryModule({
 
                 <div className="max-h-56 overflow-y-auto space-y-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                   {(() => {
-                    const avail = pendingTransferData.product.imeiList && pendingTransferData.product.imeiList.length > 0
-                      ? pendingTransferData.product.imeiList
-                      : (pendingTransferData.product.imei ? [pendingTransferData.product.imei] : []);
+                    const avail = imeisAtBranch(pendingTransferData.product, pendingTransferData.fromBranchId);
 
                     if (avail.length === 0) {
                       return (
@@ -3064,9 +3034,7 @@ function InventoryModule({
                   <button
                     type="button"
                     onClick={() => {
-                      const avail = pendingAjustarData.product.imeiList && pendingAjustarData.product.imeiList.length > 0
-                        ? pendingAjustarData.product.imeiList
-                        : (pendingAjustarData.product.imei ? [pendingAjustarData.product.imei] : []);
+                      const avail = imeisAtBranch(pendingAjustarData.product, pendingAjustarData.branchId);
                       setSelectedAjustarImeis(avail.slice(0, pendingAjustarData.qty));
                     }}
                     className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-950 font-extrabold text-[11px] rounded-xl border border-amber-300 transition-all cursor-pointer whitespace-nowrap"
@@ -3087,9 +3055,7 @@ function InventoryModule({
 
                 <div className="max-h-56 overflow-y-auto space-y-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                   {(() => {
-                    const avail = pendingAjustarData.product.imeiList && pendingAjustarData.product.imeiList.length > 0
-                      ? pendingAjustarData.product.imeiList
-                      : (pendingAjustarData.product.imei ? [pendingAjustarData.product.imei] : []);
+                    const avail = imeisAtBranch(pendingAjustarData.product, pendingAjustarData.branchId);
 
                     if (avail.length === 0) {
                       return (
@@ -3293,6 +3259,18 @@ function InventoryModule({
           allBranches={allBranches}
           initialCategory={activeInventoryTab}
           initialBranchId={printBranchId}
+        />
+      </LazyWhen>
+
+      <LazyWhen when={isImeiTraceOpen}>
+        <ImeiTraceModal
+          isOpen={isImeiTraceOpen}
+          onClose={() => setIsImeiTraceOpen(false)}
+          products={products}
+          tickets={salesTickets}
+          movements={inventoryMovements}
+          credits={creditAccounts}
+          initialImei={traceInitialImei}
         />
       </LazyWhen>
 
