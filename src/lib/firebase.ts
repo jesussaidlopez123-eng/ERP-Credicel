@@ -25,6 +25,7 @@ import { branchFolioCode, COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDispl
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
+import { addAccessoryStock } from './accessoryInventory';
 import {
   AUTO_CORTE_NOTE,
   CashTillLockedError,
@@ -1993,22 +1994,11 @@ export async function deleteSaleTicketFromFirestore(
         if (!prodSnap.exists()) continue;
 
         const currentProd = prodSnap.data() as Product;
-        const currentBranchStock = currentProd.branchStock?.[normBId] ?? 0;
-        const currentTotalStock = currentProd.stock ?? 0;
         const qty = item.quantity || 1;
-        const newBranchStock = currentBranchStock + qty;
-        const newTotalStock = currentTotalStock + qty;
         const imeiSold = item.metadata?.imei;
         const restored = isEquipmentProduct(currentProd) && imeiSold
           ? addImeisToProduct(currentProd, normBId, [imeiSold])
-          : {
-              ...currentProd,
-              stock: newTotalStock,
-              branchStock: {
-                ...(currentProd.branchStock || {}),
-                [normBId]: newBranchStock
-              }
-            };
+          : addAccessoryStock(currentProd, normBId, qty);
 
         await updateDoc(prodRef, {
           stock: restored.stock,
@@ -2031,8 +2021,8 @@ export async function deleteSaleTicketFromFirestore(
           category: currentProd.category,
           inventoryType: currentProd.inventoryType,
           quantity: qty,
-          previousStock: currentBranchStock,
-          newStock: newBranchStock,
+          previousStock: currentProd.stock,
+          newStock: restored.stock,
           targetBranchId: normBId,
           targetBranchName: branchName,
           operatorName: operator,

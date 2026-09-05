@@ -37,6 +37,13 @@ import {
   removeImeisFromProduct,
   toInventoryBranchId
 } from '../lib/imeiInventory';
+import {
+  accessoryStockAt,
+  accessoryTotalStock,
+  addAccessoryStock,
+  moveAccessoryStock,
+  removeAccessoryStock
+} from '../lib/accessoryInventory';
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -231,13 +238,7 @@ function InventoryModule({
     if (isEquipmentProduct(p)) {
       return imeisAtBranch(p, branchId).length;
     }
-    if (p.branchStock && p.branchStock[branchId] !== undefined) {
-      return p.branchStock[branchId];
-    }
-    if (branchId === 'b-bodega') return Math.ceil(p.stock * 0.5);
-    if (branchId === 'b-navojoa') return Math.floor(p.stock * 0.3);
-    if (branchId === 'b-huatabampo') return Math.floor(p.stock * 0.2);
-    return 0;
+    return accessoryStockAt(p, branchId);
   };
 
   const getTotalStock = (p: Product): number => {
@@ -245,10 +246,7 @@ function InventoryModule({
       const g = imeisGroupedByBranch(p);
       return g['b-bodega'].length + g['b-navojoa'].length + g['b-huatabampo'].length;
     }
-    if (p.branchStock) {
-      return (p.branchStock['b-bodega'] || 0) + (p.branchStock['b-navojoa'] || 0) + (p.branchStock['b-huatabampo'] || 0);
-    }
-    return p.stock || 0;
+    return accessoryTotalStock(p);
   };
 
   // Natural sorting function (numeric alphanumeric ordering matching Module 1 / POS)
@@ -554,26 +552,10 @@ function InventoryModule({
           return;
         }
 
-        const currentBStock = prod.branchStock || {
-          'b-bodega': getBranchStock(prod, 'b-bodega'),
-          'b-navojoa': getBranchStock(prod, 'b-navojoa'),
-          'b-huatabampo': getBranchStock(prod, 'b-huatabampo'),
-        };
+        const destBranch = toInventoryBranchId(ingresarBranchId);
+        const updated = addAccessoryStock(prod, destBranch, qty);
 
-        const newBranchStock = {
-          ...currentBStock,
-          [ingresarBranchId]: (currentBStock[ingresarBranchId] || 0) + qty
-        };
-
-        const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-        const updated: Product = {
-          ...prod,
-          branchStock: newBranchStock,
-          stock: newTotalStock
-        };
-
-        const branchName = ALL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
         onRecordMovement?.({
           type: 'ingreso',
           productId: prod.id,
@@ -582,7 +564,7 @@ function InventoryModule({
           category: prod.category,
           inventoryType: 'accesorio',
           quantity: qty,
-          targetBranchId: ingresarBranchId,
+          targetBranchId: destBranch,
           targetBranchName: branchName,
           operatorName: currentOperator?.name || 'Admin',
           operatorId: currentOperator?.id,
@@ -616,27 +598,26 @@ function InventoryModule({
         const numCost = parseFloat(newCostPrice) || 0;
         const numPrice = parseFloat(newPrice) || 0;
 
-        const newBranchStock = {
-          'b-bodega': ingresarBranchId === 'b-bodega' ? qty : 0,
-          'b-navojoa': ingresarBranchId === 'b-navojoa' ? qty : 0,
-          'b-huatabampo': ingresarBranchId === 'b-huatabampo' ? qty : 0,
-        };
+        const destBranch = toInventoryBranchId(ingresarBranchId);
+        const newProd = addAccessoryStock(
+          {
+            id: `prod-${Date.now()}`,
+            code: cleanCode,
+            name: newName.trim(),
+            category: 'accesorio',
+            inventoryType: 'accesorio',
+            supplier: newSupplier.trim(),
+            costPrice: numCost,
+            price: numPrice,
+            stock: 0,
+            branchStock: { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 },
+            color: 'bg-slate-800 text-white'
+          },
+          destBranch,
+          qty
+        );
 
-        const newProd: Product = {
-          id: `prod-${Date.now()}`,
-          code: cleanCode,
-          name: newName.trim(),
-          category: 'accesorio',
-          inventoryType: 'accesorio',
-          supplier: newSupplier.trim(),
-          costPrice: numCost,
-          price: numPrice,
-          stock: qty,
-          branchStock: newBranchStock,
-          color: 'bg-slate-800 text-white'
-        };
-
-        const branchName = ALL_BRANCHES.find(b => b.id === ingresarBranchId)?.name || ingresarBranchId;
+        const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
         onRecordMovement?.({
           type: 'creacion',
           productId: newProd.id,
@@ -645,7 +626,7 @@ function InventoryModule({
           category: 'accesorio',
           inventoryType: 'accesorio',
           quantity: qty,
-          targetBranchId: ingresarBranchId,
+          targetBranchId: destBranch,
           targetBranchName: branchName,
           operatorName: currentOperator?.name || 'Admin',
           operatorId: currentOperator?.id,
@@ -810,7 +791,7 @@ function InventoryModule({
       return;
     }
 
-    if (fromBranchId === toBranchId) {
+    if (toInventoryBranchId(fromBranchId) === toInventoryBranchId(toBranchId)) {
       alert('La sucursal origen y la sucursal destino deben ser diferentes.');
       return;
     }
@@ -821,15 +802,11 @@ function InventoryModule({
       return;
     }
 
-    const currentBStock = prod.branchStock || {
-      'b-bodega': getBranchStock(prod, 'b-bodega'),
-      'b-navojoa': getBranchStock(prod, 'b-navojoa'),
-      'b-huatabampo': getBranchStock(prod, 'b-huatabampo'),
-    };
-
-    const originAvailable = currentBStock[fromBranchId] || 0;
+    const originId = toInventoryBranchId(fromBranchId);
+    const destId = toInventoryBranchId(toBranchId);
+    const originAvailable = getBranchStock(prod, originId);
     if (qty > originAvailable) {
-      const originName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name;
+      const originName = ALL_BRANCHES.find(b => b.id === originId)?.name;
       alert(`No hay suficiente inventario en ${originName}. Disponibles: ${originAvailable}`);
       return;
     }
@@ -852,22 +829,10 @@ function InventoryModule({
       return;
     }
 
-    const newBranchStock = {
-      ...currentBStock,
-      [fromBranchId]: originAvailable - qty,
-      [toBranchId]: (currentBStock[toBranchId] || 0) + qty
-    };
+    const updated = moveAccessoryStock(prod, originId, destId, qty);
 
-    const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-    const updated: Product = {
-      ...prod,
-      branchStock: newBranchStock,
-      stock: newTotalStock
-    };
-
-    const fromName = ALL_BRANCHES.find(b => b.id === fromBranchId)?.name || fromBranchId;
-    const toName = ALL_BRANCHES.find(b => b.id === toBranchId)?.name || toBranchId;
+    const fromName = ALL_BRANCHES.find(b => b.id === originId)?.name || originId;
+    const toName = ALL_BRANCHES.find(b => b.id === destId)?.name || destId;
 
     promptSecurityAuth(
       'traspaso',
@@ -882,9 +847,9 @@ function InventoryModule({
           category: prod.category,
           inventoryType: prod.inventoryType || 'accesorio',
           quantity: qty,
-          sourceBranchId: fromBranchId,
+          sourceBranchId: originId,
           sourceBranchName: fromName,
-          targetBranchId: toBranchId,
+          targetBranchId: destId,
           targetBranchName: toName,
           operatorName: currentOperator?.name || 'Admin',
           operatorId: currentOperator?.id,
@@ -970,13 +935,8 @@ function InventoryModule({
       return;
     }
 
-    const currentBStock = prod.branchStock || {
-      'b-bodega': getBranchStock(prod, 'b-bodega'),
-      'b-navojoa': getBranchStock(prod, 'b-navojoa'),
-      'b-huatabampo': getBranchStock(prod, 'b-huatabampo'),
-    };
-
-    const currentQtyInBranch = currentBStock[ajustarBranchId] || 0;
+    const destBranch = toInventoryBranchId(ajustarBranchId);
+    const currentQtyInBranch = getBranchStock(prod, destBranch);
 
     const isEquipment = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
 
@@ -1022,33 +982,19 @@ function InventoryModule({
       }
     }
 
-    let newBranchQty = currentQtyInBranch;
-    if (ajustarAction === 'merma') {
-      if (qty > currentQtyInBranch) {
-        const branchName = ALL_BRANCHES.find(b => b.id === ajustarBranchId)?.name;
-        alert(`No puedes restar más de las ${currentQtyInBranch} piezas disponibles en ${branchName}.`);
-        return;
-      }
-      newBranchQty = currentQtyInBranch - qty;
-    } else {
-      newBranchQty = currentQtyInBranch + qty;
+    if (ajustarAction === 'merma' && qty > currentQtyInBranch) {
+      const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name;
+      alert(`No puedes restar más de las ${currentQtyInBranch} piezas disponibles en ${branchName}.`);
+      return;
     }
 
-    const newBranchStock = {
-      ...currentBStock,
-      [ajustarBranchId]: newBranchQty
-    };
-
-    const newTotalStock = (newBranchStock['b-bodega'] || 0) + (newBranchStock['b-navojoa'] || 0) + (newBranchStock['b-huatabampo'] || 0);
-
-    const updated: Product = {
-      ...prod,
-      branchStock: newBranchStock,
-      stock: newTotalStock
-    };
+    const updated =
+      ajustarAction === 'merma'
+        ? removeAccessoryStock(prod, destBranch, qty)
+        : addAccessoryStock(prod, destBranch, qty);
 
     const actionText = ajustarAction === 'merma' ? 'Baja por Merma' : 'Incremento de Stock';
-    const branchName = ALL_BRANCHES.find(b => b.id === ajustarBranchId)?.name || ajustarBranchId;
+    const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
 
     promptSecurityAuth(
       'ajuste',
@@ -1063,7 +1009,7 @@ function InventoryModule({
           category: prod.category,
           inventoryType: prod.inventoryType || 'accesorio',
           quantity: ajustarAction === 'merma' ? -qty : qty,
-          targetBranchId: ajustarBranchId,
+          targetBranchId: destBranch,
           targetBranchName: branchName,
           operatorName: currentOperator?.name || 'Admin',
           operatorId: currentOperator?.id,
@@ -1273,7 +1219,11 @@ function InventoryModule({
 
             <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-extrabold shadow-2xs">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Anti-Duplicados</span>
+              <span>
+                {activeInventoryTab === 'accesorio'
+                  ? 'Stock solo en Bodega · Navojoa · Huatabampo'
+                  : 'Anti-Duplicados'}
+              </span>
             </div>
           </div>
 

@@ -25,6 +25,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Product, Branch, Operator } from '../types';
+import { accessoryStockAt, accessoryTotalStock } from '../lib/accessoryInventory';
+import { imeisAtBranch, isEquipmentProduct } from '../lib/imeiInventory';
 
 interface InventoryPrintModalProps {
   isOpen: boolean;
@@ -87,16 +89,18 @@ export default function InventoryPrintModal({
   // Helper to calculate product stock for a specific branch or all
   const getProductStock = (product: Product, branchId: string): number => {
     if (!product) return 0;
-    if (branchId === 'all') {
-      if (product.branchStock) {
-        return Object.values(product.branchStock).reduce((sum, val) => sum + (val || 0), 0);
+    if (isEquipmentProduct(product)) {
+      if (branchId === 'all') {
+        return (
+          imeisAtBranch(product, 'b-bodega').length +
+          imeisAtBranch(product, 'b-navojoa').length +
+          imeisAtBranch(product, 'b-huatabampo').length
+        );
       }
-      return product.stock || 0;
+      return imeisAtBranch(product, branchId).length;
     }
-    if (product.branchStock && product.branchStock[branchId] !== undefined) {
-      return product.branchStock[branchId] || 0;
-    }
-    return 0;
+    if (branchId === 'all') return accessoryTotalStock(product);
+    return accessoryStockAt(product, branchId);
   };
 
   // Helper to get IMEIs for a product filtered by branch

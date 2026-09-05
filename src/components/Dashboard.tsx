@@ -45,12 +45,12 @@ import {
 } from '../lib/firebase';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
 import {
-  applyEquipmentIntegrity,
   collectSoldImeis,
   isEquipmentProduct,
   normalizeImei,
   removeImeisFromProduct
 } from '../lib/imeiInventory';
+import { addAccessoryStock, applyCatalogIntegrity, removeAccessoryStock } from '../lib/accessoryInventory';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
 import {
@@ -216,7 +216,7 @@ export default function Dashboard({
           });
           const sold = collectSoldImeis(salesTicketsRef.current);
           recentlySoldImeisRef.current.forEach((im) => sold.add(im));
-          const next = applyEquipmentIntegrity(Array.from(byId.values()), sold).next;
+          const next = applyCatalogIntegrity(Array.from(byId.values()), sold).next;
           setProducts(next);
           scheduleSaveCachedList('products', next);
           setCloudSynced(true);
@@ -464,7 +464,7 @@ export default function Dashboard({
     if (!cloudSynced || products.length === 0) return;
     const sold = collectSoldImeis(salesTickets);
     recentlySoldImeisRef.current.forEach((im) => sold.add(im));
-    const { next, changed } = applyEquipmentIntegrity(products, sold);
+    const { next, changed } = applyCatalogIntegrity(products, sold);
     if (changed.length === 0) {
       if (!imeiOrphanPersistRef.current) imeiOrphanPersistRef.current = true;
       if (sold.size > 0) imeiSoldPersistRef.current = true;
@@ -479,7 +479,7 @@ export default function Dashboard({
     scheduleSaveCachedList('products', next);
     changed.forEach((product) => {
       commitProduct(product).catch((err) =>
-        console.error('Error alineando inventario de IMEI:', err)
+        console.error('Error alineando inventario:', err)
       );
     });
   }, [cloudSynced, products, salesTickets]);
@@ -980,17 +980,7 @@ export default function Dashboard({
         if (isEquipmentProduct(p) && soldImeis.length > 0) {
           updatedProduct = removeImeisFromProduct(p, soldImeis);
         } else {
-          const currentBStock = p.branchStock || { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
-          const currentBranchQty = currentBStock[enrichedTicket.branchId] || 0;
-          const deductQty = qty || soldImeis.length;
-          const newBranchQty = Math.max(0, currentBranchQty - deductQty);
-          const newBranchStock = { ...currentBStock, [enrichedTicket.branchId]: newBranchQty };
-          const newTotalStock = Math.max(0, (p.stock || 0) - deductQty);
-          updatedProduct = {
-            ...p,
-            stock: newTotalStock,
-            branchStock: newBranchStock
-          };
+          updatedProduct = removeAccessoryStock(p, enrichedTicket.branchId, qty || soldImeis.length);
         }
 
         commitProduct(updatedProduct).catch((err) =>
@@ -1210,16 +1200,11 @@ export default function Dashboard({
         return name && (p.name || '').trim().toLowerCase() === name;
       });
       if (!prod) return;
-      const branchStock = { ...(prod.branchStock || {}) };
-      branchStock[targetBranchId] = money((Number(branchStock[targetBranchId]) || 0) + qty);
-      const newTotal =
-        (branchStock['b-bodega'] || 0) + (branchStock['b-navojoa'] || 0) + (branchStock['b-huatabampo'] || 0);
       const updated: Product = {
-        ...prod,
-        branchStock,
-        stock: newTotal,
+        ...addAccessoryStock(prod, targetBranchId, qty),
         costPrice: item.wholesalePrice > 0 ? money(item.wholesalePrice) : prod.costPrice
       };
+      const newTotal = updated.stock;
       handleUpdateProduct(updated);
       handleRecordInventoryMovement({
         type: 'ingreso',

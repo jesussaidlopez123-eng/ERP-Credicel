@@ -1,5 +1,6 @@
 import { CartItem, Product } from '../types';
-import { isEquipmentProduct, locateImeiOnProduct, normalizeImei } from './imeiInventory';
+import { accessoryStockAt } from './accessoryInventory';
+import { imeisAtBranch, isEquipmentProduct, locateImeiOnProduct, normalizeImei } from './imeiInventory';
 
 export const VIRTUAL_POS_PRODUCT_IDS = new Set([
   'prod-equipo-credito-gen',
@@ -29,10 +30,10 @@ export function isNonInventorySaleItem(item: CartItem): boolean {
 }
 
 export function getBranchStockQty(product: Product, branchId: string): number {
-  if (product.branchStock && product.branchStock[branchId] !== undefined) {
-    return Number(product.branchStock[branchId]) || 0;
+  if (isEquipmentProduct(product)) {
+    return imeisAtBranch(product, branchId).length;
   }
-  return Number(product.stock) || 0;
+  return accessoryStockAt(product, branchId);
 }
 
 export type ImeiLookup =

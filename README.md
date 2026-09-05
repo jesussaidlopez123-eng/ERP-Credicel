@@ -22,6 +22,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Reparaciones (admin):** el menú **Reparaciones** muestra los equipos que siguen en taller **hasta hoy**, de todas las sucursales. Si una recepción vieja quedó solo en el ticket (sin ficha), se reconstruye y no se pierde. Desde ahí se **agrega o modifica el costo** (el saldo se recalcula contra el anticipo ya cobrado) y se abre el **Historial**. El cobro de anticipo o liquidación sigue en el punto de venta.
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 - **IMEI de equipos:** un celular solo puede estar en Bodega, Navojoa o Huatabampo. Al venderse sale de las tres. Si quedó en una ubicación que no se veía, pasa a Bodega. En Inventario → **Trazar IMEI** se ve sucursal, venta y movimientos.
+- **Accesorios:** el stock también vive solo en Bodega, Navojoa o Huatabampo. Piezas en ubicaciones ocultas pasan a Bodega. Al venderse se descuentan de la sucursal de la venta y, si hacía falta, del resto, para que no queden en un rincón.
 
 ## Sistema híbrido: primero el equipo, luego la nube
 
