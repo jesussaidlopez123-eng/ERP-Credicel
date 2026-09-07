@@ -160,6 +160,93 @@ export function repairCustomerMargin(repair: RepairRecord): number {
   return money((repair.totalCost || 0) - repairInternalCost(repair));
 }
 
+export function repairDeliveryWeekStart(repair: RepairRecord): string {
+  return weekStartDateKey(dateKeyOf(repair.deliveredAtIso || repair.deliveredAt));
+}
+
+export function repairCancelWeekStart(repair: RepairRecord): string {
+  return weekStartDateKey(dateKeyOf(repair.cancelledAt));
+}
+
+export type RepairWeekItem = {
+  repair: RepairRecord;
+  cobrado: number;
+  gastos: number;
+  utilidad: number;
+};
+
+export type RepairWeekRegister = {
+  weekStart: string;
+  weekEnd: string;
+  label: string;
+  isCurrent: boolean;
+  equipos: number;
+  cobrado: number;
+  gastos: number;
+  utilidad: number;
+  items: RepairWeekItem[];
+  cancelados: RepairRecord[];
+};
+
+export function listAdminWeekStarts(repairs: RepairRecord[]): string[] {
+  const current = currentWeekStartKey();
+  const starts = new Set<string>();
+  if (current) starts.add(current);
+  for (const repair of repairs) {
+    if (repair.status === 'entregado') {
+      const start = repairDeliveryWeekStart(repair);
+      if (start) starts.add(start);
+    }
+    if (repair.status === 'cancelado') {
+      const start = repairCancelWeekStart(repair);
+      if (start) starts.add(start);
+    }
+  }
+  return [...starts].filter(Boolean).sort((a, b) => (a < b ? 1 : -1));
+}
+
+export function buildDeliveredWeekRegister(
+  weekStart: string,
+  repairs: RepairRecord[]
+): RepairWeekRegister {
+  const items: RepairWeekItem[] = repairs
+    .filter((repair) => repair.status === 'entregado' && inWeek(dateKeyOf(repair.deliveredAtIso || repair.deliveredAt), weekStart))
+    .map((repair) => {
+      const cobrado = money(repair.totalCost || 0);
+      const gastos = repairInternalCost(repair);
+      return { repair, cobrado, gastos, utilidad: money(cobrado - gastos) };
+    })
+    .sort((a, b) =>
+      String(b.repair.deliveredAtIso || b.repair.deliveredAt || '').localeCompare(
+        String(a.repair.deliveredAtIso || a.repair.deliveredAt || '')
+      )
+    );
+
+  const cancelados = repairs
+    .filter((repair) => repair.status === 'cancelado' && inWeek(dateKeyOf(repair.cancelledAt), weekStart))
+    .sort((a, b) => String(b.cancelledAt || '').localeCompare(String(a.cancelledAt || '')));
+
+  const cobrado = money(items.reduce((sum, row) => sum + row.cobrado, 0));
+  const gastos = money(items.reduce((sum, row) => sum + row.gastos, 0));
+
+  return {
+    weekStart,
+    weekEnd: addCashDays(weekStart, 6),
+    label: formatWeekRangeLabel(weekStart),
+    isCurrent: weekStart === currentWeekStartKey(),
+    equipos: items.length,
+    cobrado,
+    gastos,
+    utilidad: money(cobrado - gastos),
+    items,
+    cancelados
+  };
+}
+
+export function buildAdminWeekRegisters(repairs: RepairRecord[]): RepairWeekRegister[] {
+  return listAdminWeekStarts(repairs).map((weekStart) => buildDeliveredWeekRegister(weekStart, repairs));
+}
+
 export type WeekCostLine = RepairCostLine & { repairId: string; branchId: string };
 
 export function listCostLinesInWeek(

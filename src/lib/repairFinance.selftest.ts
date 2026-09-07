@@ -1,8 +1,8 @@
 import type { RepairRecord, SaleTicket } from '../types';
 import {
-  buildRepairWeekFinance,
+  buildDeliveredWeekRegister,
   isRepairIncomeTicket,
-  listRepairFinanceWeekStarts,
+  listAdminWeekStarts,
   repairIncomeFromTicket
 } from './repairFinance';
 import { addRepairCostLine, mergeRepairSources, repairInternalCost } from './repairUtils';
@@ -93,20 +93,26 @@ assert(!isRepairIncomeTicket(accessoryTicket), 'accesorio no entra al libro del 
 assert(!isRepairIncomeTicket(cancelledRepair), 'ticket cancelado no cuenta');
 assert(repairIncomeFromTicket(mondayTicket) === 500, 'cobrado del anticipo');
 
-const week = buildRepairWeekFinance('2026-09-07', [mondayTicket, accessoryTicket, cancelledRepair], [repair]);
-assert(week.cobrado === 500, `cobrado ${week.cobrado}`);
-assert(week.costos === 400, `costos de esa semana, no la línea previa: ${week.costos}`);
-assert(week.margen === 100, `margen ${week.margen}`);
-assert(week.recibidos === 1, 'recibido el lunes');
-assert(week.byBranch[0].branchId === 'b-navojoa', 'por sucursal');
+const delivered: RepairRecord = {
+  ...repair,
+  status: 'entregado',
+  deliveredAt: '09/09/2026',
+  deliveredAtIso: '2026-09-09T18:00:00.000Z',
+  pendingBalance: 0
+};
 
-const prev = buildRepairWeekFinance('2026-08-31', [], [repair]);
-assert(prev.costos === 150, `mano de obra cae en la semana anterior: ${prev.costos}`);
-assert(prev.cobrado === 0, 'sin cobros esa semana');
+const week = buildDeliveredWeekRegister('2026-09-07', [delivered]);
+assert(week.equipos === 1, 'el entregado entra a la semana');
+assert(week.cobrado === 1200, `cobrado es el precio al cliente: ${week.cobrado}`);
+assert(week.gastos === 550, `gastos del folio completo, no por fecha de captura: ${week.gastos}`);
+assert(week.utilidad === 650, `utilidad ${week.utilidad}`);
 
-const starts = listRepairFinanceWeekStarts([mondayTicket], [repair]);
-assert(starts.includes('2026-09-07'), 'incluye la semana del cobro');
-assert(starts.includes('2026-08-31'), 'incluye la semana del costo previo');
+const prev = buildDeliveredWeekRegister('2026-08-31', [delivered]);
+assert(prev.equipos === 0, 'no entra a la semana anterior');
+assert(prev.gastos === 0, 'los gastos viajan con la entrega, no con la fecha de la pieza');
+
+const starts = listAdminWeekStarts([delivered]);
+assert(starts.includes('2026-09-07'), 'incluye la semana de entrega');
 
 const withLine = addRepairCostLine(repair, {
   kind: 'otro',

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Ban,
   CheckCircle2,
+  ChevronRight,
   Clock,
   DollarSign,
   History,
@@ -9,10 +10,9 @@ import {
   Pencil,
   Search,
   Store,
-  Wallet,
   Wrench
 } from 'lucide-react';
-import { Branch, Operator, RepairRecord, SaleTicket } from '../types';
+import { Branch, Operator, RepairRecord } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
@@ -25,9 +25,9 @@ import {
   repairStatusLabel,
   stampRepairLabel
 } from '../lib/repairUtils';
-import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
-import RepairFinancePanel from './RepairFinancePanel';
+import RepairWeekRegisterPanel from './RepairWeekRegister';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
+import { CancelRepairDialog } from './RepairHistoryPanel';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RepairsModuleProps {
@@ -40,13 +40,9 @@ interface RepairsModuleProps {
   onLoadOlderRepairs?: () => void;
   repairsHasMore?: boolean;
   repairsLoading?: boolean;
-  salesTickets?: SaleTicket[];
-  onLoadOlderSales?: () => void;
-  salesHasMore?: boolean;
-  salesLoading?: boolean;
 }
 
-type TabId = 'pendientes' | 'finanzas' | 'historial';
+type TabId = 'pendientes' | 'historial';
 
 function RepairsModule({
   repairRecords,
@@ -57,11 +53,7 @@ function RepairsModule({
   embedded = false,
   onLoadOlderRepairs,
   repairsHasMore = false,
-  repairsLoading = false,
-  salesTickets = [],
-  onLoadOlderSales,
-  salesHasMore = false,
-  salesLoading = false
+  repairsLoading = false
 }: RepairsModuleProps) {
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
@@ -75,6 +67,7 @@ function RepairsModule({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
 
   const scopedRecords = useMemo(() => {
     return repairRecords.filter((r) => {
@@ -82,13 +75,6 @@ function RepairsModule({
       return normalizeBranchId(r.branchId) === normalizeBranchId(selectedBranchId);
     });
   }, [repairRecords, selectedBranchId]);
-
-  const scopedTickets = useMemo(() => {
-    return salesTickets.filter((ticket) => {
-      if (selectedBranchId === 'all') return true;
-      return normalizeBranchId(ticket.branchId) === normalizeBranchId(selectedBranchId);
-    });
-  }, [salesTickets, selectedBranchId]);
 
   const pendingRepairs = useMemo(() => {
     return scopedRecords
@@ -178,8 +164,8 @@ function RepairsModule({
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Equipos en taller, precio al cliente, costos internos y el libro semanal del taller.
-              El cobro de anticipo o saldo sigue en caja.
+              El cajero recibe el equipo en caja. Aquí se abre la orden, se cargan los gastos y, al entregar,
+              el folio pasa al registro semanal.
             </p>
           </div>
         </div>
@@ -207,9 +193,8 @@ function RepairsModule({
         <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-slate-200">
           {([
             ['pendientes', 'Pendientes', pendingStats.enTaller],
-            ...((embedded ? [] : [['finanzas', 'Finanzas', null]] as const)),
             ['historial', 'Historial', scopedRecords.filter((r) => !isPendingRepair(r)).length]
-          ] as Array<[TabId, string, number | null]>).map(([id, label, count]) => (
+          ] as Array<[TabId, string, number]>).map(([id, label, count]) => (
             <button
               key={id}
               type="button"
@@ -220,19 +205,11 @@ function RepairsModule({
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
               }`}
             >
-              {id === 'pendientes' ? (
-                <Wrench className="w-3.5 h-3.5" />
-              ) : id === 'finanzas' ? (
-                <Wallet className="w-3.5 h-3.5" />
-              ) : (
-                <History className="w-3.5 h-3.5" />
-              )}
+              {id === 'pendientes' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
               {label}
-              {count !== null && (
-                <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
-                  {count}
-                </span>
-              )}
+              <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
+                {count}
+              </span>
             </button>
           ))}
         </div>
@@ -277,7 +254,7 @@ function RepairsModule({
               <PackageCheck className="w-10 h-10 mx-auto text-slate-300" />
               <p className="text-sm font-bold text-slate-700">No hay reparaciones pendientes.</p>
               <p className="text-xs text-slate-400">
-                Las recepciones se capturan en el punto de venta. Los equipos entregados están en Historial.
+                Las recepciones se capturan en el punto de venta. Al entregar, el equipo pasa al Historial semanal.
               </p>
             </div>
           ) : (
@@ -285,10 +262,13 @@ function RepairsModule({
               const editing = editingId === record.id;
               const sinCosto = money(record.totalCost) <= 0;
               const listo = record.status === 'listo';
+              const open = openOrderId === record.id;
               return (
                 <article
                   key={record.id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 shadow-sm"
+                  className={`bg-white border rounded-2xl p-4 sm:p-5 space-y-3 shadow-sm ${
+                    open ? 'border-indigo-300 ring-1 ring-indigo-100' : 'border-slate-200'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -315,166 +295,178 @@ function RepairsModule({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs bg-slate-50 p-3 rounded-xl">
-                    <div>
-                      <p className="text-slate-500 font-medium">Cliente</p>
-                      <p className="font-bold text-slate-900">
-                        {record.clientName} ({record.clientPhone})
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500 font-medium">Falla / servicio</p>
-                      <p className="font-bold text-slate-800">{record.issueDescription}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500 font-medium">Contraseña / patrón</p>
-                      <p className="font-bold text-slate-800">{record.passcodePattern || '—'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500 font-medium">Recibió</p>
-                      <p className="font-bold text-slate-800">{record.operatorName}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3 text-xs flex-wrap">
-                      <div>
-                        <span className="text-slate-500">Precio cliente:</span>{' '}
-                        <span className={`font-bold ${sinCosto ? 'text-amber-700' : 'text-slate-900'}`}>
-                          {sinCosto ? 'Sin capturar' : `$${formatMoney(record.totalCost)}`}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Costo interno:</span>{' '}
-                        <span className="font-bold text-slate-900">${formatMoney(repairInternalCost(record))}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Anticipo:</span>{' '}
-                        <span className="font-bold text-emerald-700">${formatMoney(record.advancePayment)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Saldo:</span>{' '}
-                        <span className="font-black text-amber-700 text-sm">
-                          ${formatMoney(record.pendingBalance)}
-                        </span>
-                      </div>
+                      <span className="font-bold text-slate-900">{record.clientName}</span>
+                      <span className="text-slate-500">{record.issueDescription}</span>
+                      <span className={sinCosto ? 'text-amber-700 font-bold' : 'text-slate-700'}>
+                        Precio {sinCosto ? 'sin capturar' : `$${formatMoney(record.totalCost)}`}
+                      </span>
+                      <span className="text-slate-700">Gastos ${formatMoney(repairInternalCost(record))}</span>
                     </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {onCancelRepairRecord && isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCancelTarget(record);
-                            setCancelReason('');
-                          }}
-                          className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Ban className="w-3.5 h-3.5" />
-                          Dar de baja
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void handleMarkReady(record)}
-                        disabled={savingId === record.id}
-                        className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        {listo ? 'Volver a taller' : 'Marcar listo'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => (editing ? setEditingId(null) : openCostEditor(record))}
-                        className="px-3 py-2 bg-[#0047AB] hover:bg-[#003d93] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-                      >
-                        {sinCosto ? <DollarSign className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                        {sinCosto ? 'Precio al cliente' : 'Cambiar precio'}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOpenOrderId(open ? null : record.id)}
+                      className="px-3 py-2 bg-[#0047AB] hover:bg-[#003d93] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {open ? 'Cerrar orden' : 'Abrir orden'}
+                      <ChevronRight className={`w-3.5 h-3.5 ${open ? 'rotate-90' : ''}`} />
+                    </button>
                   </div>
 
-                  {editing && (
-                    <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {open && (
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs bg-slate-50 p-3 rounded-xl">
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                            Precio al cliente
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            autoFocus
-                            value={costDraft}
-                            onChange={(e) => setCostDraft(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                          />
+                          <p className="text-slate-500 font-medium">Cliente</p>
+                          <p className="font-bold text-slate-900">
+                            {record.clientName} ({record.clientPhone})
+                          </p>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                            Anticipo ya cobrado
-                          </label>
-                          <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-emerald-800">
-                            ${formatMoney(record.advancePayment)}
-                          </div>
+                          <p className="text-slate-500 font-medium">Falla / servicio</p>
+                          <p className="font-bold text-slate-800">{record.issueDescription}</p>
                         </div>
                         <div>
-                          <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                            Nuevo saldo
-                          </label>
-                          <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-black text-amber-800">
-                            ${formatMoney(Math.max(0, money(parseFloat(costDraft) || 0) - money(record.advancePayment)))}
-                          </div>
+                          <p className="text-slate-500 font-medium">Contraseña / patrón</p>
+                          <p className="font-bold text-slate-800">{record.passcodePattern || '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-500 font-medium">Recibió</p>
+                          <p className="font-bold text-slate-800">{record.operatorName}</p>
                         </div>
                       </div>
-                      <input
-                        type="text"
-                        placeholder="Nota opcional (ej. se cambió display, no solo revisión)"
-                        value={costNote}
-                        onChange={(e) => setCostNote(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      />
-                      {costError && (
-                        <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                          {costError}
+
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 text-xs flex-wrap">
+                          <div>
+                            <span className="text-slate-500">Anticipo:</span>{' '}
+                            <span className="font-bold text-emerald-700">${formatMoney(record.advancePayment)}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Saldo:</span>{' '}
+                            <span className="font-black text-amber-700 text-sm">
+                              ${formatMoney(record.pendingBalance)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {onCancelRepairRecord && isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelTarget(record);
+                                setCancelReason('');
+                              }}
+                              className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                              Dar de baja
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleMarkReady(record)}
+                            disabled={savingId === record.id}
+                            className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            {listo ? 'Volver a taller' : 'Marcar listo'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => (editing ? setEditingId(null) : openCostEditor(record))}
+                            className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {sinCosto ? <DollarSign className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
+                            {sinCosto ? 'Precio al cliente' : 'Cambiar precio'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {editing && (
+                        <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Precio al cliente
+                              </label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                autoFocus
+                                value={costDraft}
+                                onChange={(e) => setCostDraft(e.target.value)}
+                                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Anticipo ya cobrado
+                              </label>
+                              <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-emerald-800">
+                                ${formatMoney(record.advancePayment)}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Nuevo saldo
+                              </label>
+                              <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-black text-amber-800">
+                                ${formatMoney(Math.max(0, money(parseFloat(costDraft) || 0) - money(record.advancePayment)))}
+                              </div>
+                            </div>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="Nota opcional (ej. se cambió display, no solo revisión)"
+                            value={costNote}
+                            onChange={(e) => setCostNote(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                          />
+                          {costError && (
+                            <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                              {costError}
+                            </p>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingId(null)}
+                              className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-white cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveCost(record)}
+                              disabled={savingId === record.id}
+                              className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
+                            >
+                              {savingId === record.id ? 'Guardando…' : 'Guardar precio'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {(record.costUpdates || []).length > 0 && !editing && (
+                        <p className="text-[11px] text-slate-500">
+                          Último cambio de precio:{' '}
+                          ${formatMoney(record.costUpdates![record.costUpdates!.length - 1].previousTotal)} → $
+                          {formatMoney(record.costUpdates![record.costUpdates!.length - 1].newTotal)} por{' '}
+                          {record.costUpdates![record.costUpdates!.length - 1].by}
                         </p>
                       )}
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(null)}
-                          className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-white cursor-pointer"
-                        >
-                          Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleSaveCost(record)}
-                          disabled={savingId === record.id}
-                          className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
-                        >
-                          {savingId === record.id ? 'Guardando…' : 'Guardar precio'}
-                        </button>
-                      </div>
+
+                      <RepairCostLinesEditor
+                        record={record}
+                        operatorName={currentOperator.name}
+                        onUpdate={onUpdateRepairRecord}
+                        busy={savingId === record.id}
+                      />
                     </div>
                   )}
-
-                  {(record.costUpdates || []).length > 0 && !editing && (
-                    <p className="text-[11px] text-slate-500">
-                      Último cambio de precio:{' '}
-                      ${formatMoney(record.costUpdates![record.costUpdates!.length - 1].previousTotal)} → $
-                      {formatMoney(record.costUpdates![record.costUpdates!.length - 1].newTotal)} por{' '}
-                      {record.costUpdates![record.costUpdates!.length - 1].by}
-                    </p>
-                  )}
-
-                  <RepairCostLinesEditor
-                    record={record}
-                    operatorName={currentOperator.name}
-                    onUpdate={onUpdateRepairRecord}
-                    busy={savingId === record.id}
-                  />
                 </article>
               );
             })
@@ -482,26 +474,11 @@ function RepairsModule({
         </div>
       )}
 
-      {activeTab === 'finanzas' && !embedded && (
-        <RepairFinancePanel
-          tickets={scopedTickets}
-          repairs={scopedRecords}
-          onLoadOlderSales={onLoadOlderSales}
-          salesHasMore={salesHasMore}
-          salesLoading={salesLoading}
-        />
-      )}
-
       {activeTab === 'historial' && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5">
-          <RepairHistoryPanel
+          <RepairWeekRegisterPanel
             records={scopedRecords}
-            exportLabel={`admin-${selectedBranchId}`}
             showBranch
-            isAdmin={isAdmin}
-            onCancelRepairRecord={onCancelRepairRecord}
-            onUpdateRepairRecord={onUpdateRepairRecord}
-            operatorName={currentOperator.name}
             onLoadOlder={onLoadOlderRepairs}
             hasMore={repairsHasMore}
             loadingMore={repairsLoading}
