@@ -27,7 +27,7 @@ import {
   Tag
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
-import { ALL_BRANCHES, isAdminWorkspace } from '../data/initialBranches';
+import { ALL_BRANCHES } from '../data/initialBranches';
 import {
   addImeisToProduct,
   imeisAtBranch,
@@ -46,6 +46,7 @@ import {
 } from '../lib/accessoryInventory';
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
 
 const InventoryMovementsModal = lazy(() =>
   import('./InventoryMovementsModal').then((m) => ({ default: m.InventoryMovementsModal }))
@@ -113,7 +114,7 @@ function InventoryModule({
   const [isIngresarModalOpen, setIsIngresarModalOpen] = useState(false);
   const [ingresarMode, setIngresarMode] = useState<'existente' | 'nuevo'>('existente');
   const [ingresarSelectedProdId, setIngresarSelectedProdId] = useState<string>('');
-  const [ingresarBranchId, setIngresarBranchId] = useState<string>('b-bodega');
+  const [ingresarBranchId, setIngresarBranchId] = useState<string>('');
   const [ingresarQuantity, setIngresarQuantity] = useState<string>('1');
   // Form fields for new product / equipo
   const [newCode, setNewCode] = useState('');
@@ -154,7 +155,7 @@ function InventoryModule({
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSelectedProdId, setTransferSelectedProdId] = useState<string>('');
   const [fromBranchId, setFromBranchId] = useState<string>('b-bodega');
-  const [toBranchId, setToBranchId] = useState<string>('b-navojoa');
+  const [toBranchId, setToBranchId] = useState<string>('');
   const [transferQuantity, setTransferQuantity] = useState<string>('1');
 
   // Modal 2B: Selección de IMEIs para Traspaso
@@ -219,11 +220,11 @@ function InventoryModule({
 
   const handleConfirmSecurityAuth = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!securityPassword.trim()) {
-      setSecurityError('Por favor ingresa la contraseña para autorizar la operación.');
+    const authError = authorizeWithOperatorPassword(securityPassword, currentOperator);
+    if (authError) {
+      setSecurityError(authError);
       return;
     }
-    // Ejecutar acción pendiente tras validación de seguridad
     if (pendingSecurityCallback) {
       pendingSecurityCallback.execute();
     }
@@ -449,9 +450,7 @@ function InventoryModule({
     setIngresarMode('existente');
     const firstProd = tabProducts[0];
     setIngresarSelectedProdId(firstProd ? firstProd.id : '');
-    setIngresarBranchId(
-      isAdminWorkspace(currentBranch?.id) ? 'b-bodega' : toInventoryBranchId(currentBranch?.id)
-    );
+    setIngresarBranchId('');
     setIngresarQuantity('1');
     setNewCode('');
     setNewName('');
@@ -463,6 +462,11 @@ function InventoryModule({
 
   const handleConfirmIngresar = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!ingresarBranchId.trim()) {
+      alert('Selecciona la sucursal destino. No se asume ninguna por defecto.');
+      return;
+    }
 
     const qty = parseInt(ingresarQuantity, 10);
     if (isNaN(qty) || qty <= 0) {
@@ -778,7 +782,7 @@ function InventoryModule({
     const firstProd = tabProducts[0];
     setTransferSelectedProdId(firstProd ? firstProd.id : '');
     setFromBranchId('b-bodega');
-    setToBranchId('b-navojoa');
+    setToBranchId('');
     setTransferQuantity('1');
     setIsTransferModalOpen(true);
   };
@@ -788,6 +792,11 @@ function InventoryModule({
     const prod = products.find(p => p.id === transferSelectedProdId);
     if (!prod) {
       alert('Selecciona un modelo a transferir.');
+      return;
+    }
+
+    if (!toBranchId.trim()) {
+      alert('Selecciona la sucursal destino. No se asume ninguna por defecto.');
       return;
     }
 
@@ -1856,8 +1865,10 @@ function InventoryModule({
                   <select
                     value={ingresarBranchId}
                     onChange={(e) => setIngresarBranchId(e.target.value)}
+                    required
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
+                    <option value="">Seleccionar destino…</option>
                     {ALL_BRANCHES.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name}
@@ -1974,8 +1985,10 @@ function InventoryModule({
                   <select
                     value={toBranchId}
                     onChange={(e) => setToBranchId(e.target.value)}
+                    required
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
+                    <option value="">Seleccionar destino…</option>
                     {ALL_BRANCHES.map(b => (
                       <option key={b.id} value={b.id}>
                         {b.name}

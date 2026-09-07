@@ -22,7 +22,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Reparaciones (admin):** el cajero recibe el equipo en el punto de venta. En **Reparaciones → Pendientes** se abre la orden y se cargan los **gastos** (refacción, mano de obra u otro). Al entregar en caja, el folio pasa al **Historial**: se elige la semana (lunes a domingo, hora Sonora) y al abrirla aparece el registro administrativo con los equipos de esa semana, la suma de gastos y la utilidad (precio al cliente menos gastos). Desde Historial se puede **generar un Excel** de tal fecha a tal fecha (resumen, operaciones, gastos y bajas). El efectivo de anticipo o liquidación sigue en caja y en el Corte X.
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 - **IMEI de equipos:** un celular solo puede estar en Bodega, Navojoa o Huatabampo. Al venderse sale de las tres. Si quedó en una ubicación que no se veía, pasa a Bodega. En Inventario → **Trazar IMEI** se ve sucursal, venta y movimientos.
-- **Accesorios:** el stock también vive solo en Bodega, Navojoa o Huatabampo. Piezas en ubicaciones ocultas pasan a Bodega. Al venderse se descuentan de la sucursal de la venta y, si hacía falta, del resto, para que no queden en un rincón.
+- **Accesorios:** el stock también vive solo en Bodega, Navojoa o Huatabampo. Piezas en ubicaciones ocultas pasan a Bodega. Al venderse se descuentan de la sucursal de la venta y, si hacía falta, del resto, para que no queden en un rincón. En **ingreso** y **traspaso** el destino empieza vacío: hay que elegir sucursal. Traspasos y ajustes piden la contraseña del operador en sesión; si está mal, no se aplica el cambio.
 
 ## Sistema híbrido: primero el equipo, luego la nube
 
