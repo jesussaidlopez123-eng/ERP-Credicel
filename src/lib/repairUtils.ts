@@ -1,5 +1,5 @@
-import { RepairRecord, SaleTicket } from '../types';
-import { money } from './ids';
+import { RepairCostKind, RepairCostLine, RepairRecord, SaleTicket } from '../types';
+import { money, newUniqueId } from './ids';
 import { safeFormatDate, safeFormatTime } from './dateUtils';
 import { normalizeBranchId } from '../data/initialBranches';
 
@@ -34,6 +34,65 @@ export function normalizeRepairStatus(status: string | undefined): RepairRecord[
   return 'en_taller';
 }
 
+function normalizeCostKind(raw: unknown): RepairCostKind {
+  const value = String(raw || '').toLowerCase().trim();
+  if (value === 'mano_obra' || value === 'mano de obra' || value === 'labor') return 'mano_obra';
+  if (value === 'otro' || value === 'other') return 'otro';
+  return 'refaccion';
+}
+
+export function normalizeRepairCostLine(
+  raw: Partial<RepairCostLine> & Record<string, unknown>
+): RepairCostLine | null {
+  const amount = money(Number(raw.amount) || 0);
+  if (amount < 0) return null;
+  const concept = String(raw.concept || '').trim();
+  if (!concept && amount === 0) return null;
+  return {
+    id: String(raw.id || '').trim() || newUniqueId('RC'),
+    kind: normalizeCostKind(raw.kind),
+    concept: concept || 'Costo de taller',
+    amount,
+    at: String(raw.at || ''),
+    by: String(raw.by || '').trim()
+  };
+}
+
+export function repairInternalCost(record: RepairRecord | null | undefined): number {
+  return money((record?.costLines || []).reduce((sum, line) => sum + money(line.amount), 0));
+}
+
+export function addRepairCostLine(
+  record: RepairRecord,
+  input: { kind: RepairCostKind; concept: string; amount: number; at: string; by: string }
+): RepairRecord {
+  const amount = money(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('El costo interno debe ser mayor a cero.');
+  }
+  const concept = input.concept.trim();
+  if (!concept) {
+    throw new Error('Escribe de qué es el costo (refacción, mano de obra, etc.).');
+  }
+  const line = normalizeRepairCostLine({
+    id: newUniqueId('RC'),
+    kind: input.kind,
+    concept,
+    amount,
+    at: input.at,
+    by: input.by
+  });
+  if (!line) throw new Error('No se pudo guardar el costo interno.');
+  return { ...record, costLines: [...(record.costLines || []), line] };
+}
+
+export function removeRepairCostLine(record: RepairRecord, lineId: string): RepairRecord {
+  return {
+    ...record,
+    costLines: (record.costLines || []).filter((line) => line.id !== lineId)
+  };
+}
+
 export function normalizeRepairRecord(
   raw: Partial<RepairRecord> & Record<string, unknown>
 ): RepairRecord | null {
@@ -46,6 +105,11 @@ export function normalizeRepairRecord(
       ? Math.max(0, totalCost - advancePayment)
       : Number(raw.pendingBalance) || 0
   );
+  const costLines = Array.isArray(raw.costLines)
+    ? (raw.costLines as Array<Partial<RepairCostLine> & Record<string, unknown>>)
+        .map((line) => normalizeRepairCostLine(line || {}))
+        .filter((line): line is RepairCostLine => Boolean(line))
+    : undefined;
   return {
     id,
     clientName: String(raw.clientName || '').trim() || 'Sin nombre',
@@ -70,7 +134,8 @@ export function normalizeRepairRecord(
     cancelledByName: raw.cancelledByName ? String(raw.cancelledByName) : undefined,
     cancelReason: raw.cancelReason ? String(raw.cancelReason) : undefined,
     deliveryTicketId: raw.deliveryTicketId ? String(raw.deliveryTicketId) : undefined,
-    costUpdates: Array.isArray(raw.costUpdates) ? raw.costUpdates : undefined
+    costUpdates: Array.isArray(raw.costUpdates) ? raw.costUpdates : undefined,
+    costLines
   };
 }
 
@@ -87,7 +152,18 @@ export function mergeRepairSources(...lists: Array<RepairRecord[] | undefined>):
       const rec = normalizeRepairRecord(raw as RepairRecord & Record<string, unknown>);
       if (!rec) continue;
       const prev = map.get(rec.id);
-      map.set(rec.id, prev ? { ...prev, ...rec, id: rec.id } : rec);
+      map.set(
+        rec.id,
+        prev
+          ? {
+              ...prev,
+              ...rec,
+              id: rec.id,
+              costUpdates: rec.costUpdates ?? prev.costUpdates,
+              costLines: rec.costLines ?? prev.costLines
+            }
+          : rec
+      );
     }
   }
   return Array.from(map.values());
@@ -172,10 +248,10 @@ export function applyRepairCost(
   const advance = money(record.advancePayment);
 
   if (!Number.isFinite(total) || total < 0) {
-    throw new Error('El costo debe ser un número válido.');
+    throw new Error('El precio debe ser un número válido.');
   }
   if (total < advance) {
-    throw new Error('El costo no puede ser menor que el anticipo ya cobrado.');
+    throw new Error('El precio no puede ser menor que el anticipo ya cobrado.');
   }
 
   const pending = money(Math.max(0, total - advance));

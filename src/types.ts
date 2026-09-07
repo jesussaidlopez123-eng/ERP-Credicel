@@ -171,6 +171,18 @@ export interface CreditAccount {
   updatedAt: string;
 }
 
+export type RepairCostKind = 'refaccion' | 'mano_obra' | 'otro';
+
+/** Costo interno del taller (refacción, mano de obra). No es el precio al cliente. */
+export interface RepairCostLine {
+  id: string;
+  kind: RepairCostKind;
+  concept: string;
+  amount: number;
+  at: string;
+  by: string;
+}
+
 export interface RepairRecord {
   id: string; // Folio e.g. REP-2908-K3M07
   clientName: string;
@@ -178,6 +190,7 @@ export interface RepairRecord {
   deviceModel: string;
   passcodePattern?: string; // Pattern / PIN
   issueDescription: string;
+  /** Precio cobrado al cliente. */
   totalCost: number;
   advancePayment: number;
   pendingBalance: number;
@@ -198,7 +211,7 @@ export interface RepairRecord {
   cancelReason?: string;
   /** Ticket con el que se liquidó el saldo. */
   deliveryTicketId?: string;
-  /** Cambios de costo capturados desde admin o taller. */
+  /** Cambios de precio al cliente capturados desde admin o taller. */
   costUpdates?: {
     previousTotal: number;
     newTotal: number;
@@ -206,6 +219,8 @@ export interface RepairRecord {
     by: string;
     note?: string;
   }[];
+  /** Gastos internos del taller, aparte de la caja del día. */
+  costLines?: RepairCostLine[];
 }
 
 export interface RepairPriceItem {

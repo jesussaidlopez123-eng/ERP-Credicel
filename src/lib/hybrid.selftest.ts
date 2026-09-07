@@ -226,6 +226,15 @@ const conCosto = applyRepairCost(taller, 1800, 'Admin Principal', '2026-08-31T18
 assert.equal(conCosto.totalCost, 1800);
 assert.equal(conCosto.pendingBalance, 1600, 'el saldo es costo menos anticipo');
 assert.equal(conCosto.costUpdates?.length, 1);
+const { addRepairCostLine, repairInternalCost } = await import('./repairUtils.ts');
+const conInterno = addRepairCostLine(conCosto, {
+  kind: 'refaccion',
+  concept: 'Display OEM',
+  amount: 650,
+  at: '2026-08-31T19:00:00.000Z',
+  by: 'Admin Principal'
+});
+assert.equal(repairInternalCost(conInterno), 650);
 assert.throws(
   () => applyRepairCost(taller, 100, 'Admin Principal', '2026-08-31T18:00:00.000Z'),
   /anticipo/,

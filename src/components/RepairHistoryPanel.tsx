@@ -5,8 +5,10 @@ import { formatMoney } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import { safeDateIsoKey } from '../lib/dateUtils';
 import { getBranchDisplayName } from '../data/initialBranches';
-import { matchesRepairSearch, stampRepairLabel } from '../lib/repairUtils';
+import { matchesRepairSearch, repairInternalCost, stampRepairLabel } from '../lib/repairUtils';
+import { REPAIR_COST_KIND_LABEL, repairCustomerMargin } from '../lib/repairFinance';
 import LoadMoreButton from './LoadMoreButton';
+import RepairCostLinesEditor from './RepairCostLinesEditor';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 export type HistoryScope = 'entregados' | 'cancelados' | 'todos';
@@ -17,6 +19,8 @@ interface RepairHistoryPanelProps {
   showBranch?: boolean;
   isAdmin?: boolean;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onUpdateRepairRecord?: (record: RepairRecord) => void | Promise<void>;
+  operatorName?: string;
   onLoadOlder?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -28,6 +32,8 @@ export default function RepairHistoryPanel({
   showBranch = false,
   isAdmin = false,
   onCancelRepairRecord,
+  onUpdateRepairRecord,
+  operatorName,
   onLoadOlder,
   hasMore = false,
   loadingMore = false
@@ -55,10 +61,10 @@ export default function RepairHistoryPanel({
   }, [records, historyScope, debouncedHistorySearch]);
 
   const historyTotals = useMemo(() => {
-    const cobrado = historyRecords
-      .filter((r) => r.status === 'entregado')
-      .reduce((sum, r) => sum + (Number(r.totalCost) || 0), 0);
-    return { cobrado, cuenta: historyRecords.length };
+    const delivered = historyRecords.filter((r) => r.status === 'entregado');
+    const cobrado = delivered.reduce((sum, r) => sum + (Number(r.totalCost) || 0), 0);
+    const interno = delivered.reduce((sum, r) => sum + repairInternalCost(r), 0);
+    return { cobrado, interno, margen: cobrado - interno, cuenta: historyRecords.length };
   }, [historyRecords]);
 
   const exportHistory = () => {
@@ -70,7 +76,9 @@ export default function RepairHistoryPanel({
       'Telefono',
       'Equipo',
       'Falla',
-      'Costo',
+      'Precio cliente',
+      'Costo interno',
+      'Margen',
       'Anticipo',
       'Saldo',
       'Recibido',
@@ -87,6 +95,8 @@ export default function RepairHistoryPanel({
       r.deviceModel,
       (r.issueDescription || '').replace(/[\n;]/g, ' '),
       formatMoney(r.totalCost),
+      formatMoney(repairInternalCost(r)),
+      formatMoney(repairCustomerMargin(r)),
       formatMoney(r.advancePayment),
       formatMoney(r.pendingBalance),
       stampRepairLabel(r.receivedAtIso, r.receivedAt),
@@ -144,8 +154,12 @@ export default function RepairHistoryPanel({
           <span className="font-bold text-slate-900">{historyTotals.cuenta}</span> registro(s)
           {historyScope !== 'cancelados' && (
             <>
-              {' · '}cobrado{' '}
+              {' · '}precio cliente{' '}
               <span className="font-bold text-slate-900">${formatMoney(historyTotals.cobrado)}</span>
+              {' · '}interno{' '}
+              <span className="font-bold text-slate-900">${formatMoney(historyTotals.interno)}</span>
+              {' · '}margen{' '}
+              <span className="font-bold text-slate-900">${formatMoney(historyTotals.margen)}</span>
             </>
           )}
         </div>
@@ -264,7 +278,15 @@ export default function RepairHistoryPanel({
 
                     <div className="flex flex-wrap items-center gap-3 text-[11px] bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
                       <span>
-                        Costo <strong className="text-slate-900">${formatMoney(record.totalCost)}</strong>
+                        Precio cliente <strong className="text-slate-900">${formatMoney(record.totalCost)}</strong>
+                      </span>
+                      <span>
+                        Costo interno{' '}
+                        <strong className="text-slate-900">${formatMoney(repairInternalCost(record))}</strong>
+                      </span>
+                      <span>
+                        Margen{' '}
+                        <strong className="text-slate-900">${formatMoney(repairCustomerMargin(record))}</strong>
                       </span>
                       <span>
                         Anticipo{' '}
@@ -275,6 +297,26 @@ export default function RepairHistoryPanel({
                         <strong className="text-slate-900">${formatMoney(record.pendingBalance)}</strong>
                       </span>
                     </div>
+
+                    {(record.costLines || []).length > 0 && !(onUpdateRepairRecord && operatorName) && (
+                      <div className="text-[11px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 space-y-1">
+                        <p className="font-bold">Costos internos del taller</p>
+                        {(record.costLines || []).map((line) => (
+                          <p key={line.id}>
+                            {REPAIR_COST_KIND_LABEL[line.kind]} · {line.concept} · ${formatMoney(line.amount)} ·{' '}
+                            {stampRepairLabel(line.at, undefined)} · {line.by}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {onUpdateRepairRecord && operatorName && (
+                      <RepairCostLinesEditor
+                        record={record}
+                        operatorName={operatorName}
+                        onUpdate={onUpdateRepairRecord}
+                      />
+                    )}
 
                     {(record.costUpdates || []).length > 0 && (
                       <div className="text-[11px] bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-amber-950 space-y-1">

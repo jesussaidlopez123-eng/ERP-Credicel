@@ -9,9 +9,10 @@ import {
   Pencil,
   Search,
   Store,
+  Wallet,
   Wrench
 } from 'lucide-react';
-import { Branch, Operator, RepairRecord } from '../types';
+import { Branch, Operator, RepairRecord, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
@@ -20,10 +21,13 @@ import {
   applyRepairCost,
   isPendingRepair,
   matchesRepairSearch,
+  repairInternalCost,
   repairStatusLabel,
   stampRepairLabel
 } from '../lib/repairUtils';
 import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
+import RepairFinancePanel from './RepairFinancePanel';
+import RepairCostLinesEditor from './RepairCostLinesEditor';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RepairsModuleProps {
@@ -36,9 +40,13 @@ interface RepairsModuleProps {
   onLoadOlderRepairs?: () => void;
   repairsHasMore?: boolean;
   repairsLoading?: boolean;
+  salesTickets?: SaleTicket[];
+  onLoadOlderSales?: () => void;
+  salesHasMore?: boolean;
+  salesLoading?: boolean;
 }
 
-type TabId = 'pendientes' | 'historial';
+type TabId = 'pendientes' | 'finanzas' | 'historial';
 
 function RepairsModule({
   repairRecords,
@@ -49,7 +57,11 @@ function RepairsModule({
   embedded = false,
   onLoadOlderRepairs,
   repairsHasMore = false,
-  repairsLoading = false
+  repairsLoading = false,
+  salesTickets = [],
+  onLoadOlderSales,
+  salesHasMore = false,
+  salesLoading = false
 }: RepairsModuleProps) {
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
@@ -70,6 +82,13 @@ function RepairsModule({
       return normalizeBranchId(r.branchId) === normalizeBranchId(selectedBranchId);
     });
   }, [repairRecords, selectedBranchId]);
+
+  const scopedTickets = useMemo(() => {
+    return salesTickets.filter((ticket) => {
+      if (selectedBranchId === 'all') return true;
+      return normalizeBranchId(ticket.branchId) === normalizeBranchId(selectedBranchId);
+    });
+  }, [salesTickets, selectedBranchId]);
 
   const pendingRepairs = useMemo(() => {
     return scopedRecords
@@ -107,7 +126,7 @@ function RepairsModule({
     setCostError(null);
     const parsed = parseFloat(costDraft);
     if (!Number.isFinite(parsed)) {
-      setCostError('Escribe el costo de la reparación.');
+      setCostError('Escribe el precio al cliente.');
       return;
     }
     try {
@@ -159,7 +178,8 @@ function RepairsModule({
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              Equipos que siguen en taller hasta hoy, costos e historial. El cobro sigue en el punto de venta.
+              Equipos en taller, precio al cliente, costos internos y el libro semanal del taller.
+              El cobro de anticipo o saldo sigue en caja.
             </p>
           </div>
         </div>
@@ -167,9 +187,9 @@ function RepairsModule({
         <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
           <SummaryCard label="En taller" value={String(pendingStats.enTaller)} hint="Pendientes de entregar" />
           <SummaryCard
-            label="Sin costo"
+            label="Sin precio"
             value={String(pendingStats.sinCosto)}
-            hint="Hay que capturar el precio"
+            hint="Hay que capturar el precio al cliente"
             accent={pendingStats.sinCosto > 0 ? 'amber' : 'slate'}
           />
           <SummaryCard
@@ -187,8 +207,9 @@ function RepairsModule({
         <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-slate-200">
           {([
             ['pendientes', 'Pendientes', pendingStats.enTaller],
+            ...((embedded ? [] : [['finanzas', 'Finanzas', null]] as const)),
             ['historial', 'Historial', scopedRecords.filter((r) => !isPendingRepair(r)).length]
-          ] as const).map(([id, label, count]) => (
+          ] as Array<[TabId, string, number | null]>).map(([id, label, count]) => (
             <button
               key={id}
               type="button"
@@ -199,11 +220,19 @@ function RepairsModule({
                   : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
               }`}
             >
-              {id === 'pendientes' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
+              {id === 'pendientes' ? (
+                <Wrench className="w-3.5 h-3.5" />
+              ) : id === 'finanzas' ? (
+                <Wallet className="w-3.5 h-3.5" />
+              ) : (
+                <History className="w-3.5 h-3.5" />
+              )}
               {label}
-              <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
-                {count}
-              </span>
+              {count !== null && (
+                <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
+                  {count}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -308,12 +337,16 @@ function RepairsModule({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100">
-                    <div className="flex items-center gap-3 text-xs">
+                    <div className="flex items-center gap-3 text-xs flex-wrap">
                       <div>
-                        <span className="text-slate-500">Costo:</span>{' '}
+                        <span className="text-slate-500">Precio cliente:</span>{' '}
                         <span className={`font-bold ${sinCosto ? 'text-amber-700' : 'text-slate-900'}`}>
                           {sinCosto ? 'Sin capturar' : `$${formatMoney(record.totalCost)}`}
                         </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Costo interno:</span>{' '}
+                        <span className="font-bold text-slate-900">${formatMoney(repairInternalCost(record))}</span>
                       </div>
                       <div>
                         <span className="text-slate-500">Anticipo:</span>{' '}
@@ -356,7 +389,7 @@ function RepairsModule({
                         className="px-3 py-2 bg-[#0047AB] hover:bg-[#003d93] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                       >
                         {sinCosto ? <DollarSign className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                        {sinCosto ? 'Agregar costo' : 'Modificar costo'}
+                        {sinCosto ? 'Precio al cliente' : 'Cambiar precio'}
                       </button>
                     </div>
                   </div>
@@ -366,7 +399,7 @@ function RepairsModule({
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                            Costo total de la reparación
+                            Precio al cliente
                           </label>
                           <input
                             type="number"
@@ -421,7 +454,7 @@ function RepairsModule({
                           disabled={savingId === record.id}
                           className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
                         >
-                          {savingId === record.id ? 'Guardando…' : 'Guardar costo'}
+                          {savingId === record.id ? 'Guardando…' : 'Guardar precio'}
                         </button>
                       </div>
                     </div>
@@ -429,17 +462,34 @@ function RepairsModule({
 
                   {(record.costUpdates || []).length > 0 && !editing && (
                     <p className="text-[11px] text-slate-500">
-                      Último cambio:{' '}
+                      Último cambio de precio:{' '}
                       ${formatMoney(record.costUpdates![record.costUpdates!.length - 1].previousTotal)} → $
                       {formatMoney(record.costUpdates![record.costUpdates!.length - 1].newTotal)} por{' '}
                       {record.costUpdates![record.costUpdates!.length - 1].by}
                     </p>
                   )}
+
+                  <RepairCostLinesEditor
+                    record={record}
+                    operatorName={currentOperator.name}
+                    onUpdate={onUpdateRepairRecord}
+                    busy={savingId === record.id}
+                  />
                 </article>
               );
             })
           )}
         </div>
+      )}
+
+      {activeTab === 'finanzas' && !embedded && (
+        <RepairFinancePanel
+          tickets={scopedTickets}
+          repairs={scopedRecords}
+          onLoadOlderSales={onLoadOlderSales}
+          salesHasMore={salesHasMore}
+          salesLoading={salesLoading}
+        />
       )}
 
       {activeTab === 'historial' && (
@@ -450,6 +500,8 @@ function RepairsModule({
             showBranch
             isAdmin={isAdmin}
             onCancelRepairRecord={onCancelRepairRecord}
+            onUpdateRepairRecord={onUpdateRepairRecord}
+            operatorName={currentOperator.name}
             onLoadOlder={onLoadOlderRepairs}
             hasMore={repairsHasMore}
             loadingMore={repairsLoading}

@@ -1606,6 +1606,10 @@ export default function Dashboard({
             onLoadOlderRepairs={loadOlderRepairs}
             repairsHasMore={repairsHasMore}
             repairsLoading={historyBusy === 'repairs'}
+            salesTickets={salesTickets}
+            onLoadOlderSales={loadOlderSales}
+            salesHasMore={salesHasMore}
+            salesLoading={historyBusy === 'sales'}
           />
         );
       case 'executive':
