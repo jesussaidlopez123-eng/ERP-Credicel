@@ -1,16 +1,18 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowLeft, ChevronRight, Download, History, Search } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Download, FileSpreadsheet, History, Search } from 'lucide-react';
 import { RepairRecord } from '../types';
 import { formatMoney } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
-import { safeDateIsoKey } from '../lib/dateUtils';
+import { currentWeekStartKey, safeDateIsoKey, todayCashDateKey } from '../lib/dateUtils';
 import { getBranchDisplayName } from '../data/initialBranches';
 import {
   buildAdminWeekRegisters,
   buildDeliveredWeekRegister,
+  buildRepairRangeRegister,
   REPAIR_COST_KIND_LABEL,
   type RepairWeekRegister as WeekRegister
 } from '../lib/repairFinance';
+import { downloadRepairRangeExcel } from '../lib/repairExcel';
 import { stampRepairLabel } from '../lib/repairUtils';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -61,60 +63,6 @@ export default function RepairWeekRegisterPanel({
     });
   }, [openWeek, debouncedQuery]);
 
-  const exportWeek = (week: WeekRegister) => {
-    const encabezado = [
-      'Semana',
-      'Folio',
-      'Sucursal',
-      'Cliente',
-      'Equipo',
-      'Falla',
-      'Precio cliente',
-      'Gastos',
-      'Utilidad',
-      'Entregado',
-      'Entrego'
-    ];
-    const filas = week.items.map((row) => [
-      week.label,
-      row.repair.id,
-      getBranchDisplayName(row.repair.branchId),
-      row.repair.clientName,
-      row.repair.deviceModel,
-      (row.repair.issueDescription || '').replace(/[\n;]/g, ' '),
-      formatMoney(row.cobrado),
-      formatMoney(row.gastos),
-      formatMoney(row.utilidad),
-      stampRepairLabel(row.repair.deliveredAtIso, row.repair.deliveredAt),
-      row.repair.deliveredByName || ''
-    ]);
-    filas.push([
-      week.label,
-      'TOTAL',
-      '',
-      '',
-      '',
-      '',
-      formatMoney(week.cobrado),
-      formatMoney(week.gastos),
-      formatMoney(week.utilidad),
-      '',
-      ''
-    ]);
-    const csv = [encabezado, ...filas]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'))
-      .join('\n');
-    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `registro-taller-${week.weekStart}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   if (openWeek) {
     return (
       <div className="space-y-4">
@@ -133,12 +81,13 @@ export default function RepairWeekRegisterPanel({
           </button>
           <button
             type="button"
-            onClick={() => exportWeek(openWeek)}
-            disabled={openWeek.items.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+            onClick={() =>
+              downloadRepairRangeExcel(buildRepairRangeRegister(openWeek.weekStart, openWeek.weekEnd, records))
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
-            Exportar semana
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Excel de esta semana
           </button>
         </div>
 
@@ -300,6 +249,8 @@ export default function RepairWeekRegisterPanel({
         </p>
       </div>
 
+      <ExcelRangeCard records={records} />
+
       {weeks.length === 0 ? (
         <p className="text-sm text-slate-500 text-center py-8">Todavía no hay semanas de taller.</p>
       ) : (
@@ -343,6 +294,90 @@ export default function RepairWeekRegisterPanel({
         label="Cargar historial anterior"
       />
     </div>
+  );
+}
+
+function ExcelRangeCard({ records }: { records: RepairRecord[] }) {
+  const [from, setFrom] = useState(currentWeekStartKey());
+  const [to, setTo] = useState(todayCashDateKey());
+  const [error, setError] = useState<string | null>(null);
+
+  const preview = useMemo(() => {
+    if (!from || !to) return null;
+    return buildRepairRangeRegister(from, to, records);
+  }, [from, to, records]);
+
+  const handleDownload = () => {
+    if (!from || !to) {
+      setError('Elige la fecha inicial y la final.');
+      return;
+    }
+    setError(null);
+    downloadRepairRangeExcel(buildRepairRangeRegister(from, to, records));
+  };
+
+  return (
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+      <div className="flex items-start gap-2">
+        <FileSpreadsheet className="w-5 h-5 text-emerald-800 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-black text-slate-900">Generar Excel</p>
+          <p className="text-xs text-slate-600">
+            Resumen de operaciones del taller de tal fecha a tal fecha: equipos, gastos y utilidad.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label className="block text-[11px] font-bold text-slate-700">
+          Desde
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+          />
+        </label>
+        <label className="block text-[11px] font-bold text-slate-700">
+          Hasta
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+          />
+        </label>
+      </div>
+
+      {preview && (
+        <p className="text-[11px] text-slate-600">
+          {preview.label}: <strong>{preview.equipos}</strong> equipo{preview.equipos === 1 ? '' : 's'} ·
+          cobrado <strong>${formatMoney(preview.cobrado)}</strong> · gastos{' '}
+          <strong>${formatMoney(preview.gastos)}</strong> · utilidad{' '}
+          <strong>${formatMoney(preview.utilidad)}</strong>
+        </p>
+      )}
+
+      {error && (
+        <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+          {error}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleDownload}
+          className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold cursor-pointer"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Descargar Excel
+        </button>
+        <p className="text-[10px] text-slate-500">
+          Si falta un folio viejo, carga historial anterior antes de bajar el archivo.
+        </p>
+      </div>
+    </section>
   );
 }
 

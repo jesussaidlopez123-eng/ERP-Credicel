@@ -1,6 +1,7 @@
 import type { RepairRecord, SaleTicket } from '../types';
 import {
   buildDeliveredWeekRegister,
+  buildRepairRangeRegister,
   isRepairIncomeTicket,
   listAdminWeekStarts,
   repairIncomeFromTicket
@@ -113,6 +114,16 @@ assert(prev.gastos === 0, 'los gastos viajan con la entrega, no con la fecha de 
 
 const starts = listAdminWeekStarts([delivered]);
 assert(starts.includes('2026-09-07'), 'incluye la semana de entrega');
+
+const rangeHit = buildRepairRangeRegister('2026-09-08', '2026-09-10', [delivered]);
+assert(rangeHit.equipos === 1, 'el rango incluye el día de entrega');
+assert(rangeHit.utilidad === 650, `utilidad del rango ${rangeHit.utilidad}`);
+
+const rangeMiss = buildRepairRangeRegister('2026-09-01', '2026-09-07', [delivered]);
+assert(rangeMiss.equipos === 0, 'fuera del rango no entra');
+
+const swapped = buildRepairRangeRegister('2026-09-10', '2026-09-08', [delivered]);
+assert(swapped.equipos === 1, 'si las fechas van al revés se acomodan');
 
 const withLine = addRepairCostLine(repair, {
   kind: 'otro',

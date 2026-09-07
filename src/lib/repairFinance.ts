@@ -3,6 +3,7 @@ import { money } from './ids';
 import {
   addCashDays,
   currentWeekStartKey,
+  formatDateRangeLabel,
   formatWeekRangeLabel,
   safeDateIsoKey,
   weekStartDateKey
@@ -245,6 +246,75 @@ export function buildDeliveredWeekRegister(
 
 export function buildAdminWeekRegisters(repairs: RepairRecord[]): RepairWeekRegister[] {
   return listAdminWeekStarts(repairs).map((weekStart) => buildDeliveredWeekRegister(weekStart, repairs));
+}
+
+function normalizeRange(from: string, to: string): { from: string; to: string } {
+  if (from && to && from > to) return { from: to, to: from };
+  return { from, to };
+}
+
+export function inDateRange(dateKey: string, from: string, to: string): boolean {
+  if (!dateKey || !from || !to) return false;
+  const range = normalizeRange(from, to);
+  return dateKey >= range.from && dateKey <= range.to;
+}
+
+export type RepairRangeRegister = {
+  from: string;
+  to: string;
+  label: string;
+  equipos: number;
+  cobrado: number;
+  gastos: number;
+  utilidad: number;
+  items: RepairWeekItem[];
+  cancelados: RepairRecord[];
+};
+
+export function buildRepairRangeRegister(
+  from: string,
+  to: string,
+  repairs: RepairRecord[]
+): RepairRangeRegister {
+  const range = normalizeRange(from, to);
+  const items: RepairWeekItem[] = repairs
+    .filter(
+      (repair) =>
+        repair.status === 'entregado' &&
+        inDateRange(dateKeyOf(repair.deliveredAtIso || repair.deliveredAt), range.from, range.to)
+    )
+    .map((repair) => {
+      const cobrado = money(repair.totalCost || 0);
+      const gastos = repairInternalCost(repair);
+      return { repair, cobrado, gastos, utilidad: money(cobrado - gastos) };
+    })
+    .sort((a, b) =>
+      String(b.repair.deliveredAtIso || b.repair.deliveredAt || '').localeCompare(
+        String(a.repair.deliveredAtIso || a.repair.deliveredAt || '')
+      )
+    );
+
+  const cancelados = repairs
+    .filter(
+      (repair) =>
+        repair.status === 'cancelado' && inDateRange(dateKeyOf(repair.cancelledAt), range.from, range.to)
+    )
+    .sort((a, b) => String(b.cancelledAt || '').localeCompare(String(a.cancelledAt || '')));
+
+  const cobrado = money(items.reduce((sum, row) => sum + row.cobrado, 0));
+  const gastos = money(items.reduce((sum, row) => sum + row.gastos, 0));
+
+  return {
+    from: range.from,
+    to: range.to,
+    label: formatDateRangeLabel(range.from, range.to),
+    equipos: items.length,
+    cobrado,
+    gastos,
+    utilidad: money(cobrado - gastos),
+    items,
+    cancelados
+  };
 }
 
 export type WeekCostLine = RepairCostLine & { repairId: string; branchId: string };

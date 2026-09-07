@@ -126,10 +126,10 @@ export function currentWeekStartKey(): string {
   return weekStartDateKey(todayCashDateKey());
 }
 
-export function formatWeekRangeLabel(weekStart: string): string {
-  const weekEnd = addCashDays(weekStart, 6);
-  const start = new Date(`${weekStart}T12:00:00-07:00`);
-  const end = new Date(`${weekEnd}T12:00:00-07:00`);
+export function formatDateRangeLabel(fromKey: string, toKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) return '';
+  const start = new Date(`${fromKey}T12:00:00-07:00`);
+  const end = new Date(`${toKey}T12:00:00-07:00`);
   const fmt = (d: Date, withYear: boolean) =>
     new Intl.DateTimeFormat('es-MX', {
       timeZone: CASH_TIME_ZONE,
@@ -137,10 +137,14 @@ export function formatWeekRangeLabel(weekStart: string): string {
       month: 'short',
       ...(withYear ? { year: 'numeric' } : {})
     }).format(d);
-  if (weekStart.slice(0, 4) !== weekEnd.slice(0, 4)) {
+  if (fromKey.slice(0, 4) !== toKey.slice(0, 4)) {
     return `${fmt(start, true)} – ${fmt(end, true)}`;
   }
   return `${fmt(start, false)} – ${fmt(end, true)}`;
+}
+
+export function formatWeekRangeLabel(weekStart: string): string {
+  return formatDateRangeLabel(weekStart, addCashDays(weekStart, 6));
 }
 
 export function safeFormatDate(val: any): string {
