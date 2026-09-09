@@ -26,6 +26,7 @@ import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
+import { applyInventoryWrite, type InventorySnapshot } from './inventoryMerge';
 import {
   AUTO_CORTE_NOTE,
   CashTillLockedError,
@@ -1269,24 +1270,26 @@ export function subscribeToProducts(
   );
 }
 
-export async function saveProductToFirestore(product: Product) {
+export async function saveProductToFirestore(product: Product, base?: InventorySnapshot | Product | null) {
   try {
     const docRef = doc(db, PRODUCTS_COLLECTION, product.id);
-    await setDoc(docRef, cleanForFirestore(product), { merge: true });
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(docRef);
+      const server = snap.exists() ? ({ id: snap.id, ...snap.data() } as Product) : null;
+      const merged = applyInventoryWrite(server, product, base || null);
+      tx.set(docRef, cleanForFirestore(merged), { merge: true });
+    });
   } catch (err) {
     console.error('[Firestore] Error saving product:', err);
     throw err;
   }
 }
 
-export async function saveProductsBatchToFirestore(products: Product[]) {
+export async function saveProductsBatchToFirestore(products: Product[], bases?: Array<InventorySnapshot | Product | null | undefined>) {
   try {
-    const batch = writeBatch(db);
-    products.forEach((p) => {
-      const ref = doc(db, PRODUCTS_COLLECTION, p.id);
-      batch.set(ref, cleanForFirestore(p), { merge: true });
-    });
-    await batch.commit();
+    for (let i = 0; i < products.length; i++) {
+      await saveProductToFirestore(products[i], bases?.[i]);
+    }
   } catch (err) {
     console.error('[Firestore] Error saving products batch:', err);
     throw err;
@@ -2265,12 +2268,20 @@ export interface QueuedDocWrite {
   id: string;
   data: Record<string, unknown>;
   merge?: boolean;
+  inventoryBase?: InventorySnapshot;
 }
 
 export async function commitDocWrites(writes: QueuedDocWrite[]): Promise<void> {
+  const productWrites = writes.filter((w) => w.collection === PRODUCTS_COLLECTION);
+  const otherWrites = writes.filter((w) => w.collection !== PRODUCTS_COLLECTION);
+
+  for (const w of productWrites) {
+    await saveProductToFirestore({ id: w.id, ...w.data } as Product, w.inventoryBase);
+  }
+
   const CHUNK_SIZE = 400;
-  for (let i = 0; i < writes.length; i += CHUNK_SIZE) {
-    const chunk = writes.slice(i, i + CHUNK_SIZE);
+  for (let i = 0; i < otherWrites.length; i += CHUNK_SIZE) {
+    const chunk = otherWrites.slice(i, i + CHUNK_SIZE);
     const batch = writeBatch(db);
     chunk.forEach((w) => {
       const ref = doc(db, w.collection, w.id);

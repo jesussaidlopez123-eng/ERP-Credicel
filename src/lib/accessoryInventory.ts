@@ -1,6 +1,5 @@
 import { Product } from '../types';
 import {
-  INVENTORY_BRANCH_IDS,
   applyEquipmentIntegrity,
   isEquipmentProduct,
   toInventoryBranchId,
@@ -79,10 +78,6 @@ export function removeAccessoryStock(product: Product, branchId: string, qty: nu
     left -= n;
   };
   take(dest);
-  for (const key of INVENTORY_BRANCH_IDS) {
-    if (key === dest) continue;
-    take(key);
-  }
   return withStock(base, branchStock);
 }
 

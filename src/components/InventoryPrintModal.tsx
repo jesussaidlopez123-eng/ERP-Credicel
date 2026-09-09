@@ -284,9 +284,9 @@ export default function InventoryPrintModal({
         const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
         const typeLabel = isEquip ? 'Equipo Celular' : 'Accesorio';
         const stockTotal = getProductStock(prod, selectedBranchId);
-        const stockBodega = prod.branchStock?.['b-bodega'] || 0;
-        const stockNavojoa = prod.branchStock?.['b-navojoa'] || 0;
-        const stockHuata = prod.branchStock?.['b-huatabampo'] || 0;
+        const stockBodega = getProductStock(prod, 'b-bodega');
+        const stockNavojoa = getProductStock(prod, 'b-navojoa');
+        const stockHuata = getProductStock(prod, 'b-huatabampo');
         const cost = prod.costPrice || 0;
         const price = prod.price || 0;
         const valCost = stockTotal * cost;
@@ -407,9 +407,9 @@ export default function InventoryPrintModal({
         const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
         const typeLabel = isEquip ? 'Celular' : 'Accesorio';
         const stockTotal = getProductStock(prod, selectedBranchId);
-        const stockBodega = prod.branchStock?.['b-bodega'] || 0;
-        const stockNavojoa = prod.branchStock?.['b-navojoa'] || 0;
-        const stockHuata = prod.branchStock?.['b-huatabampo'] || 0;
+        const stockBodega = getProductStock(prod, 'b-bodega');
+        const stockNavojoa = getProductStock(prod, 'b-navojoa');
+        const stockHuata = getProductStock(prod, 'b-huatabampo');
         const cost = prod.costPrice || 0;
         const price = prod.price || 0;
         const valCost = (stockTotal * cost).toFixed(2);
@@ -997,7 +997,7 @@ export default function InventoryPrintModal({
                                   <td className="p-2.5 text-[10px] text-slate-700 align-top">
                                     <div className="space-y-0.5">
                                       {allBranches.map(b => {
-                                        const bStock = prod.branchStock?.[b.id] || 0;
+                                        const bStock = getProductStock(prod, b.id);
                                         if (bStock <= 0) return null;
                                         return (
                                           <div key={b.id} className="flex justify-between font-mono">
@@ -1142,7 +1142,7 @@ export default function InventoryPrintModal({
                                 <td className="p-2.5 text-[10px] text-slate-700 align-top">
                                   <div className="space-y-0.5">
                                     {allBranches.map(b => {
-                                      const bStock = prod.branchStock?.[b.id] || 0;
+                                      const bStock = getProductStock(prod, b.id);
                                       if (bStock <= 0) return null;
                                       return (
                                         <div key={b.id} className="flex justify-between font-mono">

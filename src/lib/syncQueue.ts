@@ -7,6 +7,7 @@
  */
 
 import { CorteXRecord, Expense, InventoryMovement, Product, RepairRecord, SaleTicket } from '../types';
+import { snapshotInventory, type InventorySnapshot } from './inventoryMerge';
 import { normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
@@ -225,7 +226,7 @@ export async function localRepairs(): Promise<RepairRecord[]> {
 // Inventario y catálogo
 // ----------------------------------------------------
 
-export async function commitProduct(product: Product): Promise<void> {
+export async function commitProduct(product: Product, base?: Product | InventorySnapshot | null): Promise<void> {
   await enqueue({
     kind: 'docWrite',
     groupKey: 'catalogo',
@@ -236,7 +237,8 @@ export async function commitProduct(product: Product): Promise<void> {
         {
           collection: PRODUCTS_COLLECTION,
           id: product.id,
-          data: cleanForFirestore(product as unknown as Record<string, unknown>)
+          data: cleanForFirestore(product as unknown as Record<string, unknown>),
+          inventoryBase: base ? snapshotInventory(base as Product) : undefined
         }
       ]
     }

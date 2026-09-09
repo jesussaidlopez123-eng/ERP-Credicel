@@ -174,6 +174,7 @@ export default function Dashboard({
   const salesTicketsRef = useRef(salesTickets);
   const expensesRef = useRef(expenses);
   const cortesRef = useRef(cortesX);
+  const productsRef = useRef(products);
   /** Lo capturado en este equipo que la nube todavía no confirma. */
   const localOnlyRef = useRef<{
     sales: SaleTicket[];
@@ -194,6 +195,7 @@ export default function Dashboard({
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
+  productsRef.current = products;
 
   const markCloudDown = (message?: string) => {
     setCloudSynced(false);
@@ -478,7 +480,8 @@ export default function Dashboard({
     setProducts(next);
     scheduleSaveCachedList('products', next);
     changed.forEach((product) => {
-      commitProduct(product).catch((err) =>
+      const base = products.find((p) => p.id === product.id);
+      commitProduct(product, base).catch((err) =>
         console.error('Error alineando inventario:', err)
       );
     });
@@ -983,7 +986,7 @@ export default function Dashboard({
           updatedProduct = removeAccessoryStock(p, enrichedTicket.branchId, qty || soldImeis.length);
         }
 
-        commitProduct(updatedProduct).catch((err) =>
+        commitProduct(updatedProduct, p).catch((err) =>
           console.error('Error encolando el descuento de inventario:', err)
         );
         return updatedProduct;
@@ -1168,6 +1171,9 @@ export default function Dashboard({
 
   // Inventory Handlers
   const handleAddProduct = (newProd: Product) => {
+    const existing = productsRef.current.find(
+      (p) => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase()
+    );
     setProducts((prev) => {
       // Check if product with this ID or Code already exists
       const existingIdx = prev.findIndex(p => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase());
@@ -1178,12 +1184,13 @@ export default function Dashboard({
       }
       return [...prev, newProd];
     });
-    commitProduct(newProd).catch((err) => console.error('Error encolando el producto nuevo:', err));
+    commitProduct(newProd, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
+    const base = productsRef.current.find((p) => p.id === updatedProd.id);
     setProducts((prev) => prev.map((p) => (p.id === updatedProd.id ? updatedProd : p)));
-    commitProduct(updatedProd).catch((err) => console.error('Error encolando el cambio de producto:', err));
+    commitProduct(updatedProd, base).catch((err) => console.error('Error encolando el cambio de producto:', err));
   };
 
   const handleReceivePurchase = async (draft: PurchaseDraft) => {

@@ -55,8 +55,9 @@ const soldFromHidden = removeAccessoryStock(
   'b-navojoa',
   3
 );
-assert.equal(accessoryTotalStock(soldFromHidden), 7);
-assert.equal(accessoryStockAt(soldFromHidden, 'b-bodega'), 7);
+assert.equal(accessoryTotalStock(soldFromHidden), 10);
+assert.equal(accessoryStockAt(soldFromHidden, 'b-bodega'), 10);
+assert.equal(accessoryStockAt(soldFromHidden, 'b-navojoa'), 0);
 
 const moved = moveAccessoryStock(
   mica({
