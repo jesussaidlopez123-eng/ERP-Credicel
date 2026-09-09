@@ -58,6 +58,7 @@ async function main() {
   const replayImei = new Map<string, string>();
 
   for (const m of movements) {
+    if (m.id?.startsWith('mov-rest-nav-') || String(m.details || '').includes('Restauración de')) continue;
     const dest = destOf(m);
     const origin = originOf(m);
     const qty = Number(m.quantity) || 0;
