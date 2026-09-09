@@ -79,4 +79,12 @@ const mergedAdd = applyInventoryWrite(serverPhone, addedNav, snapshotInventory(s
 assert.deepEqual(imeisAtBranch(mergedAdd, 'b-navojoa').sort(), ['AAA', 'CCC']);
 assert.deepEqual(imeisAtBranch(mergedAdd, 'b-huatabampo'), ['BBB']);
 
+const noBaseAcc = applyInventoryWrite(serverAcc, afterHuaSale, null);
+assert.equal(accessoryStockAt(noBaseAcc, 'b-navojoa'), 155);
+assert.equal(accessoryStockAt(noBaseAcc, 'b-huatabampo'), 411);
+
+const noBasePhone = applyInventoryWrite(serverPhone, soldHua, null);
+assert.deepEqual(imeisAtBranch(noBasePhone, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(noBasePhone, 'b-huatabampo'), ['BBB']);
+
 console.log('inventoryMerge self-test ok');

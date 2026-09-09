@@ -58,8 +58,12 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
       result[branch] = Math.max(0, (serverVis[branch] || 0) + delta);
     }
   } else {
+    // Sin foto previa: no se acepta dejar una sucursal en 0 si la nube aún tiene piezas.
+    // Así un guardado viejo de Huatabampo no vuelve a borrar Navojoa.
     for (const branch of INVENTORY_BRANCH_IDS) {
-      result[branch] = incomingVis[branch] || 0;
+      const incomingQty = incomingVis[branch] || 0;
+      const serverQty = serverVis[branch] || 0;
+      result[branch] = incomingQty === 0 && serverQty > 0 ? serverQty : incomingQty;
     }
   }
 
@@ -73,11 +77,30 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
 function applyEquipmentWrite(server: Product, incoming: Product, base?: InventorySnapshot | null): Product {
   const catalog = { ...server, ...incoming };
   if (!base) {
+    const map = emptyBranchImeiMap();
+    const keep = sanitizeEquipmentProduct(server);
+    const incomingImeis = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
+    for (const branch of INVENTORY_BRANCH_IDS) {
+      for (const raw of keep.branchImeiMap?.[branch] || []) {
+        const imei = normalizeImei(raw);
+        if (!imei || incomingImeis.has(imei)) continue;
+        map[branch].push(imei);
+      }
+    }
+    for (const branch of INVENTORY_BRANCH_IDS) {
+      for (const raw of imeisAtBranch(incoming, branch)) {
+        const imei = normalizeImei(raw);
+        if (!imei) continue;
+        for (const key of INVENTORY_BRANCH_IDS) {
+          map[key] = map[key].filter((im) => im !== imei);
+        }
+        map[branch].push(imei);
+      }
+    }
     return sanitizeEquipmentProduct({
       ...catalog,
-      branchImeiMap: incoming.branchImeiMap || server.branchImeiMap,
-      imeiList: incoming.imeiList || incoming.imeis || server.imeiList,
-      imeis: incoming.imeis || incoming.imeiList || server.imeis
+      branchImeiMap: map,
+      imeiList: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo']]
     });
   }
 
