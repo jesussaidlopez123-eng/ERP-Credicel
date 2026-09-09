@@ -1593,6 +1593,7 @@ export default function Dashboard({
             expensesHasMore={expensesHasMore}
             cortesHasMore={cortesHasMore}
             historyBusy={historyBusy}
+            operators={operators}
           />
         );
       case 'repairs':

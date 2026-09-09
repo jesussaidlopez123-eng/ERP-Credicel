@@ -33,7 +33,8 @@ import {
   Trash2,
   AlertTriangle,
   ShieldAlert,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
@@ -42,6 +43,7 @@ import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
+import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -68,6 +70,7 @@ interface SalesModuleProps {
   expensesHasMore?: boolean;
   cortesHasMore?: boolean;
   historyBusy?: string | null;
+  operators?: Operator[];
 }
 
 /** Fondo de apertura: lo que dejó el cajero en branchCashFunds. Nunca inventar $1000. */
@@ -104,7 +107,8 @@ function SalesModule({
   salesHasMore = false,
   expensesHasMore = false,
   cortesHasMore = false,
-  historyBusy = null
+  historyBusy = null,
+  operators = []
 }: SalesModuleProps) {
 
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
@@ -127,6 +131,8 @@ function SalesModule({
   const [deleteCustomReason, setDeleteCustomReason] = useState('');
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   const [deleteActionFeedback, setDeleteActionFeedback] = useState<string | null>(null);
+  const [deleteAdminPassword, setDeleteAdminPassword] = useState('');
+  const [deleteAuthError, setDeleteAuthError] = useState<string | null>(null);
 
   // Ticket list filters
   const [ticketDateFilter, setTicketDateFilter] = useState<'all' | 'today' | 'custom'>('today');
@@ -744,11 +750,18 @@ function SalesModule({
     setTicketToDelete(ticket);
     setDeleteReasonOption('Cobro duplicado por operador');
     setDeleteCustomReason('');
+    setDeleteAdminPassword('');
+    setDeleteAuthError(null);
     setIsDeleteModalOpen(true);
   };
 
   const handleConfirmDeleteTicket = async () => {
     if (!ticketToDelete) return;
+    const authError = authorizeWithAdminPassword(deleteAdminPassword, operators, currentOperator);
+    if (authError) {
+      setDeleteAuthError(authError);
+      return;
+    }
     setIsDeletingTicket(true);
     const finalReason = deleteCustomReason.trim()
       ? `${deleteReasonOption}: ${deleteCustomReason.trim()}`
@@ -765,6 +778,8 @@ function SalesModule({
       setDeleteActionFeedback(`Ticket ${ticketToDelete.folio || ticketToDelete.id.slice(-6)} cancelado. El stock se restableció.`);
       setIsDeleteModalOpen(false);
       setTicketToDelete(null);
+      setDeleteAdminPassword('');
+      setDeleteAuthError(null);
     } catch (err) {
       console.error('Error al eliminar transacción:', err);
       alert('Error al eliminar la transacción. Verifica tu conexión.');
@@ -1557,6 +1572,8 @@ function SalesModule({
                   if (!isDeletingTicket) {
                     setIsDeleteModalOpen(false);
                     setTicketToDelete(null);
+                    setDeleteAdminPassword('');
+                    setDeleteAuthError(null);
                   }
                 }}
                 className="text-rose-100 hover:text-white p-1 rounded-lg"
@@ -1603,6 +1620,27 @@ function SalesModule({
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>Esta acción quita solo este ticket. El resto de ventas, cortes e inventario de otros folios se conserva.</span>
               </div>
+              <div>
+                <label className="text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" />
+                  Contraseña del administrador
+                </label>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  autoFocus
+                  value={deleteAdminPassword}
+                  onChange={(e) => {
+                    setDeleteAdminPassword(e.target.value);
+                    if (deleteAuthError) setDeleteAuthError(null);
+                  }}
+                  placeholder="Solo un administrador puede autorizar el borrado"
+                  className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+                {deleteAuthError && (
+                  <p className="mt-1.5 text-[11px] font-bold text-rose-700">{deleteAuthError}</p>
+                )}
+              </div>
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
@@ -1610,6 +1648,8 @@ function SalesModule({
                   onClick={() => {
                     setIsDeleteModalOpen(false);
                     setTicketToDelete(null);
+                    setDeleteAdminPassword('');
+                    setDeleteAuthError(null);
                   }}
                   className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300"
                 >

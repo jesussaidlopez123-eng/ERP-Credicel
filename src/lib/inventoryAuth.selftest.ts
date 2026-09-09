@@ -1,4 +1,4 @@
-import { authorizeWithOperatorPassword } from './inventoryAuth';
+import { authorizeWithAdminPassword, authorizeWithOperatorPassword } from './inventoryAuth';
 import type { Operator } from '../types';
 
 function assert(cond: unknown, msg: string) {
@@ -33,6 +33,17 @@ assert(
 assert(
   authorizeWithOperatorPassword('x', { ...op, password: '' })?.includes('no tiene contraseña') === true,
   'sin contraseña configurada no autoriza'
+);
+
+const cashier: Operator = { ...op, id: '2', role: 'cashier', password: 'caja123' };
+assert(authorizeWithAdminPassword('clave-real', [op, cashier]) === null, 'la clave de admin autoriza');
+assert(
+  authorizeWithAdminPassword('caja123', [op, cashier])?.includes('incorrecta') === true,
+  'la clave de cajero no borra ventas'
+);
+assert(
+  authorizeWithAdminPassword('mala', [op])?.includes('incorrecta') === true,
+  'clave admin incorrecta no autoriza'
 );
 
 console.log('inventoryAuth.selftest ok');

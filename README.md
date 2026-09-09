@@ -23,6 +23,7 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Dirección:** solo muestra ventas, gastos, tickets e inventario reales. No inventa gerentes ni sucursales.
 - **IMEI de equipos:** un celular solo puede estar en Bodega, Navojoa o Huatabampo. Al venderse sale de las tres. Si quedó en una ubicación que no se veía, pasa a Bodega. En Inventario → **Trazar IMEI** se ve sucursal, venta y movimientos.
 - **Accesorios:** el stock también vive solo en Bodega, Navojoa o Huatabampo. Piezas en ubicaciones ocultas pasan a Bodega. Al venderse se descuentan de la sucursal de la venta y, si hacía falta, del resto, para que no queden en un rincón. En **ingreso** y **traspaso** el destino empieza vacío: hay que elegir sucursal. Traspasos y ajustes piden la contraseña del operador en sesión; si está mal, no se aplica el cambio.
+- **Borrar una venta:** en **Ventas → Tickets**, Eliminar pide la **contraseña de un administrador**. La de cajero o encargado no vale. El stock e IMEI vuelven a la sucursal.
 
 ## Sistema híbrido: primero el equipo, luego la nube
 
