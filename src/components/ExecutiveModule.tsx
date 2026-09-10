@@ -31,12 +31,18 @@ import {
   addExecutiveItem,
   classifySaleItem,
   emptyExecutiveCats,
-  executiveVentas,
   isPhoneUnitSale,
   phoneUnitsSold,
-  type ExecutiveCatKey,
   type ExecutiveCatTotals
 } from '../lib/saleClassification';
+import {
+  addExecutiveFinance,
+  buildExecutiveFinance,
+  emptyExecutiveFinance,
+  phoneCommissionAmount,
+  phoneCommissionRate,
+  type ExecutiveFinanceTotals
+} from '../lib/executiveFinance';
 import LoadMoreButton from './LoadMoreButton';
 
 interface ExecutiveModuleProps {
@@ -51,14 +57,6 @@ interface ExecutiveModuleProps {
   salesHasMore?: boolean;
   historyBusy?: string | null;
 }
-
-const CATEGORIES: { key: ExecutiveCatKey; label: string; tone: string }[] = [
-  { key: 'accesorios', label: 'Accesorios', tone: 'text-blue-800 bg-blue-50 border-blue-200' },
-  { key: 'equipos', label: 'Equipos', tone: 'text-amber-900 bg-amber-50 border-amber-200' },
-  { key: 'abonos', label: 'Abonos', tone: 'text-purple-900 bg-purple-50 border-purple-200' },
-  { key: 'reparaciones', label: 'Reparaciones', tone: 'text-orange-900 bg-orange-50 border-orange-200' },
-  { key: 'recargas', label: 'Recargas', tone: 'text-emerald-900 bg-emerald-50 border-emerald-200' }
-];
 
 type PhoneSale = {
   id: string;
@@ -79,6 +77,7 @@ type PhoneSale = {
   downPayment: number;
   remaining: number;
   quantity: number;
+  commission: number;
 };
 
 type BranchWeekRow = {
@@ -88,8 +87,11 @@ type BranchWeekRow = {
   gastos: number;
   tickets: number;
   phonesSold: number;
+  /** Cobrado en caja (incluye dinero de paso). */
   ventas: number;
+  /** Resultado: accesorios + reparaciones + comisiones − gastos. */
   utilidad: number;
+  finance: ExecutiveFinanceTotals;
 };
 
 type WeekBlock = {
@@ -111,14 +113,47 @@ function emptyRow(branchId: string, branchName: string): BranchWeekRow {
     tickets: 0,
     phonesSold: 0,
     ventas: 0,
-    utilidad: 0
+    utilidad: 0,
+    finance: emptyExecutiveFinance()
   };
 }
 
-function finalizeRow(row: BranchWeekRow): BranchWeekRow {
-  row.ventas = executiveVentas(row.cats);
-  row.utilidad = money(row.ventas - row.gastos);
+function applyFinance(row: BranchWeekRow): BranchWeekRow {
+  row.finance = buildExecutiveFinance({
+    branchId: row.branchId,
+    cats: row.cats,
+    gastos: row.gastos,
+    phonesSold: row.phonesSold
+  });
+  row.ventas = money(row.finance.ingresosPropios + row.finance.dineroPaso);
+  row.utilidad = row.finance.resultado;
   return row;
+}
+
+function sumBranchRows(rows: BranchWeekRow[]): BranchWeekRow {
+  const totals = emptyRow('all', 'Todas las sucursales');
+  let finance = emptyExecutiveFinance();
+  rows.forEach((row) => {
+    totals.tickets += row.tickets;
+    totals.phonesSold += row.phonesSold;
+    totals.gastos = money(totals.gastos + row.gastos);
+    finance = addExecutiveFinance(finance, row.finance);
+    (Object.keys(row.cats) as (keyof ExecutiveCatTotals)[]).forEach((key) => {
+      const value = row.cats[key];
+      if (typeof value === 'number') {
+        (totals.cats[key] as number) = (totals.cats[key] as number) + value;
+      }
+    });
+  });
+  totals.cats.accesorios = money(totals.cats.accesorios);
+  totals.cats.equipos = money(totals.cats.equipos);
+  totals.cats.abonos = money(totals.cats.abonos);
+  totals.cats.reparaciones = money(totals.cats.reparaciones);
+  totals.cats.recargas = money(totals.cats.recargas);
+  totals.finance = finance;
+  totals.ventas = money(finance.ingresosPropios + finance.dineroPaso);
+  totals.utilidad = finance.resultado;
+  return totals;
 }
 
 function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSale | null {
@@ -150,7 +185,8 @@ function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSa
     fullPrice,
     downPayment,
     remaining,
-    quantity: qty
+    quantity: qty,
+    commission: phoneCommissionAmount(ticket.branchId, qty)
   };
 }
 
@@ -220,26 +256,10 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
     });
 
     const branches = Array.from(byBranch.values())
-      .map(finalizeRow)
+      .map(applyFinance)
       .filter((row) => visibleBranches.some((b) => b.id === row.branchId) || row.ventas > 0 || row.gastos > 0 || row.tickets > 0);
 
-    const totals = emptyRow('all', 'Todas las sucursales');
-    branches.forEach((row) => {
-      totals.tickets += row.tickets;
-      totals.phonesSold += row.phonesSold;
-      totals.gastos = money(totals.gastos + row.gastos);
-      (Object.keys(row.cats) as (keyof ExecutiveCatTotals)[]).forEach((key) => {
-        if (typeof row.cats[key] === 'number') {
-          (totals.cats[key] as number) = (totals.cats[key] as number) + (row.cats[key] as number);
-        }
-      });
-    });
-    totals.cats.accesorios = money(totals.cats.accesorios);
-    totals.cats.equipos = money(totals.cats.equipos);
-    totals.cats.abonos = money(totals.cats.abonos);
-    totals.cats.reparaciones = money(totals.cats.reparaciones);
-    totals.cats.recargas = money(totals.cats.recargas);
-    finalizeRow(totals);
+    const totals = sumBranchRows(branches);
 
     return {
       weekStart,
@@ -260,61 +280,76 @@ function moneyCell(value: number, emptyDash = true) {
 
 function CategoryStrip({
   cats,
-  gastos,
+  finance,
   phonesSold,
   onOpenPhones
 }: {
   cats: ExecutiveCatTotals;
-  gastos: number;
+  finance: ExecutiveFinanceTotals;
   phonesSold: number;
   onOpenPhones?: () => void;
 }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-      {CATEGORIES.map((cat) => {
-        const count =
-          cat.key === 'accesorios'
-            ? cats.countAccesorios
-            : cat.key === 'equipos'
-              ? phonesSold
-              : cat.key === 'abonos'
-                ? cats.countAbonos
-                : cat.key === 'reparaciones'
-                  ? cats.countReparaciones
-                  : cats.countRecargas;
-
-        if (cat.key === 'equipos') {
-          return (
-            <button
-              key={cat.key}
-              type="button"
-              onClick={phonesSold > 0 ? onOpenPhones : undefined}
-              className={`rounded-xl border px-3 py-2 text-left ${cat.tone} ${phonesSold > 0 ? 'cursor-pointer hover:shadow-sm hover:border-amber-400' : ''}`}
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{cat.label}</p>
-              <p className="text-sm font-bold mt-0.5">
-                {phonesSold} celular{phonesSold === 1 ? '' : 'es'}
-              </p>
-              <p className="text-[10px] font-mono opacity-80">${formatMoney(cats.equipos)} cobrado</p>
-              {phonesSold > 0 && (
-                <p className="text-[10px] font-semibold mt-0.5 underline underline-offset-2">Ver cuáles</p>
-              )}
-            </button>
-          );
-        }
-
-        return (
-          <div key={cat.key} className={`rounded-xl border px-3 py-2 ${cat.tone}`}>
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{cat.label}</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats[cat.key])}</p>
-            <p className="text-[10px] opacity-70">{count} ops</p>
+    <div className="space-y-3">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 mb-1.5">
+          Sí cuenta como ingreso
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-blue-900">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Accesorios</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.accesorios)}</p>
+            <p className="text-[10px] opacity-70">{cats.countAccesorios} ops</p>
           </div>
-        );
-      })}
-      <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
-        <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Gastos</p>
-        <p className="text-sm font-bold font-mono mt-0.5">-${formatMoney(gastos)}</p>
-        <p className="text-[10px] opacity-70">salidas de caja</p>
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-orange-900">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Reparaciones</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.reparaciones)}</p>
+            <p className="text-[10px] opacity-70">{cats.countReparaciones} ops</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Comisiones</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(finance.comisiones)}</p>
+            <p className="text-[10px] opacity-70">
+              {phonesSold} celular{phonesSold === 1 ? '' : 'es'} · Navojoa $1,000 · Huatabampo $350
+            </p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Gastos</p>
+            <p className="text-sm font-bold font-mono mt-0.5">-${formatMoney(finance.gastos)}</p>
+            <p className="text-[10px] opacity-70">por sucursal</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+          Dinero de paso · se regresa a otras compañías · no es utilidad
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={phonesSold > 0 ? onOpenPhones : undefined}
+            className={`rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-slate-700 ${phonesSold > 0 ? 'cursor-pointer hover:shadow-sm hover:border-amber-400' : ''}`}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Equipos cobrados</p>
+            <p className="text-sm font-bold mt-0.5">
+              {phonesSold} celular{phonesSold === 1 ? '' : 'es'}
+            </p>
+            <p className="text-[10px] font-mono opacity-80">${formatMoney(cats.equipos)} cobrado</p>
+            {phonesSold > 0 && (
+              <p className="text-[10px] font-semibold mt-0.5 underline underline-offset-2">Ver cuáles</p>
+            )}
+          </button>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Abonos</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.abonos)}</p>
+            <p className="text-[10px] opacity-70">{cats.countAbonos} ops</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
+            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Recargas</p>
+            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.recargas)}</p>
+            <p className="text-[10px] opacity-70">{cats.countRecargas} ops</p>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -327,7 +362,7 @@ function WeekTable({
   block: WeekBlock;
   onOpenPhones: (branchId?: string, branchName?: string) => void;
 }) {
-  const hasRows = block.branches.some((row) => row.tickets > 0 || row.gastos > 0 || row.ventas > 0);
+  const hasRows = block.branches.some((row) => row.tickets > 0 || row.gastos > 0 || row.ventas > 0 || row.phonesSold > 0);
 
   if (!hasRows) {
     return (
@@ -337,97 +372,75 @@ function WeekTable({
     );
   }
 
+  const renderRow = (row: BranchWeekRow, isTotal = false) => (
+    <tr key={row.branchId} className={isTotal ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50/80'}>
+      <td className={`px-3 py-2.5 ${isTotal ? 'text-slate-900' : 'font-semibold text-slate-900'}`}>
+        {isTotal ? (
+          'Total semana'
+        ) : (
+          <>
+            <span className="flex items-center gap-1.5">
+              <Store className="w-3.5 h-3.5 text-[#0047AB]" />
+              {row.branchName}
+            </span>
+            <span className="block text-[10px] text-slate-500 font-medium">{row.tickets} tickets</span>
+            {phoneCommissionRate(row.branchId) > 0 && (
+              <span className="block text-[10px] text-amber-800 font-medium">
+                Comisión ${formatMoney(phoneCommissionRate(row.branchId))} / celular
+              </span>
+            )}
+          </>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <button
+          type="button"
+          disabled={row.phonesSold === 0}
+          onClick={() => onOpenPhones(isTotal ? undefined : row.branchId, isTotal ? undefined : row.branchName)}
+          className={`text-right ${row.phonesSold > 0 ? 'cursor-pointer hover:text-amber-800' : 'cursor-default'}`}
+        >
+          <span className="block font-semibold text-slate-900">{row.phonesSold || '—'}</span>
+          <span className="block text-[10px] font-mono text-slate-500">{moneyCell(row.cats.equipos)}</span>
+        </button>
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-amber-900">{moneyCell(row.finance.comisiones, false)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-800">{moneyCell(row.cats.accesorios)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-800">{moneyCell(row.cats.reparaciones)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-rose-700">
+        {row.gastos ? `-$${formatMoney(row.gastos)}` : <span className="text-slate-300">—</span>}
+      </td>
+      <td className={`px-3 py-2.5 text-right font-mono font-bold ${row.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+        ${formatMoney(row.utilidad)}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{moneyCell(row.cats.abonos)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{moneyCell(row.cats.recargas)}</td>
+    </tr>
+  );
+
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200">
-      <table className="w-full text-left text-xs min-w-[760px]">
+      <table className="w-full text-left text-xs min-w-[920px]">
         <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px]">
           <tr>
             <th className="px-3 py-2.5 font-semibold">Sucursal</th>
-            {CATEGORIES.map((cat) => (
-              <th key={cat.key} className="px-3 py-2.5 font-semibold text-right">
-                {cat.label}
-              </th>
-            ))}
+            <th className="px-3 py-2.5 font-semibold text-right">Celulares</th>
+            <th className="px-3 py-2.5 font-semibold text-right">Comisión</th>
+            <th className="px-3 py-2.5 font-semibold text-right">Accesorios</th>
+            <th className="px-3 py-2.5 font-semibold text-right">Reparaciones</th>
             <th className="px-3 py-2.5 font-semibold text-right">Gastos</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Ventas</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Utilidad</th>
+            <th className="px-3 py-2.5 font-semibold text-right">Resultado</th>
+            <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Abonos*</th>
+            <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Recargas*</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {block.branches.map((row) => (
-            <tr key={row.branchId} className="hover:bg-slate-50/80">
-              <td className="px-3 py-2.5 font-semibold text-slate-900">
-                <span className="flex items-center gap-1.5">
-                  <Store className="w-3.5 h-3.5 text-[#0047AB]" />
-                  {row.branchName}
-                </span>
-                <span className="block text-[10px] text-slate-500 font-medium">{row.tickets} tickets</span>
-              </td>
-              {CATEGORIES.map((cat) => (
-                <td key={cat.key} className="px-3 py-2.5 text-right font-mono text-slate-800">
-                  {cat.key === 'equipos' ? (
-                    <button
-                      type="button"
-                      disabled={row.phonesSold === 0}
-                      onClick={() => onOpenPhones(row.branchId, row.branchName)}
-                      className={`text-right ${row.phonesSold > 0 ? 'cursor-pointer hover:text-amber-800' : 'cursor-default'}`}
-                    >
-                      <span className="block">{moneyCell(row.cats.equipos)}</span>
-                      <span className="block text-[10px] font-semibold text-amber-800">
-                        {row.phonesSold} celular{row.phonesSold === 1 ? '' : 'es'}
-                      </span>
-                    </button>
-                  ) : (
-                    moneyCell(row.cats[cat.key])
-                  )}
-                </td>
-              ))}
-              <td className="px-3 py-2.5 text-right font-mono text-rose-700">
-                {row.gastos ? `-$${formatMoney(row.gastos)}` : <span className="text-slate-300">—</span>}
-              </td>
-              <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-900">
-                {moneyCell(row.ventas, false)}
-              </td>
-              <td className={`px-3 py-2.5 text-right font-mono font-bold ${row.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                ${formatMoney(row.utilidad)}
-              </td>
-            </tr>
-          ))}
-          {block.branches.length > 1 && (
-            <tr className="bg-slate-50 font-semibold">
-              <td className="px-3 py-2.5 text-slate-900">Total semana</td>
-              {CATEGORIES.map((cat) => (
-                <td key={cat.key} className="px-3 py-2.5 text-right font-mono text-slate-900">
-                  {cat.key === 'equipos' ? (
-                    <button
-                      type="button"
-                      disabled={block.totals.phonesSold === 0}
-                      onClick={() => onOpenPhones()}
-                      className={`text-right ${block.totals.phonesSold > 0 ? 'cursor-pointer' : 'cursor-default'}`}
-                    >
-                      <span className="block">${formatMoney(block.totals.cats.equipos)}</span>
-                      <span className="block text-[10px] text-amber-800">
-                        {block.totals.phonesSold} celular{block.totals.phonesSold === 1 ? '' : 'es'}
-                      </span>
-                    </button>
-                  ) : (
-                    moneyCell(block.totals.cats[cat.key], false)
-                  )}
-                </td>
-              ))}
-              <td className="px-3 py-2.5 text-right font-mono text-rose-700">
-                -${formatMoney(block.totals.gastos)}
-              </td>
-              <td className="px-3 py-2.5 text-right font-mono text-slate-900">
-                ${formatMoney(block.totals.ventas)}
-              </td>
-              <td className={`px-3 py-2.5 text-right font-mono ${block.totals.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                ${formatMoney(block.totals.utilidad)}
-              </td>
-            </tr>
-          )}
+          {block.branches.map((row) => renderRow(row))}
+          {block.branches.length > 1 && renderRow(block.totals, true)}
         </tbody>
       </table>
+      <p className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 border-t border-slate-100">
+        Resultado = accesorios + reparaciones + comisiones − gastos. *Abonos, recargas y el cobro de equipos son dinero de paso: se regresan a otras compañías y no entran a la utilidad.
+      </p>
     </div>
   );
 }
@@ -452,6 +465,7 @@ function PhoneSalesModal({
   }, [onClose]);
 
   const units = phones.reduce((sum, phone) => sum + phone.quantity, 0);
+  const commissions = phones.reduce((sum, phone) => sum + phone.commission, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 overflow-y-auto">
@@ -464,7 +478,10 @@ function PhoneSalesModal({
               {units} equipo{units === 1 ? '' : 's'} · {weekLabel}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {branchName || 'Todas las sucursales'} · no incluye abonos ni taller
+              {branchName || 'Todas las sucursales'} · el cobro del equipo es dinero de paso; la comisión sí entra al resultado
+            </p>
+            <p className="text-xs font-semibold text-amber-900 mt-1">
+              Comisiones de este recorte ${formatMoney(commissions)}
             </p>
           </div>
           <button
@@ -483,16 +500,18 @@ function PhoneSalesModal({
               No hay celulares vendidos en este recorte.
             </div>
           ) : (
-            <table className="w-full text-left text-xs min-w-[720px]">
+            <>
+            <table className="w-full text-left text-xs min-w-[800px]">
               <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px] sticky top-0">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">Folio / Fecha</th>
                   <th className="px-3 py-2.5 font-semibold">Equipo</th>
                   <th className="px-3 py-2.5 font-semibold">Cliente</th>
                   <th className="px-3 py-2.5 font-semibold">Tipo</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Precio</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Enganche</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Saldo</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Precio cobrado*</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Enganche*</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Saldo*</th>
+                  <th className="px-3 py-2.5 font-semibold text-right">Comisión</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -539,10 +558,20 @@ function PhoneSalesModal({
                     <td className="px-3 py-2.5 text-right font-mono text-indigo-800">
                       {phone.remaining > 0 ? `$${formatMoney(phone.remaining)}` : '—'}
                     </td>
+                    <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-900">
+                      ${formatMoney(phone.commission)}
+                      <span className="block text-[10px] font-medium text-slate-500">
+                        ${formatMoney(phoneCommissionRate(phone.branchId))} / pza
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <p className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 border-t border-slate-100">
+              *Precio, enganche y saldo son dinero de paso. Solo la comisión (Navojoa $1,000 / Huatabampo $350 por celular) entra al resultado.
+            </p>
+            </>
           )}
         </div>
       </div>
@@ -600,10 +629,10 @@ export default function ExecutiveModule({
             </div>
             <h1 className="text-xl font-semibold text-slate-900 mt-0.5 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-slate-500" />
-              Semanas por sucursal y categoría
+              Ejercicio financiero por sucursal
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Semana actual (lunes a domingo, hora Sonora) y el historial agrupado por las mismas categorías.
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+              Resultado = accesorios + reparaciones + comisiones − gastos. Abonos, enganches y recargas solo pasan: se regresan a otras compañías y no se registran como utilidad. Comisiones: Navojoa $1,000 por celular · Huatabampo $350 por celular.
             </p>
           </div>
 
@@ -660,17 +689,31 @@ export default function ExecutiveModule({
                   <p className="text-lg font-bold text-amber-800">{currentWeek.totals.phonesSold}</p>
                 </button>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Ventas</p>
-                  <p className="text-lg font-bold font-mono text-slate-900">${formatMoney(currentWeek.totals.ventas)}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Ingresos propios</p>
+                  <p className="text-lg font-bold font-mono text-slate-900">
+                    ${formatMoney(currentWeek.totals.finance.ingresosPropios)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Comisiones</p>
+                  <p className="text-lg font-bold font-mono text-amber-900">
+                    ${formatMoney(currentWeek.totals.finance.comisiones)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Gastos</p>
                   <p className="text-lg font-bold font-mono text-rose-700">-${formatMoney(currentWeek.totals.gastos)}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Utilidad</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Resultado</p>
                   <p className={`text-lg font-bold font-mono ${currentWeek.totals.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                     ${formatMoney(currentWeek.totals.utilidad)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Dinero de paso</p>
+                  <p className="text-lg font-bold font-mono text-slate-400">
+                    ${formatMoney(currentWeek.totals.finance.dineroPaso)}
                   </p>
                 </div>
               </div>
@@ -680,7 +723,7 @@ export default function ExecutiveModule({
           <div className="p-4 sm:p-5 space-y-4">
             <CategoryStrip
               cats={currentWeek.totals.cats}
-              gastos={currentWeek.totals.gastos}
+              finance={currentWeek.totals.finance}
               phonesSold={currentWeek.totals.phonesSold}
               onOpenPhones={() => openPhones(currentWeek)}
             />
@@ -693,7 +736,7 @@ export default function ExecutiveModule({
         <div>
           <h2 className="text-base font-semibold text-slate-900">Historial semanal</h2>
           <p className="text-sm text-slate-500">
-            Semanas anteriores, agrupadas lunes a domingo, con las mismas categorías.
+            Semanas anteriores, lunes a domingo. El resultado no incluye abonos, recargas ni el cobro de equipos.
           </p>
         </div>
 
@@ -727,14 +770,17 @@ export default function ExecutiveModule({
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono sm:text-right">
-                    <span className="text-slate-700">
-                      Ventas <strong>${formatMoney(week.totals.ventas)}</strong>
+                    <span className="text-amber-900">
+                      Comisiones <strong>${formatMoney(week.totals.finance.comisiones)}</strong>
                     </span>
                     <span className="text-rose-700">
                       Gastos <strong>-${formatMoney(week.totals.gastos)}</strong>
                     </span>
                     <span className={week.totals.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                      Utilidad <strong>${formatMoney(week.totals.utilidad)}</strong>
+                      Resultado <strong>${formatMoney(week.totals.utilidad)}</strong>
+                    </span>
+                    <span className="text-slate-400">
+                      Paso <strong>${formatMoney(week.totals.finance.dineroPaso)}</strong>
                     </span>
                   </div>
                 </button>
@@ -742,7 +788,7 @@ export default function ExecutiveModule({
                 <div className="px-4 sm:px-5 pb-4 space-y-3">
                   <CategoryStrip
                     cats={week.totals.cats}
-                    gastos={week.totals.gastos}
+                    finance={week.totals.finance}
                     phonesSold={week.totals.phonesSold}
                     onOpenPhones={() => openPhones(week)}
                   />

@@ -32,5 +32,5 @@ export function canOpenModule(role: string | undefined, moduleId: ModuleId): boo
 }
 
 export function defaultModuleForRole(role?: string): ModuleId {
-  return normalizeRole(role) === 'admin' ? 'sales' : 'pos';
+  return normalizeRole(role) === 'admin' ? 'executive' : 'pos';
 }
