@@ -1,6 +1,13 @@
 import { CartItem, Product } from '../types';
-import { accessoryStockAt } from './accessoryInventory';
-import { imeisAtBranch, isEquipmentProduct, locateImeiOnProduct, normalizeImei } from './imeiInventory';
+import { isAdminWorkspace } from '../data/initialBranches';
+import { accessoryStockAt, accessoryTotalStock } from './accessoryInventory';
+import {
+  collectProductImeis,
+  imeisAtBranch,
+  isEquipmentProduct,
+  locateImeiOnProduct,
+  normalizeImei
+} from './imeiInventory';
 
 export const VIRTUAL_POS_PRODUCT_IDS = new Set([
   'prod-equipo-credito-gen',
@@ -30,6 +37,12 @@ export function isNonInventorySaleItem(item: CartItem): boolean {
 }
 
 export function getBranchStockQty(product: Product, branchId: string): number {
+  if (isAdminWorkspace(branchId) || branchId === 'all') {
+    if (isEquipmentProduct(product)) {
+      return collectProductImeis(product).length;
+    }
+    return accessoryTotalStock(product);
+  }
   if (isEquipmentProduct(product)) {
     return imeisAtBranch(product, branchId).length;
   }
@@ -50,12 +63,13 @@ export function findImeiInInventory(
   if (!needle) return { status: 'missing' };
 
   let otherBranchHit: { product: Product; branchId: string } | null = null;
+  const adminView = isAdminWorkspace(currentBranchId) || currentBranchId === 'all';
 
   for (const p of products) {
     if (!isEquipmentProduct(p)) continue;
     const loc = locateImeiOnProduct(p, needle);
     if (!loc) continue;
-    if (loc.branchId === currentBranchId) {
+    if (adminView || loc.branchId === currentBranchId) {
       return { status: 'found', product: p, branchId: loc.branchId };
     }
     otherBranchHit = { product: p, branchId: loc.branchId };

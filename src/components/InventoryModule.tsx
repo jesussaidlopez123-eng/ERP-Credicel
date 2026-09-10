@@ -30,12 +30,14 @@ import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount
 import { ALL_BRANCHES } from '../data/initialBranches';
 import {
   addImeisToProduct,
+  collectProductImeis,
   imeisAtBranch,
   imeisGroupedByBranch,
   isEquipmentProduct,
   moveImeisOnProduct,
   removeImeisFromProduct,
-  toInventoryBranchId
+  toInventoryBranchId,
+  unmappedImeis
 } from '../lib/imeiInventory';
 import {
   accessoryStockAt,
@@ -245,8 +247,7 @@ function InventoryModule({
 
   const getTotalStock = (p: Product): number => {
     if (isEquipmentProduct(p)) {
-      const g = imeisGroupedByBranch(p);
-      return g['b-bodega'].length + g['b-navojoa'].length + g['b-huatabampo'].length;
+      return collectProductImeis(p).length;
     }
     return accessoryTotalStock(p);
   };
@@ -722,16 +723,16 @@ function InventoryModule({
       onUpdateProduct(updated);
     } else {
       // New equipment model
-      const newBranchStock = {
-        'b-bodega': branchId === 'b-bodega' ? qty : 0,
-        'b-navojoa': branchId === 'b-navojoa' ? qty : 0,
-        'b-huatabampo': branchId === 'b-huatabampo' ? qty : 0,
+      const destBranch = toInventoryBranchId(branchId);
+      const destStock = {
+        'b-bodega': destBranch === 'b-bodega' ? qty : 0,
+        'b-navojoa': destBranch === 'b-navojoa' ? qty : 0,
+        'b-huatabampo': destBranch === 'b-huatabampo' ? qty : 0
       };
-
-      const newBranchImeiMap = {
-        'b-bodega': branchId === 'b-bodega' ? finalImeis : [],
-        'b-navojoa': branchId === 'b-navojoa' ? finalImeis : [],
-        'b-huatabampo': branchId === 'b-huatabampo' ? finalImeis : [],
+      const destImeis = {
+        'b-bodega': destBranch === 'b-bodega' ? finalImeis : [],
+        'b-navojoa': destBranch === 'b-navojoa' ? finalImeis : [],
+        'b-huatabampo': destBranch === 'b-huatabampo' ? finalImeis : []
       };
 
       const newProd: Product = {
@@ -742,16 +743,16 @@ function InventoryModule({
         inventoryType: 'equipo',
         imei: finalImeis[0] || '',
         imeiList: finalImeis,
-        branchImeiMap: newBranchImeiMap,
+        branchImeiMap: destImeis,
         supplier: supplier || '',
         costPrice: costPrice || 0,
         price: price || 0,
         stock: qty,
-        branchStock: newBranchStock,
+        branchStock: destStock,
         color: 'bg-blue-800 text-white'
       };
 
-      const branchName = ALL_BRANCHES.find(b => b.id === branchId)?.name || branchId;
+      const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
       onRecordMovement?.({
         type: 'creacion',
         productId: newProd.id,
@@ -760,7 +761,7 @@ function InventoryModule({
         category: 'equipo_credito',
         inventoryType: 'equipo',
         quantity: qty,
-        targetBranchId: branchId,
+        targetBranchId: destBranch,
         targetBranchName: branchName,
         operatorName: currentOperator?.name || 'Admin',
         operatorId: currentOperator?.id,
@@ -1464,17 +1465,21 @@ function InventoryModule({
                           <td className="p-3 font-mono font-bold text-xs bg-blue-50/30">
                             {(() => {
                               const grouped = imeisGroupedByBranch(p);
+                              const loose = unmappedImeis(p);
                               const imeiList = [
                                 ...grouped['b-bodega'],
                                 ...grouped['b-navojoa'],
-                                ...grouped['b-huatabampo']
+                                ...grouped['b-huatabampo'],
+                                ...loose
                               ];
 
                               if (imeiList.length === 0) {
                                 return <span className="text-slate-300 italic font-normal">Sin IMEI</span>;
                               }
 
-                              const locLabel = `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length}`;
+                              const locLabel = loose.length
+                                ? `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length} · sin sucursal ${loose.length}`
+                                : `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length}`;
 
                               if (imeiList.length === 1) {
                                 return (
@@ -2712,9 +2717,18 @@ function InventoryModule({
               <div className="max-h-64 overflow-y-auto space-y-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                 {(() => {
                   const grouped = imeisGroupedByBranch(viewingImeisProduct);
-                  const rows = ALL_BRANCHES.flatMap((branch) =>
-                    (grouped[branch.id as keyof typeof grouped] || []).map((imei) => ({ imei, branchName: branch.name }))
-                  );
+                  const rows = [
+                    ...ALL_BRANCHES.flatMap((branch) =>
+                      (grouped[branch.id as keyof typeof grouped] || []).map((imei) => ({
+                        imei,
+                        branchName: branch.name
+                      }))
+                    ),
+                    ...unmappedImeis(viewingImeisProduct).map((imei) => ({
+                      imei,
+                      branchName: 'Sin sucursal asignada'
+                    }))
+                  ];
                   const filtered = rows.filter((row) =>
                     !imeiSearchQuery || row.imei.toLowerCase().includes(imeiSearchQuery.toLowerCase())
                   );
@@ -2755,7 +2769,7 @@ function InventoryModule({
 
               <div className="flex justify-between items-center pt-2">
                 <span className="text-slate-500 font-bold text-[11px]">
-                  Total: {Object.values(imeisGroupedByBranch(viewingImeisProduct)).flat().length} unidades
+                  Total: {collectProductImeis(viewingImeisProduct).length} unidades
                 </span>
                 <button
                   type="button"

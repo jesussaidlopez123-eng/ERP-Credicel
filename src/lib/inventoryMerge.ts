@@ -7,10 +7,11 @@ import {
 import {
   collectProductImeis,
   emptyBranchImeiMap,
-  imeisAtBranch,
+  canonicalBranchImeiMap,
   isEquipmentProduct,
   normalizeImei,
   sanitizeEquipmentProduct,
+  unmappedImeis,
   INVENTORY_BRANCH_IDS
 } from './imeiInventory';
 
@@ -76,52 +77,34 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
 
 function applyEquipmentWrite(server: Product, incoming: Product, base?: InventorySnapshot | null): Product {
   const catalog = { ...server, ...incoming };
-  if (!base) {
-    const map = emptyBranchImeiMap();
-    const keep = sanitizeEquipmentProduct(server);
-    const incomingImeis = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
-    for (const branch of INVENTORY_BRANCH_IDS) {
-      for (const raw of keep.branchImeiMap?.[branch] || []) {
-        const imei = normalizeImei(raw);
-        if (!imei || incomingImeis.has(imei)) continue;
-        map[branch].push(imei);
-      }
-    }
-    for (const branch of INVENTORY_BRANCH_IDS) {
-      for (const raw of imeisAtBranch(incoming, branch)) {
-        const imei = normalizeImei(raw);
-        if (!imei) continue;
-        for (const key of INVENTORY_BRANCH_IDS) {
-          map[key] = map[key].filter((im) => im !== imei);
-        }
-        map[branch].push(imei);
-      }
-    }
-    return sanitizeEquipmentProduct({
-      ...catalog,
-      branchImeiMap: map,
-      imeiList: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo']]
-    });
+  const incomingMap = canonicalBranchImeiMap(incoming);
+  const incomingMapped = new Set<string>();
+  for (const branch of INVENTORY_BRANCH_IDS) {
+    for (const imei of incomingMap[branch]) incomingMapped.add(imei);
   }
+  const incomingAll = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
 
-  const baseImeis = new Set(collectProductImeis(asProductForStock(incoming, base)).map(normalizeImei));
-  const incomingImeis = new Set(collectProductImeis(incoming).map(normalizeImei));
-  const removed = [...baseImeis].filter((im) => im && !incomingImeis.has(im));
+  const removed = new Set<string>();
+  if (base) {
+    const baseAll = collectProductImeis(asProductForStock(incoming, base)).map(normalizeImei).filter(Boolean);
+    for (const imei of baseAll) {
+      if (imei && !incomingAll.has(imei)) removed.add(imei);
+    }
+  }
 
   const map = emptyBranchImeiMap();
   const keep = sanitizeEquipmentProduct(server);
+  const keepMap = canonicalBranchImeiMap(keep);
   for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const raw of keep.branchImeiMap?.[branch] || []) {
-      const imei = normalizeImei(raw);
-      if (!imei || removed.includes(imei) || incomingImeis.has(imei)) continue;
+    for (const imei of keepMap[branch]) {
+      if (!imei || removed.has(imei) || incomingMapped.has(imei)) continue;
       map[branch].push(imei);
     }
   }
 
   for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const raw of imeisAtBranch(incoming, branch)) {
-      const imei = normalizeImei(raw);
-      if (!imei) continue;
+    for (const imei of incomingMap[branch]) {
+      if (!imei || removed.has(imei)) continue;
       for (const key of INVENTORY_BRANCH_IDS) {
         map[key] = map[key].filter((im) => im !== imei);
       }
@@ -129,10 +112,17 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
     }
   }
 
+  const extras = [
+    ...unmappedImeis(keep).filter((im) => !removed.has(im) && !incomingMapped.has(im) && !incomingAll.has(im)),
+    ...unmappedImeis(incoming).filter((im) => !removed.has(im) && !incomingMapped.has(im))
+  ];
+
   return sanitizeEquipmentProduct({
     ...catalog,
     branchImeiMap: map,
-    imeiList: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo']]
+    imeiList: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo'], ...extras],
+    imeis: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo'], ...extras],
+    imei: map['b-navojoa'][0] || map['b-huatabampo'][0] || map['b-bodega'][0] || extras[0] || ''
   });
 }
 

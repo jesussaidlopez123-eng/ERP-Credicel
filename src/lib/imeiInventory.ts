@@ -68,10 +68,12 @@ export function locateImeiOnProduct(product: Product, rawImei: string): { branch
   return null;
 }
 
-function rebuildEquipmentFromMap(product: Product, map: Record<string, string[]>): Product {
+/** IMEIs por sucursal canónica. No mete a Bodega los que solo viven en imeiList. */
+export function canonicalBranchImeiMap(product: Product): Record<InventoryBranchId, string[]> {
   const clean = emptyBranchImeiMap();
   const seen = new Set<string>();
   const order: InventoryBranchId[] = ['b-navojoa', 'b-huatabampo', 'b-bodega'];
+  const map = product.branchImeiMap || {};
 
   const ingest = (rawKey: string, list: string[]) => {
     const dest = toInventoryBranchId(rawKey);
@@ -88,8 +90,39 @@ function rebuildEquipmentFromMap(product: Product, map: Record<string, string[]>
     if (order.includes(key as InventoryBranchId)) continue;
     ingest(key, list || []);
   }
+  return clean;
+}
 
-  const imeiList = [...clean['b-bodega'], ...clean['b-navojoa'], ...clean['b-huatabampo']];
+/** IMEIs que están en la lista plana pero no en ninguna sucursal del mapa. */
+export function unmappedImeis(product: Product): string[] {
+  const mapped = new Set<string>();
+  const grouped = canonicalBranchImeiMap(product);
+  for (const branch of INVENTORY_BRANCH_IDS) {
+    for (const im of grouped[branch]) mapped.add(im);
+  }
+  return collectProductImeis(product).filter((im) => !mapped.has(im));
+}
+
+function rebuildEquipmentFromMap(
+  product: Product,
+  map: Record<string, string[]>,
+  extras: string[] = []
+): Product {
+  const clean = canonicalBranchImeiMap({ ...product, branchImeiMap: map });
+  const seen = new Set<string>();
+  for (const branch of INVENTORY_BRANCH_IDS) {
+    for (const im of clean[branch]) seen.add(im);
+  }
+  const extraClean: string[] = [];
+  for (const raw of extras) {
+    const n = normalizeImei(raw);
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    extraClean.push(n);
+  }
+
+  const located = [...clean['b-bodega'], ...clean['b-navojoa'], ...clean['b-huatabampo']];
+  const imeiList = [...located, ...extraClean];
   const prevStock = product.branchStock || {};
   const branchStock = {
     ...prevStock,
@@ -109,71 +142,66 @@ function rebuildEquipmentFromMap(product: Product, map: Record<string, string[]>
   };
 }
 
-/** Reubica IMEI de claves invisibles y alinea stock con la lista real. */
+/**
+ * Normaliza claves de sucursal. Los IMEI que solo están en imeiList se conservan
+ * en la lista, no se mudan a Bodega: eso era la fuga hacia una sucursal ajena.
+ */
 export function sanitizeEquipmentProduct(product: Product): Product {
   if (!isEquipmentProduct(product)) return product;
-  const map: Record<string, string[]> = { ...(product.branchImeiMap || {}) };
-  const loose = collectProductImeis(product);
-  const mapped = new Set<string>();
-  Object.values(map).forEach((list) => (list || []).forEach((im) => mapped.add(normalizeImei(im))));
-  const orphans = loose.filter((im) => !mapped.has(im));
-  if (orphans.length > 0) {
-    map['b-bodega'] = [...(map['b-bodega'] || []), ...orphans];
-  }
-  return rebuildEquipmentFromMap(product, map);
+  return rebuildEquipmentFromMap(product, product.branchImeiMap || {}, unmappedImeis(product));
 }
 
 export function addImeisToProduct(product: Product, branchId: string, rawImeis: string[]): Product {
   const dest = toInventoryBranchId(branchId);
-  const base = sanitizeEquipmentProduct(product);
-  const map: Record<string, string[]> = { ...(base.branchImeiMap || emptyBranchImeiMap()) };
+  const map = canonicalBranchImeiMap(product);
+  const extras = unmappedImeis(product);
+  const added = new Set<string>();
   for (const raw of rawImeis) {
     const n = normalizeImei(raw);
     if (!n) continue;
-    for (const key of Object.keys(map)) {
-      map[key] = (map[key] || []).filter((im) => normalizeImei(im) !== n);
+    added.add(n);
+    for (const key of INVENTORY_BRANCH_IDS) {
+      map[key] = map[key].filter((im) => im !== n);
     }
-    map[dest] = [...(map[dest] || []), n];
+    map[dest].push(n);
   }
-  return rebuildEquipmentFromMap(base, map);
+  return rebuildEquipmentFromMap(product, map, extras.filter((im) => !added.has(im)));
 }
 
 export function removeImeisFromProduct(product: Product, rawImeis: string[]): Product {
   const needles = new Set(rawImeis.map(normalizeImei).filter(Boolean));
   if (needles.size === 0) return sanitizeEquipmentProduct(product);
-  const base = sanitizeEquipmentProduct(product);
-  const map: Record<string, string[]> = { ...(base.branchImeiMap || emptyBranchImeiMap()) };
-  for (const key of Object.keys(map)) {
-    map[key] = (map[key] || []).filter((im) => !needles.has(normalizeImei(im)));
+  const map = canonicalBranchImeiMap(product);
+  for (const key of INVENTORY_BRANCH_IDS) {
+    map[key] = map[key].filter((im) => !needles.has(im));
   }
-  return rebuildEquipmentFromMap(base, map);
+  const extras = unmappedImeis(product).filter((im) => !needles.has(im));
+  return rebuildEquipmentFromMap(product, map, extras);
 }
 
 export function moveImeisOnProduct(product: Product, fromBranchId: string, toBranchId: string, rawImeis: string[]): Product {
   const dest = toInventoryBranchId(toBranchId);
-  const origin = toInventoryBranchId(fromBranchId);
   const needles = new Set(rawImeis.map(normalizeImei).filter(Boolean));
-  const base = sanitizeEquipmentProduct(product);
-  const map: Record<string, string[]> = { ...(base.branchImeiMap || emptyBranchImeiMap()) };
-  for (const key of Object.keys(map)) {
-    map[key] = (map[key] || []).filter((im) => !needles.has(normalizeImei(im)));
+  const map = canonicalBranchImeiMap(product);
+  for (const key of INVENTORY_BRANCH_IDS) {
+    map[key] = map[key].filter((im) => !needles.has(im));
   }
-  map[dest] = [...(map[dest] || []), ...Array.from(needles)];
-  if (origin === dest) return rebuildEquipmentFromMap(base, map);
-  return rebuildEquipmentFromMap(base, map);
+  map[dest] = [...map[dest], ...Array.from(needles)];
+  const extras = unmappedImeis(product).filter((im) => !needles.has(im));
+  return rebuildEquipmentFromMap(product, map, extras);
 }
 
 export function imeisAtBranch(product: Product, branchId: string): string[] {
   const dest = toInventoryBranchId(branchId);
-  return sanitizeEquipmentProduct(product).branchImeiMap?.[dest] || [];
+  return canonicalBranchImeiMap(product)[dest] || [];
 }
 
 export function imeisGroupedByBranch(product: Product): Record<InventoryBranchId, string[]> {
-  const clean = sanitizeEquipmentProduct(product).branchImeiMap || emptyBranchImeiMap();
+  const clean = canonicalBranchImeiMap(product);
   return {
-    'b-bodega': [...(clean['b-bodega'] || [])],
-    'b-navojoa': [...(clean['b-navojoa'] || [])],
-    'b-huatabampo': [...(clean['b-huatabampo'] || [])]
+    'b-bodega': [...clean['b-bodega']],
+    'b-navojoa': [...clean['b-navojoa']],
+    'b-huatabampo': [...clean['b-huatabampo']]
   };
 }
 

@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Product, Branch, Operator } from '../types';
 import { accessoryStockAt, accessoryTotalStock } from '../lib/accessoryInventory';
-import { imeisAtBranch, isEquipmentProduct } from '../lib/imeiInventory';
+import { imeisAtBranch, imeisGroupedByBranch, isEquipmentProduct } from '../lib/imeiInventory';
 
 interface InventoryPrintModalProps {
   isOpen: boolean;
@@ -106,28 +106,21 @@ export default function InventoryPrintModal({
   // Helper to get IMEIs for a product filtered by branch
   const getProductImeis = (product: Product, branchId: string): { imei: string; branchId?: string }[] => {
     const list: { imei: string; branchId?: string }[] = [];
-    if (!product) return list;
+    if (!product || !isEquipmentProduct(product)) return list;
 
-    if (product.branchImeiMap) {
-      Object.entries(product.branchImeiMap).forEach(([bId, imeis]) => {
-        if (branchId === 'all' || branchId === bId) {
-          if (Array.isArray(imeis)) {
-            imeis.forEach(im => {
-              if (im && String(im).trim()) {
-                list.push({ imei: String(im).trim(), branchId: bId });
-              }
-            });
-          }
+    const grouped = imeisGroupedByBranch(product);
+    const branches = branchId === 'all'
+      ? (['b-bodega', 'b-navojoa', 'b-huatabampo'] as const)
+      : [branchId];
+
+    branches.forEach((bId) => {
+      const imeis = bId === 'all' ? [] : (grouped[bId as keyof typeof grouped] || imeisAtBranch(product, bId));
+      imeis.forEach((im) => {
+        if (im && String(im).trim()) {
+          list.push({ imei: String(im).trim(), branchId: bId });
         }
       });
-    } else if (branchId === 'all') {
-      const imeis = product.imeiList && product.imeiList.length > 0
-        ? product.imeiList
-        : (product.imei ? [product.imei] : []);
-      imeis.forEach(im => {
-        if (im && String(im).trim()) list.push({ imei: String(im).trim() });
-      });
-    }
+    });
 
     return list;
   };

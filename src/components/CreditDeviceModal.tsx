@@ -18,6 +18,7 @@ import {
   Printer
 } from 'lucide-react';
 import { Product, CartItemMetadata, Branch } from '../types';
+import { isAdminWorkspace } from '../data/initialBranches';
 import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
 
 interface CreditDeviceModalProps {
@@ -68,6 +69,9 @@ export default function CreditDeviceModal({
   const checkImeiInSystem = (cleanImei: string) => {
     const lookup = findImeiInInventory(products, cleanImei, activeBranchId);
     if (lookup.status === 'found') {
+      return { found: true, product: lookup.product, otherBranch: null as string | null };
+    }
+    if (lookup.status === 'other_branch' && isAdminWorkspace(activeBranchId)) {
       return { found: true, product: lookup.product, otherBranch: null as string | null };
     }
     if (lookup.status === 'other_branch') {

@@ -292,7 +292,7 @@ function PosModule({
       setTimeout(() => setScanFeedback(null), 4000);
       return;
     }
-    if (imeiLookup.status === 'found') {
+    if (imeiLookup.status === 'found' || (imeiLookup.status === 'other_branch' && isAdminUser)) {
       playBeepSound();
       setSelectedCreditProduct(imeiLookup.product);
       setIsCreditDeviceModalOpen(true);

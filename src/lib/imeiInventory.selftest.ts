@@ -78,6 +78,18 @@ const loc = locateImeiOnProduct(
 assert.equal(loc?.branchId, 'b-bodega');
 assert.equal(loc?.hidden, true);
 
+const dangling = sanitizeEquipmentProduct(
+  phone({
+    stock: 2,
+    imeiList: ['AAA', 'BBB'],
+    branchImeiMap: { 'b-navojoa': ['AAA'] }
+  })
+);
+assert.deepEqual(imeisAtBranch(dangling, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(dangling, 'b-bodega'), []);
+assert.deepEqual(dangling.imeiList?.includes('BBB'), true);
+assert.equal(dangling.stock, 2);
+
 const ticket = {
   id: 't1',
   folio: 'NAV-0101-001',

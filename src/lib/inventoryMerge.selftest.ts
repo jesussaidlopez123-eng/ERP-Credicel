@@ -87,4 +87,19 @@ const noBasePhone = applyInventoryWrite(serverPhone, soldHua, null);
 assert.deepEqual(imeisAtBranch(noBasePhone, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(noBasePhone, 'b-huatabampo'), ['BBB']);
 
+const staleListIncoming = phone({
+  stock: 1,
+  imeiList: ['AAA', 'BBB'],
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-bodega': [] }
+});
+const noDump = applyInventoryWrite(serverPhone, staleListIncoming, null);
+assert.deepEqual(imeisAtBranch(noDump, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(noDump, 'b-huatabampo'), ['BBB']);
+assert.deepEqual(imeisAtBranch(noDump, 'b-bodega'), []);
+
+const noDumpWithBase = applyInventoryWrite(serverPhone, staleListIncoming, snapshotInventory(serverPhone));
+assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-huatabampo'), ['BBB']);
+assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-bodega'), []);
+
 console.log('inventoryMerge self-test ok');

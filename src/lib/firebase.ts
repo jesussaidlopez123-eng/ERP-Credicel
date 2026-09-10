@@ -26,7 +26,7 @@ import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
-import { applyInventoryWrite, type InventorySnapshot } from './inventoryMerge';
+import { applyInventoryWrite, snapshotInventory, type InventorySnapshot } from './inventoryMerge';
 import {
   AUTO_CORTE_NOTE,
   CashTillLockedError,
@@ -2003,14 +2003,7 @@ export async function deleteSaleTicketFromFirestore(
           ? addImeisToProduct(currentProd, normBId, [imeiSold])
           : addAccessoryStock(currentProd, normBId, qty);
 
-        await updateDoc(prodRef, {
-          stock: restored.stock,
-          branchStock: restored.branchStock,
-          branchImeiMap: restored.branchImeiMap || {},
-          imeiList: restored.imeiList || [],
-          imeis: restored.imeis || restored.imeiList || [],
-          imei: restored.imei || ''
-        });
+        await saveProductToFirestore(restored, snapshotInventory(currentProd));
 
         const movId = `mov-rev-${ticketId}-${Math.random().toString(36).slice(2, 7)}`;
         await setDoc(doc(db, MOVEMENTS_COLLECTION, movId), cleanForFirestore({

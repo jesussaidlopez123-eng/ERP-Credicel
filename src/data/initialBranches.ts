@@ -17,7 +17,9 @@ export const ADMIN_WORKSPACE: Branch = { id: 'all', name: 'Administración' };
 export function isAdminWorkspace(id?: string): boolean {
   const clean = String(id || '')
     .toLowerCase()
-    .trim();
+    .trim()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
   return clean === 'all' || clean === 'b-admin' || clean === 'admin' || clean === 'administracion';
 }
 
