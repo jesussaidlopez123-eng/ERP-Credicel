@@ -147,6 +147,43 @@ export function formatWeekRangeLabel(weekStart: string): string {
   return formatDateRangeLabel(weekStart, addCashDays(weekStart, 6));
 }
 
+export function formatCashDateLabel(dateKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';
+  const d = new Date(`${dateKey}T12:00:00-07:00`);
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  }).format(d);
+}
+
+/** Fechas con tickets o gastos reales, no el lunes–domingo del calendario. */
+export function workedDatesLabel(fromKey: string, toKey: string): string {
+  if (!fromKey || !toKey) return 'Sin movimiento';
+  if (fromKey === toKey) return `Trabajada el ${formatCashDateLabel(fromKey)}`;
+  return `Trabajada ${formatDateRangeLabel(fromKey, toKey)}`;
+}
+
+/** Semana natural ISO (lunes a domingo). El año lo marca el jueves de esa semana. */
+export function isoWeekAndYear(dateKey: string): { week: number; year: number } {
+  const monday = weekStartDateKey(dateKey);
+  if (!monday) return { week: 0, year: 0 };
+  const thursday = addCashDays(monday, 3);
+  const year = Number(thursday.slice(0, 4));
+  const week1Monday = weekStartDateKey(`${year}-01-04`);
+  const mondayMs = new Date(`${monday}T12:00:00-07:00`).getTime();
+  const week1Ms = new Date(`${week1Monday}T12:00:00-07:00`).getTime();
+  const week = Math.round((mondayMs - week1Ms) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  return { year, week };
+}
+
+export function naturalWeekTitle(weekStart: string): string {
+  const { week, year } = isoWeekAndYear(weekStart);
+  if (!week) return 'Semana';
+  return `Semana ${week} de ${year}`;
+}
+
 export function safeFormatDate(val: any): string {
   const d = tryParseDate(val) || parseSessionInstant(val);
   if (!d) return '--/--/----';

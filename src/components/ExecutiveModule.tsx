@@ -17,8 +17,8 @@ import {
 } from 'lucide-react';
 import { Branch, CartItem, Expense, Operator, Product, SaleTicket } from '../types';
 import {
-  ALL_BRANCHES,
   COMMERCIAL_BRANCHES,
+  compareBranchIds,
   getBranchDisplayName,
   normalizeBranchId
 } from '../data/initialBranches';
@@ -26,10 +26,13 @@ import {
   addCashDays,
   currentWeekStartKey,
   formatWeekRangeLabel,
+  naturalWeekTitle,
+  isoWeekAndYear,
   safeDateIsoKey,
   safeFormatDate,
   safeFormatTime,
-  weekStartDateKey
+  weekStartDateKey,
+  workedDatesLabel
 } from '../lib/dateUtils';
 import { money, ticketFolioLabel } from '../lib/ids';
 import {
@@ -125,7 +128,13 @@ type WeekBlock = {
   weekStart: string;
   weekEnd: string;
   label: string;
+  title: string;
+  weekNumber: number;
+  weekYear: number;
   isCurrent: boolean;
+  workedFrom: string;
+  workedTo: string;
+  workedLabel: string;
   branches: BranchWeekRow[];
   totals: BranchWeekRow;
   phones: PhoneSale[];
@@ -139,10 +148,10 @@ const OURS: { id: CategoryId; label: string; hint: string }[] = [
   { id: 'gastos', label: 'Gastos', hint: 'Se restan del resultado' }
 ];
 
-const PASS: { id: CategoryId; label: string; hint: string }[] = [
-  { id: 'equipos', label: 'Equipos', hint: 'Solo pasa · no es utilidad' },
-  { id: 'abonos', label: 'Abonos', hint: 'Solo pasa · no es utilidad' },
-  { id: 'recargas', label: 'Recargas', hint: 'Solo pasa · no es utilidad' }
+const PASS: { id: CategoryId; label: 'Equipos cobrados' | 'Abonos' | 'Recargas'; hint: string }[] = [
+  { id: 'equipos', label: 'Equipos cobrados', hint: 'Se retorna · no es utilidad' },
+  { id: 'abonos', label: 'Abonos', hint: 'Se retorna · no es utilidad' },
+  { id: 'recargas', label: 'Recargas', hint: 'Se retorna · no es utilidad' }
 ];
 
 function categoryMeta(id: CategoryId) {
@@ -203,7 +212,7 @@ function applyFinance(row: BranchWeekRow): BranchWeekRow {
 }
 
 function sumBranchRows(rows: BranchWeekRow[]): BranchWeekRow {
-  const totals = emptyRow('all', 'Todas las sucursales');
+  const totals = emptyRow('all', 'Totales');
   let finance = emptyExecutiveFinance();
   rows.forEach((row) => {
     totals.tickets += row.tickets;
@@ -226,6 +235,11 @@ function sumBranchRows(rows: BranchWeekRow[]): BranchWeekRow {
   totals.ventas = money(finance.ingresosPropios + finance.dineroPaso);
   totals.utilidad = finance.resultado;
   return totals;
+}
+
+/** Suma visible: productos + comisiones − gastos, todavía con lo que se retorna. */
+function weekGross(row: BranchWeekRow): number {
+  return money(row.finance.ingresosPropios + row.finance.comisiones + row.finance.dineroPaso - row.finance.gastos);
 }
 
 function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSale | null {
@@ -262,7 +276,7 @@ function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSa
   };
 }
 
-function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilter: string): WeekBlock[] {
+function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[] {
   const currentStart = currentWeekStartKey();
   const bucket = new Map<string, { tickets: SaleTicket[]; expenses: Expense[] }>();
 
@@ -274,14 +288,14 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
 
   tickets.forEach((ticket) => {
     const bid = normalizeBranchId(ticket.branchId);
-    if (branchFilter !== 'all' && bid !== branchFilter) return;
+    if (bid !== 'b-navojoa' && bid !== 'b-huatabampo') return;
     const group = take(weekStartDateKey(safeDateIsoKey(ticket.timestamp)));
     group?.tickets.push(ticket);
   });
 
   expenses.forEach((expense) => {
     const bid = normalizeBranchId(expense.branchId);
-    if (branchFilter !== 'all' && bid !== branchFilter) return;
+    if (bid !== 'b-navojoa' && bid !== 'b-huatabampo') return;
     const group = take(weekStartDateKey(safeDateIsoKey(expense.timestamp || expense.date)));
     group?.expenses.push(expense);
   });
@@ -289,9 +303,7 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
   const starts = Array.from(bucket.keys()).sort((a, b) => (a < b ? 1 : -1));
   if (currentStart && !starts.includes(currentStart)) starts.unshift(currentStart);
 
-  const visibleBranches = (branchFilter === 'all' ? COMMERCIAL_BRANCHES : ALL_BRANCHES.filter((b) => b.id === branchFilter))
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const visibleBranches = COMMERCIAL_BRANCHES.slice().sort((a, b) => compareBranchIds(a.id, b.id));
 
   return starts.map((weekStart) => {
     const pack = bucket.get(weekStart) || { tickets: [], expenses: [] };
@@ -299,6 +311,7 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
     visibleBranches.forEach((b) => byBranch.set(b.id, emptyRow(b.id, getBranchDisplayName(b.id))));
     const phones: PhoneSale[] = [];
     const events: CategoryEvent[] = [];
+    const dateKeys: string[] = [];
 
     pack.tickets.forEach((ticket) => {
       const bid = normalizeBranchId(ticket.branchId);
@@ -307,6 +320,8 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
       }
       const row = byBranch.get(bid);
       if (!row) return;
+      const dayKey = safeDateIsoKey(ticket.timestamp);
+      if (dayKey) dateKeys.push(dayKey);
       row.tickets += 1;
       const folio = ticketFolioLabel(ticket);
       const dateLabel = `${safeFormatDate(ticket.timestamp)} ${safeFormatTime(ticket.timestamp)}`;
@@ -358,6 +373,8 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
       }
       const row = byBranch.get(bid);
       if (!row) return;
+      const dayKey = safeDateIsoKey(expense.timestamp || expense.date);
+      if (dayKey) dateKeys.push(dayKey);
       row.gastos = money(row.gastos + (expense.amount || 0));
       events.push({
         id: expense.id,
@@ -374,17 +391,27 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
       });
     });
 
-    const branches = Array.from(byBranch.values())
-      .map(applyFinance)
-      .filter((row) => visibleBranches.some((b) => b.id === row.branchId) || row.ventas > 0 || row.gastos > 0 || row.tickets > 0);
+    const branches = visibleBranches
+      .map((b) => byBranch.get(b.id) || emptyRow(b.id, getBranchDisplayName(b.id)))
+      .map(applyFinance);
 
     const totals = sumBranchRows(branches);
+    dateKeys.sort();
+    const workedFrom = dateKeys[0] || '';
+    const workedTo = dateKeys[dateKeys.length - 1] || '';
+    const iso = isoWeekAndYear(weekStart);
 
     return {
       weekStart,
       weekEnd: addCashDays(weekStart, 6),
       label: formatWeekRangeLabel(weekStart),
+      title: naturalWeekTitle(weekStart),
+      weekNumber: iso.week,
+      weekYear: iso.year,
       isCurrent: weekStart === currentStart,
+      workedFrom,
+      workedTo,
+      workedLabel: workedDatesLabel(workedFrom, workedTo),
       branches,
       totals,
       phones,
@@ -397,52 +424,28 @@ function peso(n: number): string {
   return money(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function CategoryTile({
-  id,
+function MoneyCell({
   amount,
-  count,
-  passThrough,
-  onOpen
+  minus,
+  muted,
+  strong
 }: {
-  id: CategoryId;
   amount: number;
-  count: number;
-  passThrough?: boolean;
-  onOpen: () => void;
+  minus?: boolean;
+  muted?: boolean;
+  strong?: boolean;
 }) {
-  const meta = categoryMeta(id);
-  const minus = id === 'gastos';
+  const color = minus
+    ? 'text-rose-700'
+    : muted
+      ? 'text-slate-500'
+      : strong
+        ? 'text-slate-950'
+        : 'text-slate-800';
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`h-full min-h-[148px] w-full rounded-2xl border p-4 text-left flex flex-col cursor-pointer transition-colors ${
-        passThrough
-          ? 'border-dashed border-slate-300 bg-slate-50 hover:bg-white'
-          : 'border-slate-200 bg-white hover:border-[#0047AB]/40 hover:shadow-sm'
-      }`}
-    >
-      <div className={`flex items-center gap-2 ${passThrough ? 'text-slate-500' : 'text-slate-700'}`}>
-        <span className={`flex h-8 w-8 items-center justify-center rounded-full ${
-          passThrough ? 'bg-white border border-slate-200' : 'bg-slate-100'
-        }`}>
-          {categoryIcon(id)}
-        </span>
-        <p className="text-sm font-semibold">{meta.label}</p>
-      </div>
-      <p className={`mt-3 font-mono text-2xl font-bold tabular-nums ${
-        minus ? 'text-rose-700' : passThrough ? 'text-slate-500' : 'text-slate-950'
-      }`}>
-        {minus && amount ? '−' : ''}${peso(Math.abs(amount))}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">
-        {count} registro{count === 1 ? '' : 's'} · {meta.hint}
-      </p>
-      <p className="mt-auto pt-3 text-xs font-semibold text-[#0047AB] flex items-center gap-1">
-        <History className="w-3.5 h-3.5" />
-        Ver historial
-      </p>
-    </button>
+    <span className={`font-mono tabular-nums ${strong ? 'text-base font-bold' : 'text-sm font-semibold'} ${color}`}>
+      {minus && amount ? '−' : ''}${peso(Math.abs(amount))}
+    </span>
   );
 }
 
@@ -543,9 +546,13 @@ function CategoryHistoryModal({
                       <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900">{week.label}</p>
+                      <p className="text-sm font-semibold text-slate-900">{week.title}</p>
                       <p className="text-xs text-slate-500">
-                        {week.isCurrent ? 'Semana en curso · ' : ''}
+                        {week.label}
+                        {week.isCurrent ? ' · En curso' : ''}
+                        {' · '}
+                        {week.workedLabel}
+                        {' · '}
                         {count} registro{count === 1 ? '' : 's'}
                       </p>
                     </div>
@@ -600,6 +607,196 @@ function CategoryHistoryModal({
   );
 }
 
+function WeekBoard({
+  week,
+  onOpenCategory
+}: {
+  week: WeekBlock;
+  onOpenCategory: (id: CategoryId) => void;
+}) {
+  const columns = [...week.branches, week.totals];
+  const ownRows = OURS;
+  const passRows = PASS;
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+      <div className="px-4 sm:px-5 py-4 border-b border-slate-200 bg-slate-950 text-white flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5" />
+            {week.isCurrent ? 'Semana en curso' : 'Semana elegida'}
+          </p>
+          <h2 className="text-2xl font-semibold mt-1">{week.title}</h2>
+          <p className="text-sm text-slate-300 mt-1">
+            Calendario {week.label}
+          </p>
+          <p className="text-sm text-slate-400">{week.workedLabel}</p>
+        </div>
+        <div className="sm:text-right">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Utilidad</p>
+          <p className={`font-mono text-3xl font-bold tabular-nums ${
+            week.totals.utilidad >= 0 ? 'text-white' : 'text-rose-300'
+          }`}>
+            ${peso(week.totals.utilidad)}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Después de descontar lo que se retorna
+          </p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50">
+              <th className="text-left font-semibold text-slate-500 px-4 py-3 w-[28%]">Concepto</th>
+              {week.branches.map((row) => (
+                <th key={row.branchId} className="text-right font-semibold text-slate-700 px-4 py-3 w-[24%]">
+                  <span className="inline-flex items-center justify-end gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-slate-400" />
+                    {row.branchName}
+                  </span>
+                  <span className="block text-[10px] font-medium text-slate-400 mt-0.5">
+                    {phoneCommissionRate(row.branchId) > 0
+                      ? `Comisión $${peso(phoneCommissionRate(row.branchId))} / celular`
+                      : 'Sin comisión'}
+                  </span>
+                </th>
+              ))}
+              <th className="text-right font-semibold text-slate-950 px-4 py-3 w-[24%] bg-slate-100">
+                Totales
+                <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
+                  Navojoa + Huatabampo
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-slate-100">
+              <td className="px-4 py-2.5 text-slate-600">Celulares vendidos</td>
+              {columns.map((row) => (
+                <td
+                  key={`${row.branchId}-phones`}
+                  className={`px-4 py-2.5 text-right font-semibold tabular-nums ${
+                    row.branchId === 'all' ? 'bg-slate-50' : ''
+                  }`}
+                >
+                  {row.phonesSold}
+                </td>
+              ))}
+            </tr>
+
+            <tr>
+              <td colSpan={columns.length + 1} className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Productos de Credicel
+              </td>
+            </tr>
+            {ownRows.map((item) => (
+              <tr
+                key={item.id}
+                className="border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer"
+                onClick={() => onOpenCategory(item.id)}
+              >
+                <td className="px-4 py-2.5">
+                  <span className="flex items-center gap-2 text-slate-800 font-medium">
+                    {categoryIcon(item.id)}
+                    {item.label}
+                  </span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5 pl-6">{item.hint}</span>
+                </td>
+                {columns.map((row) => (
+                  <td
+                    key={`${row.branchId}-${item.id}`}
+                    className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
+                  >
+                    <MoneyCell amount={categoryAmount(row, item.id)} minus={item.id === 'gastos'} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+
+            <tr>
+              <td colSpan={columns.length + 1} className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Dinero de paso · se retorna
+              </td>
+            </tr>
+            {passRows.map((item) => (
+              <tr
+                key={item.id}
+                className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                onClick={() => onOpenCategory(item.id)}
+              >
+                <td className="px-4 py-2.5">
+                  <span className="flex items-center gap-2 text-slate-500 font-medium">
+                    {categoryIcon(item.id)}
+                    {item.label}
+                  </span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5 pl-6">{item.hint}</span>
+                </td>
+                {columns.map((row) => (
+                  <td
+                    key={`${row.branchId}-${item.id}`}
+                    className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
+                  >
+                    <MoneyCell amount={categoryAmount(row, item.id)} muted />
+                  </td>
+                ))}
+              </tr>
+            ))}
+
+            <tr className="border-t border-slate-200 bg-white">
+              <td className="px-4 py-2.5 text-slate-600 font-medium">Suma de la semana</td>
+              {columns.map((row) => (
+                <td
+                  key={`${row.branchId}-gross`}
+                  className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
+                >
+                  <MoneyCell amount={weekGross(row)} />
+                </td>
+              ))}
+            </tr>
+            <tr className="bg-white">
+              <td className="px-4 py-2.5 text-rose-800 font-medium">(−) Se retorna</td>
+              {columns.map((row) => (
+                <td
+                  key={`${row.branchId}-paso`}
+                  className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-amber-50' : ''}`}
+                >
+                  <MoneyCell amount={row.finance.dineroPaso} minus />
+                </td>
+              ))}
+            </tr>
+            <tr className="border-t-2 border-slate-900 bg-slate-950 text-white">
+              <td className="px-4 py-3 font-semibold">
+                Utilidad
+                <span className="block text-[10px] font-medium text-slate-400 mt-0.5">
+                  Accesorios + reparaciones + comisiones − gastos
+                </span>
+              </td>
+              {columns.map((row) => (
+                <td
+                  key={`${row.branchId}-utilidad`}
+                  className={`px-4 py-3 text-right ${row.branchId === 'all' ? 'bg-slate-900' : ''}`}
+                >
+                  <span className={`font-mono text-lg font-bold tabular-nums ${
+                    row.utilidad >= 0 ? 'text-emerald-300' : 'text-rose-300'
+                  }`}>
+                    ${peso(row.utilidad)}
+                  </span>
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="px-4 py-2.5 text-[11px] text-slate-500 border-t border-slate-100 flex items-center gap-1.5">
+        <History className="w-3.5 h-3.5" />
+        Toca un producto para ver el historial de esa categoría.
+      </p>
+    </section>
+  );
+}
+
 export default function ExecutiveModule({
   onOpenNoticeModal,
   salesTickets = [],
@@ -608,13 +805,12 @@ export default function ExecutiveModule({
   salesHasMore = false,
   historyBusy = null
 }: ExecutiveModuleProps) {
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>('');
   const [historyCategory, setHistoryCategory] = useState<CategoryId | null>(null);
 
   const weeks = useMemo(
-    () => buildWeekBlocks(salesTickets, expenses, selectedBranchId),
-    [salesTickets, expenses, selectedBranchId]
+    () => buildWeekBlocks(salesTickets, expenses),
+    [salesTickets, expenses]
   );
 
   const currentStart = weeks.find((week) => week.isCurrent)?.weekStart || weeks[0]?.weekStart || '';
@@ -622,7 +818,6 @@ export default function ExecutiveModule({
     ? selectedWeekStart
     : currentStart;
   const activeWeek = weeks.find((week) => week.weekStart === activeWeekStart) || weeks[0];
-  const filterLabel = selectedBranchId === 'all' ? 'Navojoa y Huatabampo' : getBranchDisplayName(selectedBranchId);
 
   return (
     <div className="space-y-6 pb-16">
@@ -634,160 +829,73 @@ export default function ExecutiveModule({
           </div>
           <h1 className="text-2xl font-semibold text-slate-900 mt-1 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-slate-400" />
-            Resumen de la semana
+            Semana actual
           </h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-xl">
-            Cuatro cuentas que sí son de Credicel y tres que solo transitan. Toca una para ver su historial.
+          <p className="text-sm text-slate-500 mt-1 max-w-2xl">
+            Navojoa, Huatabampo y el total. Equipos cobrados, abonos y recargas se ven en la suma y al final se descuentan: no son utilidad.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
-            <Store className="w-3.5 h-3.5 text-[#0047AB]" />
-            <select
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className="bg-transparent focus:outline-none cursor-pointer"
-            >
-              <option value="all">Todas las sucursales</option>
-              {ALL_BRANCHES.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {getBranchDisplayName(branch.id)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={onOpenNoticeModal}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#0047AB] hover:bg-blue-700 text-white rounded-full text-xs font-semibold cursor-pointer"
-          >
-            <Megaphone className="w-3.5 h-3.5" />
-            Aviso a sucursales
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onOpenNoticeModal}
+          className="flex items-center gap-1.5 px-3 py-2 bg-[#0047AB] hover:bg-blue-700 text-white rounded-full text-xs font-semibold cursor-pointer self-start lg:self-auto"
+        >
+          <Megaphone className="w-3.5 h-3.5" />
+          Aviso a sucursales
+        </button>
       </div>
 
       {activeWeek && (
-        <>
-          <section className="rounded-2xl border border-slate-200 bg-white px-4 sm:px-5 py-4 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5" />
-                {activeWeek.isCurrent ? 'Semana en curso' : 'Semana elegida'}
-              </p>
-              <h2 className="text-xl font-semibold text-slate-900 mt-0.5">{activeWeek.label}</h2>
-              <p className="text-sm text-slate-500">{filterLabel}</p>
-            </div>
-            <div className="sm:text-right">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Resultado</p>
-              <p className={`font-mono text-3xl font-bold tabular-nums ${
-                activeWeek.totals.utilidad >= 0 ? 'text-slate-950' : 'text-rose-700'
-              }`}>
-                ${peso(activeWeek.totals.utilidad)}
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                accesorios + reparaciones + comisiones − gastos
-              </p>
-            </div>
-          </section>
+        <WeekBoard week={activeWeek} onOpenCategory={setHistoryCategory} />
+      )}
 
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <section>
+        <div className="flex items-end justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Semanas naturales</h2>
+            <p className="text-xs text-slate-500">
+              Numeradas lunes a domingo. Abajo van las fechas en que sí se trabajó.
+            </p>
+          </div>
+        </div>
+        {weeks.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+            Aún no hay semanas cargadas.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
             {weeks.map((week) => {
-              const active = week.weekStart === activeWeek.weekStart;
+              const active = week.weekStart === activeWeek?.weekStart;
               return (
                 <button
                   key={week.weekStart}
                   type="button"
                   onClick={() => setSelectedWeekStart(week.weekStart)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer border ${
+                  className={`rounded-xl border px-3 py-2.5 text-left cursor-pointer transition-colors min-h-[92px] ${
                     active
-                      ? 'bg-slate-950 text-white border-slate-950'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                      ? 'border-slate-950 bg-slate-950 text-white'
+                      : 'border-slate-200 bg-white text-slate-800 hover:border-slate-400'
                   }`}
                 >
-                  {week.isCurrent ? 'Esta semana' : week.label}
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${
+                    active ? 'text-blue-300' : 'text-slate-400'
+                  }`}>
+                    {week.isCurrent ? 'En curso' : `Semana ${week.weekNumber}`}
+                  </p>
+                  <p className="text-sm font-semibold mt-0.5 leading-tight">{week.title}</p>
+                  <p className={`text-[11px] mt-1 ${active ? 'text-slate-300' : 'text-slate-500'}`}>
+                    {week.label}
+                  </p>
+                  <p className={`text-[11px] mt-0.5 ${active ? 'text-slate-400' : 'text-slate-400'}`}>
+                    {week.workedLabel}
+                  </p>
                 </button>
               );
             })}
           </div>
-
-          <section>
-            <h2 className="text-sm font-semibold text-slate-900 mb-2">Lo que sí es de Credicel</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {OURS.map((item) => (
-                <CategoryTile
-                  key={item.id}
-                  id={item.id}
-                  amount={categoryAmount(activeWeek.totals, item.id)}
-                  count={categoryCount(activeWeek.totals, activeWeek.events, item.id)}
-                  onOpen={() => setHistoryCategory(item.id)}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold text-slate-500 mb-2">Dinero de paso · no entra al resultado</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {PASS.map((item) => (
-                <CategoryTile
-                  key={item.id}
-                  id={item.id}
-                  amount={categoryAmount(activeWeek.totals, item.id)}
-                  count={categoryCount(activeWeek.totals, activeWeek.events, item.id)}
-                  passThrough
-                  onOpen={() => setHistoryCategory(item.id)}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <h2 className="text-sm font-semibold text-slate-900 mb-2">Por sucursal</h2>
-            <div className={`grid gap-3 ${activeWeek.branches.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-              {activeWeek.branches.map((row) => (
-                <article key={row.branchId} className="rounded-2xl border border-slate-200 bg-white p-4 min-h-[148px] flex flex-col">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
-                        <Store className="w-3.5 h-3.5 text-slate-500" />
-                        {row.branchName}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {phoneCommissionRate(row.branchId) > 0
-                          ? `Comisión $${peso(phoneCommissionRate(row.branchId))} / celular`
-                          : 'Sin comisión por celular'}
-                      </p>
-                    </div>
-                    <p className={`font-mono text-2xl font-bold tabular-nums ${
-                      row.utilidad >= 0 ? 'text-slate-950' : 'text-rose-700'
-                    }`}>
-                      ${peso(row.utilidad)}
-                    </p>
-                  </div>
-                  <div className="mt-auto pt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div>
-                      <p className="text-slate-400">Celulares</p>
-                      <p className="font-semibold text-slate-800">{row.phonesSold}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400">Lo nuestro</p>
-                      <p className="font-mono font-semibold text-slate-800">
-                        ${peso(money(row.finance.ingresosPropios + row.finance.comisiones))}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400">De paso</p>
-                      <p className="font-mono font-semibold text-slate-500">${peso(row.finance.dineroPaso)}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </>
-      )}
+        )}
+      </section>
 
       <LoadMoreButton
         hasMore={salesHasMore}
