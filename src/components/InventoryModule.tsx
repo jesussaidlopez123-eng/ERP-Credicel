@@ -100,6 +100,7 @@ function InventoryModule({
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printBranchId, setPrintBranchId] = useState<string>('all');
   const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
+  const [labelTargetProduct, setLabelTargetProduct] = useState<Product | null>(null);
 
   const handleOpenPrintModalForBranch = (branchId: string) => {
     setPrintBranchId(branchId);
@@ -1318,15 +1319,6 @@ function InventoryModule({
 
           {/* Grupo 2: Impresiones y Auditoría */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setIsLabelsModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-[#0047AB] hover:bg-[#003d93] text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Imprimir etiquetas con código, nombre, código de barras y precio"
-            >
-              <Tag className="w-3.5 h-3.5 text-amber-200" />
-              <span>Etiquetas</span>
-            </button>
-
             {/* Botón IMPRIMIR REPORTE INVENTARIO */}
             <button
               onClick={() => setIsPrintModalOpen(true)}
@@ -1568,6 +1560,19 @@ function InventoryModule({
                         {/* Acciones: Solo iconos compactos para ganar espacio en la tabla */}
                         <td className="p-2.5 text-center">
                           <div className="flex items-center justify-center gap-1">
+                            {p.category !== 'recarga' && p.category !== 'servicio' && (p.code || '').trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLabelTargetProduct(p);
+                                  setIsLabelsModalOpen(true);
+                                }}
+                                className="p-1.5 rounded-lg bg-[#0047AB]/10 hover:bg-[#0047AB] text-[#0047AB] hover:text-white transition-all cursor-pointer border border-[#0047AB]/30 shadow-2xs"
+                                title={`Imprimir etiquetas de ${p.name}`}
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setEditingProduct(p)}
@@ -3203,9 +3208,13 @@ function InventoryModule({
       <LazyWhen when={isLabelsModalOpen}>
         <InventoryLabelsModal
           isOpen={isLabelsModalOpen}
-          onClose={() => setIsLabelsModalOpen(false)}
+          onClose={() => {
+            setIsLabelsModalOpen(false);
+            setLabelTargetProduct(null);
+          }}
           products={products}
           inventoryTab={activeInventoryTab}
+          initialProduct={labelTargetProduct}
         />
       </LazyWhen>
 

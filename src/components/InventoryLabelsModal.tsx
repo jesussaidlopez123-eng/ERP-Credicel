@@ -24,6 +24,7 @@ interface InventoryLabelsModalProps {
   onClose: () => void;
   products: Product[];
   inventoryTab: 'accesorio' | 'equipo';
+  initialProduct?: Product | null;
 }
 
 function isLabelProduct(product: Product): boolean {
@@ -36,7 +37,8 @@ export default function InventoryLabelsModal({
   isOpen,
   onClose,
   products,
-  inventoryTab
+  inventoryTab,
+  initialProduct
 }: InventoryLabelsModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -45,9 +47,9 @@ export default function InventoryLabelsModal({
   useEffect(() => {
     if (!isOpen) return;
     setSearchQuery('');
-    setQueue([]);
     setPrintError(null);
-  }, [isOpen, inventoryTab]);
+    setQueue(initialProduct && isLabelProduct(initialProduct) ? [{ product: initialProduct, quantity: 1 }] : []);
+  }, [isOpen, inventoryTab, initialProduct]);
 
   const catalog = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -151,9 +153,11 @@ export default function InventoryLabelsModal({
               <Tag className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Etiquetas de inventario</h3>
+              <h3 className="text-sm font-semibold text-slate-900">
+                {initialProduct ? `Etiquetas · ${initialProduct.name}` : 'Etiquetas de inventario'}
+              </h3>
               <p className="text-[11px] text-slate-500">
-                {inventoryTab === 'equipo' ? 'Equipos' : 'Accesorios'} · código, nombre, código de barras y precio
+                Código, nombre, código de barras y precio. Indica cuántas imprimir.
               </p>
             </div>
           </div>
