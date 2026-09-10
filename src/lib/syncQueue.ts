@@ -15,6 +15,7 @@ import { getDeviceId, getDeviceLabel } from './deviceId';
 import { LocalRecord, RecordKind, deleteRecord, getRecord, listRecords, putRecord } from './localDb';
 import { drainOutbox, enqueue, listPendingOutbox } from './outbox';
 import {
+  CORTE_X_COLLECTION,
   EXPENSES_COLLECTION,
   GASTOS_COLLECTION,
   PRODUCTS_COLLECTION,
@@ -162,6 +163,34 @@ export async function commitCorte(
     id: `corte-${branchId}-${dateKey}`,
     label: `Corte ${closeParams.branchName || branchId} ${dateKey}`,
     payload: { ...closeParams, branchId, dateKey }
+  });
+
+  kickDrain();
+}
+
+/** Actualiza un corte ya cerrado (venta atrasada o ticket eliminado) sin reabrir el turno. */
+export async function commitCorteSnapshot(corteRecord: CorteXRecord): Promise<void> {
+  const branchId = normalizeBranchId(corteRecord.branchId);
+  const dateKey = hermosilloDateKey(corteRecord.timestamp) || trustedDateKey();
+  const data = cleanForFirestore(stamp(corteRecord as unknown as Record<string, unknown>));
+
+  await putRecord<CorteXRecord>({
+    kind: 'corte',
+    id: corteRecord.id,
+    branchId,
+    dateKey,
+    data: corteRecord,
+    updatedAt: trustedIso()
+  });
+
+  await enqueue({
+    kind: 'docWrite',
+    groupKey: branchId,
+    id: `corte-snap-${corteRecord.id}`,
+    label: `Corte ${corteRecord.branchName || branchId} ${dateKey}`,
+    payload: {
+      writes: [{ collection: CORTE_X_COLLECTION, id: corteRecord.id, data, merge: true }]
+    }
   });
 
   kickDrain();

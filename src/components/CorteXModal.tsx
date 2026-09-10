@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   ArrowRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Trash2
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
@@ -43,6 +44,7 @@ interface CorteXModalProps {
   onSelectExistingCorte?: (corteRecord: CorteXRecord) => void;
   activeSessionId?: string;
   sessionOpenedAt?: string;
+  onRequestDeleteTicket?: (ticket: SaleTicket) => void;
 }
 
 interface ConceptDetail {
@@ -90,7 +92,8 @@ export default function CorteXModal({
   onLogout,
   cortesX = [],
   activeSessionId,
-  sessionOpenedAt
+  sessionOpenedAt,
+  onRequestDeleteTicket
 }: CorteXModalProps) {
 
   // Accordion state in arqueo view
@@ -898,6 +901,51 @@ export default function CorteXModal({
                   </div>
                 </div>
               </div>
+
+              {onRequestDeleteTicket && branchTickets.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4 text-slate-600" />
+                    <span>Tickets de este corte</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Eliminar pide contraseña de administrador. El stock e IMEI vuelven a la sucursal y el corte se recalcula.
+                  </p>
+                  <ul className="divide-y divide-slate-100">
+                    {branchTickets.map((ticket) => (
+                      <li key={ticket.id} className="py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900">
+                            {ticket.folio || ticket.id}
+                            {ticket.historicPost ? (
+                              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                Cargada después
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {ticket.paymentMethod || 'Efectivo'} · {ticket.operatorName || 'Cajero'}
+                            {ticket.historicPost?.postedBy ? ` · cargó ${ticket.historicPost.postedBy}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-sm font-black text-slate-900">
+                            ${(ticket.total || 0).toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onRequestDeleteTicket(ticket)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Concept Categories Accordions */}
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs divide-y divide-slate-100">

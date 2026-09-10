@@ -31,6 +31,7 @@ import {
   syncPosCashSession,
   closeOpenShiftForBranch,
   recoverMissingDailyCortes,
+  findSessionForCorteClose,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
@@ -76,6 +77,7 @@ import {
 import { enqueue, startOutboxWorker } from '../lib/outbox';
 import {
   commitCorte,
+  commitCorteSnapshot,
   commitExpense,
   commitInventoryMovements,
   commitProduct,
@@ -105,6 +107,11 @@ import LazyWhen, { ModuleLoading } from './LazyWhen';
 import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from '../lib/queryLimits';
 import { useStableCallback } from '../hooks/useStableCallback';
+import {
+  applyTicketToCorte,
+  findClosedCorteForDay,
+  removeTicketFromCorte
+} from '../lib/historicSale';
 
 const CreateNoticeModal = lazy(() => import('./CreateNoticeModal'));
 const RepairPriceCatalogModal = lazy(() => import('./RepairPriceCatalogModal'));
@@ -863,7 +870,13 @@ export default function Dashboard({
     saleInFlightIdsRef.current.add(ticket.id);
 
     try {
-      if (isAfterCashClose() && ticket.branchId !== 'b-bodega') {
+      const historic = ticket.historicPost;
+      if (
+        !historic &&
+        normalizeRole(currentOperator.role) !== 'admin' &&
+        isAfterCashClose() &&
+        ticket.branchId !== 'b-bodega'
+      ) {
         await closeCashSessionIfDue({
           branchId: ticket.branchId,
           branchName: currentBranch.name,
@@ -879,7 +892,33 @@ export default function Dashboard({
       }
 
       let session = activeCashSession;
-      if (
+      if (historic) {
+        session = null;
+        const dateKey = historic.saleDateKey;
+        const closed = findClosedCorteForDay(cortesRef.current, ticket.branchId, dateKey);
+        if (closed) {
+          ticket = {
+            ...ticket,
+            sesion_caja_id: closed.sesion_caja_id || closed.id,
+            corteXId: closed.id,
+            corteXClosedAt: closed.timestamp
+          };
+        } else {
+          try {
+            const found = await findSessionForCorteClose(ticket.branchId, dateKey);
+            if (found) {
+              ticket = {
+                ...ticket,
+                sesion_caja_id: found.id,
+                corteXId: found.estado === 'CERRADA' ? found.id : ticket.corteXId,
+                corteXClosedAt: found.estado === 'CERRADA' ? found.fecha_cierre || ticket.corteXClosedAt : ticket.corteXClosedAt
+              };
+            }
+          } catch (sessionErr) {
+            console.warn('No se halló el turno de ese día; la venta se guarda con la fecha indicada.', sessionErr);
+          }
+        }
+      } else if (
         (!session || session.sucursal_id !== ticket.branchId || session.estado !== 'ABIERTA') &&
         ticket.branchId !== 'b-bodega'
       ) {
@@ -922,6 +961,33 @@ export default function Dashboard({
       });
       observeTrustedIso(enrichedTicket.timestamp);
       if (session) rememberLastSession(ticket.branchId, session);
+
+      if (enrichedTicket.corteXId) {
+        const closed =
+          findClosedCorteForDay(
+            cortesRef.current,
+            enrichedTicket.branchId,
+            enrichedTicket.historicPost?.saleDateKey || ''
+          ) ||
+          cortesRef.current.find(
+            (c) => c.id === enrichedTicket.corteXId || c.sesion_caja_id === enrichedTicket.corteXId
+          );
+        if (closed) {
+          const updated = applyTicketToCorte(closed, enrichedTicket);
+          void commitCorteSnapshot(updated).catch((err) =>
+            console.warn('No se pudo actualizar el corte cerrado:', err)
+          );
+          localOnlyRef.current.cortes = [
+            updated,
+            ...localOnlyRef.current.cortes.filter((c) => c.id !== updated.id)
+          ];
+          setCortesX((prev) => {
+            const next = [updated, ...prev.filter((c) => c.id !== updated.id)];
+            saveCachedList('cortes', next);
+            return next;
+          });
+        }
+      }
 
     const branchName = ALL_BRANCHES.find((b) => b.id === enrichedTicket.branchId)?.name || enrichedTicket.branchId;
     const saleMovements: InventoryMovement[] = [];
@@ -1058,6 +1124,10 @@ export default function Dashboard({
 
   const handleDeleteSaleTicket = async (ticket: SaleTicket | string, reason?: string) => {
     const ticketId = typeof ticket === 'string' ? ticket : ticket.id;
+    const ticketData =
+      typeof ticket === 'object'
+        ? ticket
+        : salesTicketsRef.current.find((row) => row.id === ticketId);
     setSalesTickets((prev) => prev.filter((t) => t.id !== ticketId));
     // Sin esto el ticket cancelado reaparecía al recargar, desde el respaldo local.
     localOnlyRef.current.sales = localOnlyRef.current.sales.filter((t) => t.id !== ticketId);
@@ -1066,6 +1136,26 @@ export default function Dashboard({
       reason: reason || 'Error de captura de operador',
       operatorName: currentOperator.name
     });
+
+    const corteId = ticketData?.corteXId || ticketData?.sesion_caja_id;
+    if (corteId) {
+      const closed = cortesRef.current.find((c) => c.id === corteId || c.sesion_caja_id === corteId);
+      if (closed) {
+        const updated = removeTicketFromCorte(closed, ticketId);
+        void commitCorteSnapshot(updated).catch((err) =>
+          console.warn('No se pudo actualizar el corte al eliminar la venta:', err)
+        );
+        localOnlyRef.current.cortes = [
+          updated,
+          ...localOnlyRef.current.cortes.filter((c) => c.id !== updated.id)
+        ];
+        setCortesX((prev) => {
+          const next = [updated, ...prev.filter((c) => c.id !== updated.id)];
+          saveCachedList('cortes', next);
+          return next;
+        });
+      }
+    }
   };
 
   /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
@@ -1482,10 +1572,11 @@ export default function Dashboard({
     );
   };
 
-  const posCreditAccounts = useMemo(
-    () => creditAccounts.filter((a) => a.branchId === currentBranch.id && a.status === 'activo'),
-    [creditAccounts, currentBranch.id]
-  );
+  const posCreditAccounts = useMemo(() => {
+    const active = creditAccounts.filter((a) => a.status === 'activo');
+    if (normalizeRole(currentOperator.role) === 'admin' || currentBranch.id === 'all') return active;
+    return active.filter((a) => a.branchId === currentBranch.id);
+  }, [creditAccounts, currentBranch.id, currentOperator.role]);
 
   const stableCompleteSale = useStableCallback(handleCompleteSale);
   const stableAddExpense = useStableCallback(handleAddExpense);

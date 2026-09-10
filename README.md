@@ -23,7 +23,8 @@ Correcciones de lógica aplicadas: una sola sesión de caja abierta por sucursal
 - **Dirección:** primer módulo del menú (admin). El resultado de la semana es accesorios + reparaciones + comisiones − gastos por sucursal. Abonos, enganches y recargas son dinero de paso (se regresan a otras compañías, no son utilidad). Comisión: Navojoa $1,000 por celular, Huatabampo $350 por celular.
 - **IMEI de equipos:** un celular solo puede estar en Bodega, Navojoa o Huatabampo. Al venderse sale de las tres. Si quedó en una ubicación que no se veía, pasa a Bodega. En Inventario → **Trazar IMEI** se ve sucursal, venta y movimientos.
 - **Accesorios:** el stock también vive solo en Bodega, Navojoa o Huatabampo. Piezas en ubicaciones ocultas pasan a Bodega. Al venderse se descuentan de la sucursal de la venta y, si hacía falta, del resto, para que no queden en un rincón. En **ingreso** y **traspaso** el destino empieza vacío: hay que elegir sucursal. Traspasos y ajustes piden la contraseña del operador en sesión; si está mal, no se aplica el cambio.
-- **Borrar una venta:** en **Ventas → Tickets**, Eliminar pide la **contraseña de un administrador**. La de cajero o encargado no vale. El stock e IMEI vuelven a la sucursal.
+- **Borrar una venta:** en **Ventas → Tickets** y en el **historial de un corte**, Eliminar pide la **contraseña de un administrador**. La de cajero o encargado no vale. El stock e IMEI vuelven a la sucursal y el corte se recalcula.
+- **Venta atrasada (admin):** desde el punto de venta de Administración se arma el ticket y, al cobrar, se elige sucursal (Navojoa o Huatabampo) y fecha. Si ese corte ya cerró, la venta entra a ese día.
 
 ## Sistema híbrido: primero el equipo, luego la nube
 

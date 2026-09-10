@@ -12,12 +12,23 @@ import {
   Coins
 } from 'lucide-react';
 
+import { COMMERCIAL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import { todayCashDateKey } from '../lib/dateUtils';
+
 interface PaymentCheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   totalAmount: number;
   itemCount: number;
-  onConfirmPayment: (method: 'Efectivo' | 'Tarjeta' | 'Transferencia', cashReceived: number, changeAmount: number) => void | Promise<void>;
+  historicMode?: boolean;
+  defaultBranchId?: string;
+  defaultDateKey?: string;
+  onConfirmPayment: (
+    method: 'Efectivo' | 'Tarjeta' | 'Transferencia',
+    cashReceived: number,
+    changeAmount: number,
+    historic?: { branchId: string; dateKey: string }
+  ) => void | Promise<void>;
 }
 
 export default function PaymentCheckoutModal({
@@ -25,12 +36,17 @@ export default function PaymentCheckoutModal({
   onClose,
   totalAmount,
   itemCount,
+  historicMode = false,
+  defaultBranchId = '',
+  defaultDateKey,
   onConfirmPayment
 }: PaymentCheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia'>('Efectivo');
   const [cashReceived, setCashReceived] = useState<string>('');
   const [showKeypad, setShowKeypad] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [historicBranchId, setHistoricBranchId] = useState(defaultBranchId);
+  const [historicDateKey, setHistoricDateKey] = useState(defaultDateKey || todayCashDateKey());
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,12 +54,14 @@ export default function PaymentCheckoutModal({
       setCashReceived('');
       setPaymentMethod('Efectivo');
       setIsSubmitting(false);
+      setHistoricBranchId(defaultBranchId);
+      setHistoricDateKey(defaultDateKey || todayCashDateKey());
       // Focus on manual input after modal opens
       setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
     }
-  }, [isOpen, totalAmount]);
+  }, [isOpen, totalAmount, defaultBranchId, defaultDateKey]);
 
   if (!isOpen) return null;
 
@@ -53,7 +71,8 @@ export default function PaymentCheckoutModal({
   const isExact = numCashReceived === totalAmount;
   const isOver = numCashReceived > totalAmount;
   const isUnder = numCashReceived > 0 && numCashReceived < totalAmount;
-  const isValidPayment = paymentMethod !== 'Efectivo' || numCashReceived >= totalAmount;
+  const historicReady = !historicMode || (!!historicBranchId && !!historicDateKey);
+  const isValidPayment = (paymentMethod !== 'Efectivo' || numCashReceived >= totalAmount) && historicReady;
 
   // Handlers for quick cash manipulation
   const handleAddAmount = (amount: number) => {
@@ -100,7 +119,12 @@ export default function PaymentCheckoutModal({
     const finalChange = paymentMethod === 'Efectivo' ? changeAmount : 0;
     setIsSubmitting(true);
     try {
-      await onConfirmPayment(paymentMethod, finalCash, finalChange);
+      await onConfirmPayment(
+        paymentMethod,
+        finalCash,
+        finalChange,
+        historicMode ? { branchId: historicBranchId, dateKey: historicDateKey } : undefined
+      );
     } catch {
       // Parent keeps the ticket on screen and shows the error.
     } finally {
@@ -144,6 +168,47 @@ export default function PaymentCheckoutModal({
 
         {/* MAIN BODY */}
         <form onSubmit={handleFinalize} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 bg-slate-50/50">
+          {historicMode && (
+            <div className="rounded-2xl border-2 border-[#0047AB]/30 bg-blue-50 p-3.5 space-y-3">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wider text-[#0047AB]">
+                  0. Sucursal y fecha del cobro
+                </p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Si ayer se vendió y no alcanzó a pasarse, elige esa sucursal y esa fecha. Si el corte ya cerró, la venta entra a ese corte.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-slate-600">Sucursal</span>
+                  <select
+                    value={historicBranchId}
+                    onChange={(e) => setHistoricBranchId(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900"
+                    required
+                  >
+                    <option value="">Elige sucursal</option>
+                    {COMMERCIAL_BRANCHES.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {getBranchDisplayName(branch.id)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-slate-600">Fecha del corte</span>
+                  <input
+                    type="date"
+                    value={historicDateKey}
+                    max={todayCashDateKey()}
+                    onChange={(e) => setHistoricDateKey(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900"
+                    required
+                  />
+                </label>
+              </div>
+            </div>
+          )}
           
           {/* TOTAL & CAMBIO DISPLAY CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

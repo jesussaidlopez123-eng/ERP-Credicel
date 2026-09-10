@@ -35,7 +35,13 @@ import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
-import { hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import { todayCashDateKey } from '../lib/dateUtils';
+import {
+  buildHistoricSaleTimestamp,
+  findClosedCorteForDay,
+  validateHistoricSaleTarget
+} from '../lib/historicSale';
 import { normalizeRole } from '../lib/roles';
 import { isPendingRepair } from '../lib/repairUtils';
 import RepairsModule from './RepairsModule';
@@ -164,6 +170,21 @@ function PosModule({
   // nube. Tener aquí una copia aparte era otra forma de perderlos.
   const repairRecords = repairRecordsProp ?? [];
   const isAdminUser = normalizeRole(currentOperator.role) === 'admin';
+  const posStockBranchId = hasCashTill(currentBranch.id) ? currentBranch.id : '';
+  const stockAt = (product: Product, branchId?: string) => {
+    if (branchId && hasCashTill(branchId)) return getBranchStockQty(product, branchId);
+    if (posStockBranchId) return getBranchStockQty(product, posStockBranchId);
+    return COMMERCIAL_BRANCHES.reduce((sum, branch) => sum + getBranchStockQty(product, branch.id), 0);
+  };
+  const suggestedHistoricBranchId = useMemo(() => {
+    for (const item of cart) {
+      const imei = item.metadata?.imei;
+      if (!imei) continue;
+      const lookup = findImeiInInventory(products, imei, 'all');
+      if (lookup.status === 'other_branch' || lookup.status === 'found') return lookup.branchId;
+    }
+    return '';
+  }, [cart, products]);
   const boardRepairRecords = useMemo(
     () =>
       isAdminUser || currentBranch.id === 'b-bodega'
@@ -261,8 +282,8 @@ function PosModule({
 
     const queryUpper = query.toUpperCase();
 
-    const imeiLookup = findImeiInInventory(products, queryUpper, currentBranch.id);
-    if (imeiLookup.status === 'other_branch') {
+    const imeiLookup = findImeiInInventory(products, queryUpper, posStockBranchId || 'all');
+    if (imeiLookup.status === 'other_branch' && !isAdminUser) {
       setScanFeedback({
         type: 'error',
         text: `❌ SUCURSAL INCORRECTA: El IMEI "${queryUpper}" pertenece a ${branchDisplayShort(imeiLookup.branchId)}. Realice el traspaso formal a ${currentBranch.name}.`
@@ -288,7 +309,7 @@ function PosModule({
     if (/^\d{8,18}$/.test(queryUpper)) {
       setScanFeedback({
         type: 'error',
-        text: `❌ BLOQUEO DE TRAZABILIDAD: El IMEI "${queryUpper}" NO coincide con ningún equipo activo en el inventario de ${currentBranch.name}.`
+        text: `❌ BLOQUEO DE TRAZABILIDAD: El IMEI "${queryUpper}" NO coincide con ningún equipo activo en el inventario${posStockBranchId ? ` de ${currentBranch.name}` : ''}.`
       });
       setScannerInput('');
       setTimeout(() => setScanFeedback(null), 4000);
@@ -510,19 +531,19 @@ function PosModule({
   const isOutOfStockProduct = (p: Product): boolean => {
     if (VIRTUAL_POS_PRODUCT_IDS.has(p.id)) return false;
     if (p.category === 'recarga' || p.category === 'servicio') return false;
-    return getBranchStockQty(p, currentBranch.id) <= 0;
+    return stockAt(p) <= 0;
   };
 
   const addToCart = (product: Product, unitPrice: number, metadata?: CartItemMetadata, initialQty: number = 1) => {
     if (!isVirtualPosProduct(product) && product.category !== 'recarga' && product.category !== 'servicio' && !metadata?.repairType && metadata?.saleType !== 'abono') {
-      const available = getBranchStockQty(product, currentBranch.id);
+      const available = stockAt(product);
       const alreadyInCart = cart
         .filter((i) => i.product.id === product.id && !i.metadata?.imei)
         .reduce((sum, i) => sum + i.quantity, 0);
       if (alreadyInCart + initialQty > available) {
         setScanFeedback({
           type: 'error',
-          text: `Stock insuficiente en ${currentBranch.name}. Disponible: ${available}.`
+          text: `Stock insuficiente${posStockBranchId ? ` en ${currentBranch.name}` : ' en sucursales'}. Disponible: ${available}.`
         });
         setTimeout(() => setScanFeedback(null), 3500);
         return;
@@ -615,7 +636,7 @@ function PosModule({
             item.product.category !== 'servicio' &&
             !item.metadata?.imei
           ) {
-            const available = getBranchStockQty(item.product, currentBranch.id);
+            const available = stockAt(item.product);
             if (newQty > available) return item;
           }
           return {
@@ -674,8 +695,12 @@ function PosModule({
 
   // Open Payment Modal
   const handleCheckout = () => {
-    if (tillLocked) {
+    if (!isAdminUser && tillLocked) {
       setSaleError('La caja ya cerró a las 11:00 p.m. No se pueden cobrar más ventas en este turno.');
+      return;
+    }
+    if (!isAdminUser && !hasCashTill(currentBranch.id)) {
+      setSaleError('Administración no cobra. Entra a Navojoa o Huatabampo para registrar una venta.');
       return;
     }
     if (cart.length === 0) return;
@@ -686,23 +711,90 @@ function PosModule({
   const handleConfirmPaymentFromModal = async (
     method: 'Efectivo' | 'Tarjeta' | 'Transferencia',
     cashReceivedVal: number,
-    changeVal: number
+    changeVal: number,
+    historic?: { branchId: string; dateKey: string }
   ) => {
-    if (!hasCashTill(currentBranch.id)) {
+    const reused = pendingTicketRef.current;
+    let branchId = currentBranch.id;
+    let timestamp = reused?.timestamp || new Date().toISOString();
+    let historicPost: SaleTicket['historicPost'];
+    let corteXId: string | undefined;
+    let corteXClosedAt: string | undefined;
+    let sesionCajaId: string | undefined;
+
+    if (isAdminUser) {
+      const targetError = validateHistoricSaleTarget(historic || {});
+      if (targetError) {
+        setSaleError(targetError);
+        throw new Error(targetError);
+      }
+      branchId = normalizeBranchId(historic!.branchId);
+      const dateKey = historic!.dateKey;
+      timestamp =
+        reused?.timestamp && reused.branchId === branchId && reused.historicPost?.saleDateKey === dateKey
+          ? reused.timestamp
+          : buildHistoricSaleTimestamp(dateKey);
+
+      for (const item of cart) {
+        if (isVirtualPosProduct(item.product) || item.product.category === 'recarga' || item.product.category === 'servicio' || item.metadata?.repairType || item.metadata?.saleType === 'abono') {
+          continue;
+        }
+        if (item.metadata?.imei) {
+          const lookup = findImeiInInventory(products, item.metadata.imei, branchId);
+          if (lookup.status !== 'found') {
+            const msg =
+              lookup.status === 'other_branch'
+                ? `El IMEI está en ${branchDisplayShort(lookup.branchId)}. Elige esa sucursal o haz el traspaso.`
+                : `El IMEI ${item.metadata.imei} no está en el inventario de ${getBranchDisplayName(branchId)}.`;
+            setSaleError(msg);
+            throw new Error(msg);
+          }
+        } else {
+          const available = getBranchStockQty(item.product, branchId);
+          if (item.quantity > available) {
+            const msg = `No hay stock suficiente de ${item.product.name} en ${getBranchDisplayName(branchId)}. Disponible: ${available}.`;
+            setSaleError(msg);
+            throw new Error(msg);
+          }
+        }
+      }
+
+      const closed = findClosedCorteForDay(cortesX, branchId, dateKey);
+      if (closed) {
+        corteXId = closed.id;
+        corteXClosedAt = closed.timestamp;
+        sesionCajaId = closed.sesion_caja_id || closed.id;
+        historicPost = {
+          postedAt: new Date().toISOString(),
+          postedBy: currentOperator.name,
+          saleDateKey: dateKey
+        };
+      } else if (dateKey !== todayCashDateKey()) {
+        historicPost = {
+          postedAt: new Date().toISOString(),
+          postedBy: currentOperator.name,
+          saleDateKey: dateKey
+        };
+      }
+    } else if (!hasCashTill(currentBranch.id)) {
       setSaleError('Administración no cobra. Entra a Navojoa o Huatabampo para registrar una venta.');
       return;
     }
-    const reused = pendingTicketRef.current;
+
     const newTicket: SaleTicket = {
       id: reused?.id || newTicketId(),
-      timestamp: reused?.timestamp || new Date().toISOString(),
-      branchId: currentBranch.id,
+      timestamp: reused?.timestamp && !historicPost ? reused.timestamp : timestamp,
+      branchId,
       operatorName: currentOperator.name,
       items: [...cart],
       total: money(cartTotal),
       paymentMethod: method,
       cashReceived: method === 'Efectivo' ? cashReceivedVal : undefined,
-      change: method === 'Efectivo' ? changeVal : undefined
+      change: method === 'Efectivo' ? changeVal : undefined,
+      sesion_caja_id: sesionCajaId || reused?.sesion_caja_id,
+      corteXId: corteXId || reused?.corteXId,
+      corteXClosedAt: corteXClosedAt || reused?.corteXClosedAt,
+      historicPost: historicPost || reused?.historicPost
     };
 
     const ok = await commitSale(newTicket);
@@ -716,11 +808,11 @@ function PosModule({
   return (
     <div className="h-full flex flex-col gap-2 p-3 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
       {!hasCashTill(currentBranch.id) && (
-        <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 flex items-start gap-2">
-          <Wrench className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
-          <p className="text-[11px] leading-relaxed text-amber-950">
-            Estás en <strong>Administración</strong>, sin sucursal ni caja. Aquí se ven pendientes, costos e historial de
-            todas las tiendas. Para cobrar, entra con un cajero de Navojoa o Huatabampo.
+        <div className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 flex items-start gap-2">
+          <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
+          <p className="text-[11px] leading-relaxed text-slate-700">
+            Estás en <strong>Administración</strong>. Puedes armar el ticket y al cobrar eliges <strong>sucursal</strong> y
+            <strong> fecha</strong>. Si ayer no alcanzó a pasarse, entra al corte de ayer aunque ya esté cerrado.
           </p>
         </div>
       )}
@@ -971,7 +1063,7 @@ function PosModule({
               const isEquipoCredito = p.category === 'equipo_credito' || p.inventoryType === 'equipo';
               const isReparacion = p.id === 'prod-reparacion-gen' || (p.category === 'servicio' && p.price === 0);
 
-              const branchStockQty = getBranchStockQty(p, currentBranch.id);
+              const branchStockQty = stockAt(p);
 
               const isOutOfStock = isOutOfStockProduct(p);
 
@@ -1250,11 +1342,13 @@ function PosModule({
 
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || saleBusy || tillLocked || !hasCashTill(currentBranch.id)}
+            disabled={cart.length === 0 || saleBusy || (!isAdminUser && (tillLocked || !hasCashTill(currentBranch.id)))}
             className="w-full py-3 bg-[#047857] hover:bg-[#066046] disabled:opacity-40 text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
           >
             {saleBusy
               ? 'Guardando venta…'
+              : isAdminUser
+              ? `Cobrar $${cartTotal.toFixed(2)} · sucursal y fecha`
               : !hasCashTill(currentBranch.id)
               ? 'Administración no cobra'
               : tillLocked
@@ -1275,6 +1369,9 @@ function PosModule({
           onClose={() => setIsPaymentCheckoutModalOpen(false)}
           totalAmount={cartTotal}
           itemCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
+          historicMode={isAdminUser}
+          defaultBranchId={suggestedHistoricBranchId || (hasCashTill(currentBranch.id) ? currentBranch.id : '')}
+          defaultDateKey={todayCashDateKey()}
           onConfirmPayment={handleConfirmPaymentFromModal}
         />
       </LazyWhen>

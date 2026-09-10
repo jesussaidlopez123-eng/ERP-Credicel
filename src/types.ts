@@ -275,6 +275,12 @@ export interface SaleTicket {
   corteXId?: string;
   corteXClosedAt?: string;
   estado?: 'COMPLETADA' | 'CANCELADA';
+  /** Admin cargó esta venta a un día/sucursal después, p. ej. al corte de ayer. */
+  historicPost?: {
+    postedAt: string;
+    postedBy: string;
+    saleDateKey: string;
+  };
 }
 
 export interface SesionCaja {

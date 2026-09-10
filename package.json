@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/lib/shiftHours.selftest.ts && tsx src/lib/imeiInventory.selftest.ts && tsx src/lib/accessoryInventory.selftest.ts && tsx src/lib/inventoryMerge.selftest.ts && tsx src/lib/corteTicket.selftest.ts && tsx src/lib/hybrid.selftest.ts && tsx src/lib/repairFinance.selftest.ts && tsx src/lib/xlsxMinimal.selftest.ts && tsx src/lib/inventoryAuth.selftest.ts && tsx src/lib/executiveFinance.selftest.ts && tsx scripts/simulate-day.ts",
+    "test": "tsx src/lib/shiftHours.selftest.ts && tsx src/lib/imeiInventory.selftest.ts && tsx src/lib/accessoryInventory.selftest.ts && tsx src/lib/inventoryMerge.selftest.ts && tsx src/lib/corteTicket.selftest.ts && tsx src/lib/hybrid.selftest.ts && tsx src/lib/repairFinance.selftest.ts && tsx src/lib/xlsxMinimal.selftest.ts && tsx src/lib/inventoryAuth.selftest.ts && tsx src/lib/executiveFinance.selftest.ts && tsx src/lib/historicSale.selftest.ts && tsx scripts/simulate-day.ts",
     "simulate": "tsx scripts/simulate-day.ts"
   },
   "dependencies": {

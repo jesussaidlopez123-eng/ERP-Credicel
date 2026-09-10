@@ -1,4 +1,4 @@
-import React, { useState, useMemo, lazy } from 'react';
+import React, { useState, useMemo, useEffect, lazy } from 'react';
 import { 
   Calculator, 
   Store, 
@@ -162,6 +162,12 @@ function SalesModule({
   const safeTickets = useMemo(() => Array.isArray(salesTickets) ? salesTickets : [], [salesTickets]);
   const safeExpenses = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
   const safeCortesX = useMemo(() => Array.isArray(cortesX) ? cortesX : [], [cortesX]);
+
+  useEffect(() => {
+    if (!selectedCorte) return;
+    const fresh = safeCortesX.find((corte) => corte.id === selectedCorte.id);
+    if (fresh) setSelectedCorte(fresh);
+  }, [safeCortesX, selectedCorte?.id]);
 
   // List of active physical commercial sales branches to monitor (strictly fixed canonical order)
   const monitoredBranches = useMemo(() => COMMERCIAL_BRANCHES, []);
@@ -1508,6 +1514,7 @@ function SalesModule({
           cortesX={safeCortesX}
           existingCorteRecord={selectedCorte}
           onFinalizeCorteX={onFinalizeCorteX}
+          onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
         />
       </LazyWhen>
 
