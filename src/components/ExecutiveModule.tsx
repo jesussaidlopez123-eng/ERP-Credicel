@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeftRight,
   Building2,
   Calendar,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   ShieldCheck,
   Smartphone,
   Store,
+  Wallet,
   X
 } from 'lucide-react';
 import { Branch, CartItem, Expense, Operator, Product, SaleTicket } from '../types';
@@ -26,7 +28,7 @@ import {
   safeFormatTime,
   weekStartDateKey
 } from '../lib/dateUtils';
-import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
+import { money, ticketFolioLabel } from '../lib/ids';
 import {
   addExecutiveItem,
   classifySaleItem,
@@ -273,174 +275,304 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[], branchFilte
   });
 }
 
-function moneyCell(value: number, emptyDash = true) {
-  if (!value && emptyDash) return <span className="text-slate-300">—</span>;
-  return `$${formatMoney(value)}`;
+function peso(n: number): string {
+  return money(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function CategoryStrip({
-  cats,
-  finance,
-  phonesSold,
-  onOpenPhones
+function branchAccent(branchId: string): string {
+  if (branchId === 'b-huatabampo') return 'border-l-teal-600';
+  if (branchId === 'b-navojoa') return 'border-l-[#0047AB]';
+  return 'border-l-slate-400';
+}
+
+function LedgerLine({
+  label,
+  hint,
+  amount,
+  tone = 'ink'
 }: {
-  cats: ExecutiveCatTotals;
-  finance: ExecutiveFinanceTotals;
-  phonesSold: number;
-  onOpenPhones?: () => void;
+  label: string;
+  hint?: string;
+  amount: number;
+  tone?: 'ink' | 'plus' | 'minus' | 'muted' | 'result';
 }) {
+  const amountClass =
+    tone === 'plus'
+      ? 'text-emerald-800'
+      : tone === 'minus'
+        ? 'text-rose-700'
+        : tone === 'muted'
+          ? 'text-slate-400'
+          : tone === 'result'
+            ? 'text-slate-950'
+            : 'text-slate-800';
   return (
-    <div className="space-y-3">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-800 mb-1.5">
-          Sí cuenta como ingreso
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-blue-900">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Accesorios</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.accesorios)}</p>
-            <p className="text-[10px] opacity-70">{cats.countAccesorios} ops</p>
-          </div>
-          <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-orange-900">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Reparaciones</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.reparaciones)}</p>
-            <p className="text-[10px] opacity-70">{cats.countReparaciones} ops</p>
-          </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Comisiones</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(finance.comisiones)}</p>
-            <p className="text-[10px] opacity-70">
-              {phonesSold} celular{phonesSold === 1 ? '' : 'es'} · Navojoa $1,000 · Huatabampo $350
-            </p>
-          </div>
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Gastos</p>
-            <p className="text-sm font-bold font-mono mt-0.5">-${formatMoney(finance.gastos)}</p>
-            <p className="text-[10px] opacity-70">por sucursal</p>
-          </div>
-        </div>
+    <div className="flex items-baseline justify-between gap-3 py-1.5">
+      <div className="min-w-0">
+        <p className={`text-sm ${tone === 'muted' ? 'text-slate-500' : 'text-slate-800'}`}>{label}</p>
+        {hint ? <p className="text-[11px] text-slate-400">{hint}</p> : null}
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-          Dinero de paso · se regresa a otras compañías · no es utilidad
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <button
-            type="button"
-            onClick={phonesSold > 0 ? onOpenPhones : undefined}
-            className={`rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-slate-700 ${phonesSold > 0 ? 'cursor-pointer hover:shadow-sm hover:border-amber-400' : ''}`}
-          >
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Equipos cobrados</p>
-            <p className="text-sm font-bold mt-0.5">
-              {phonesSold} celular{phonesSold === 1 ? '' : 'es'}
-            </p>
-            <p className="text-[10px] font-mono opacity-80">${formatMoney(cats.equipos)} cobrado</p>
-            {phonesSold > 0 && (
-              <p className="text-[10px] font-semibold mt-0.5 underline underline-offset-2">Ver cuáles</p>
-            )}
-          </button>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Abonos</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.abonos)}</p>
-            <p className="text-[10px] opacity-70">{cats.countAbonos} ops</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700">
-            <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Recargas</p>
-            <p className="text-sm font-bold font-mono mt-0.5">${formatMoney(cats.recargas)}</p>
-            <p className="text-[10px] opacity-70">{cats.countRecargas} ops</p>
-          </div>
-        </div>
+      <p className={`shrink-0 font-mono text-sm tabular-nums ${amountClass} ${tone === 'result' ? 'font-bold text-base' : 'font-semibold'}`}>
+        {tone === 'minus' && amount ? '−' : ''}
+        ${peso(Math.abs(amount))}
+      </p>
+    </div>
+  );
+}
+
+function CashSplitBar({ ours, pass, theme = 'light' }: { ours: number; pass: number; theme?: 'light' | 'dark' }) {
+  const total = ours + pass;
+  if (total <= 0) return null;
+  const oursPct = Math.max(6, Math.min(94, (ours / total) * 100));
+  const dark = theme === 'dark';
+  return (
+    <div className="space-y-1.5">
+      <div className={`flex h-2.5 overflow-hidden rounded-full ${dark ? 'bg-white/15' : 'bg-slate-200'}`}>
+        <div className={dark ? 'bg-blue-300' : 'bg-[#0047AB]'} style={{ width: `${oursPct}%` }} />
+        <div className={dark ? 'bg-white/35' : 'bg-slate-300'} style={{ width: `${100 - oursPct}%` }} />
+      </div>
+      <div className="flex justify-between gap-3 text-[11px]">
+        <span className={dark ? 'text-slate-200' : 'text-slate-700'}>
+          Lo nuestro <span className="font-mono font-semibold">${peso(ours)}</span>
+        </span>
+        <span className={dark ? 'text-slate-400' : 'text-slate-400'}>
+          De paso <span className="font-mono font-semibold">${peso(pass)}</span>
+        </span>
       </div>
     </div>
   );
 }
 
-function WeekTable({
-  block,
+function OursPanel({
+  row,
   onOpenPhones
 }: {
-  block: WeekBlock;
-  onOpenPhones: (branchId?: string, branchName?: string) => void;
+  row: BranchWeekRow;
+  onOpenPhones: () => void;
 }) {
-  const hasRows = block.branches.some((row) => row.tickets > 0 || row.gastos > 0 || row.ventas > 0 || row.phonesSold > 0);
-
-  if (!hasRows) {
-    return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-        Sin movimientos en esta semana{block.isCurrent ? ' todavía' : ''}.
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-800">
+          <Wallet className="w-4 h-4" />
+        </span>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">Lo nuestro</p>
+          <p className="text-xs text-slate-500">Sí entra al resultado</p>
+        </div>
       </div>
-    );
-  }
+      <LedgerLine label="Accesorios" hint={`${row.cats.countAccesorios} operaciones`} amount={row.cats.accesorios} tone="plus" />
+      <LedgerLine
+        label="Reparaciones"
+        hint={`${row.cats.countReparaciones} operaciones`}
+        amount={row.cats.reparaciones}
+        tone="plus"
+      />
+      <button type="button" onClick={onOpenPhones} className="w-full text-left cursor-pointer">
+        <LedgerLine
+          label="Comisiones"
+          hint={`${row.phonesSold} celular${row.phonesSold === 1 ? '' : 'es'} · Navojoa $1,000 · Huatabampo $350`}
+          amount={row.finance.comisiones}
+          tone="plus"
+        />
+      </button>
+      <div className="border-t border-dashed border-slate-200 my-1" />
+      <LedgerLine label="Gastos de sucursal" hint="Salidas de caja" amount={row.finance.gastos} tone="minus" />
+      <div className="mt-2 rounded-xl bg-slate-950 px-3 py-2.5 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Resultado</p>
+        <p className={`font-mono text-lg font-bold tabular-nums ${row.utilidad >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+          ${peso(row.utilidad)}
+        </p>
+      </div>
+    </section>
+  );
+}
 
-  const renderRow = (row: BranchWeekRow, isTotal = false) => (
-    <tr key={row.branchId} className={isTotal ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50/80'}>
-      <td className={`px-3 py-2.5 ${isTotal ? 'text-slate-900' : 'font-semibold text-slate-900'}`}>
-        {isTotal ? (
-          'Total semana'
-        ) : (
-          <>
-            <span className="flex items-center gap-1.5">
-              <Store className="w-3.5 h-3.5 text-[#0047AB]" />
-              {row.branchName}
+function PassPanel({
+  row,
+  onOpenPhones
+}: {
+  row: BranchWeekRow;
+  onOpenPhones: () => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-500 border border-slate-200">
+          <ArrowLeftRight className="w-4 h-4" />
+        </span>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Dinero de paso</p>
+          <p className="text-xs text-slate-400">Se regresa a otras compañías · no es utilidad</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={row.phonesSold > 0 ? onOpenPhones : undefined}
+        className={`w-full text-left ${row.phonesSold > 0 ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        <LedgerLine
+          label="Equipos cobrados"
+          hint={`${row.phonesSold} celular${row.phonesSold === 1 ? '' : 'es'}${row.phonesSold > 0 ? ' · ver cuáles' : ''}`}
+          amount={row.cats.equipos}
+          tone="muted"
+        />
+      </button>
+      <LedgerLine label="Abonos" hint={`${row.cats.countAbonos} operaciones`} amount={row.cats.abonos} tone="muted" />
+      <LedgerLine label="Recargas" hint={`${row.cats.countRecargas} operaciones`} amount={row.cats.recargas} tone="muted" />
+      <div className="border-t border-dashed border-slate-200 mt-1 pt-2 flex items-baseline justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Total que solo pasa</p>
+        <p className="font-mono text-sm font-semibold text-slate-500 tabular-nums">${peso(row.finance.dineroPaso)}</p>
+      </div>
+    </section>
+  );
+}
+
+function BranchCard({
+  row,
+  onOpenPhones
+}: {
+  row: BranchWeekRow;
+  onOpenPhones: () => void;
+}) {
+  const rate = phoneCommissionRate(row.branchId);
+  const idle = row.tickets === 0 && row.gastos === 0 && row.phonesSold === 0 && row.ventas === 0;
+
+  return (
+    <article className={`rounded-2xl border border-slate-200 bg-white border-l-4 ${branchAccent(row.branchId)} overflow-hidden`}>
+      <header className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            <Store className="w-3.5 h-3.5 text-slate-500" />
+            {row.branchName}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {row.tickets} ticket{row.tickets === 1 ? '' : 's'}
+            {rate > 0 ? ` · comisión $${peso(rate)} / celular` : ''}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Resultado</p>
+          <p className={`font-mono text-xl font-bold tabular-nums ${row.utilidad >= 0 ? 'text-slate-950' : 'text-rose-700'}`}>
+            ${peso(row.utilidad)}
+          </p>
+        </div>
+      </header>
+
+      {idle ? (
+        <p className="px-4 pb-4 text-sm text-slate-400">Sin movimiento en esta semana.</p>
+      ) : (
+        <div className="px-4 pb-4 space-y-3">
+          <button
+            type="button"
+            disabled={row.phonesSold === 0}
+            onClick={onOpenPhones}
+            className={`flex items-center justify-between w-full rounded-xl bg-slate-50 px-3 py-2 text-left ${
+              row.phonesSold > 0 ? 'cursor-pointer hover:bg-slate-100' : 'cursor-default'
+            }`}
+          >
+            <span className="flex items-center gap-2 text-sm text-slate-700">
+              <Smartphone className="w-4 h-4 text-slate-500" />
+              {row.phonesSold} celular{row.phonesSold === 1 ? '' : 'es'}
             </span>
-            <span className="block text-[10px] text-slate-500 font-medium">{row.tickets} tickets</span>
-            {phoneCommissionRate(row.branchId) > 0 && (
-              <span className="block text-[10px] text-amber-800 font-medium">
-                Comisión ${formatMoney(phoneCommissionRate(row.branchId))} / celular
-              </span>
-            )}
-          </>
-        )}
-      </td>
-      <td className="px-3 py-2.5 text-right">
-        <button
-          type="button"
-          disabled={row.phonesSold === 0}
-          onClick={() => onOpenPhones(isTotal ? undefined : row.branchId, isTotal ? undefined : row.branchName)}
-          className={`text-right ${row.phonesSold > 0 ? 'cursor-pointer hover:text-amber-800' : 'cursor-default'}`}
-        >
-          <span className="block font-semibold text-slate-900">{row.phonesSold || '—'}</span>
-          <span className="block text-[10px] font-mono text-slate-500">{moneyCell(row.cats.equipos)}</span>
-        </button>
-      </td>
-      <td className="px-3 py-2.5 text-right font-mono text-amber-900">{moneyCell(row.finance.comisiones, false)}</td>
-      <td className="px-3 py-2.5 text-right font-mono text-slate-800">{moneyCell(row.cats.accesorios)}</td>
-      <td className="px-3 py-2.5 text-right font-mono text-slate-800">{moneyCell(row.cats.reparaciones)}</td>
-      <td className="px-3 py-2.5 text-right font-mono text-rose-700">
-        {row.gastos ? `-$${formatMoney(row.gastos)}` : <span className="text-slate-300">—</span>}
-      </td>
-      <td className={`px-3 py-2.5 text-right font-mono font-bold ${row.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-        ${formatMoney(row.utilidad)}
-      </td>
-      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{moneyCell(row.cats.abonos)}</td>
-      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{moneyCell(row.cats.recargas)}</td>
-    </tr>
+            <span className="font-mono text-xs font-semibold text-emerald-800">
+              Comisión ${peso(row.finance.comisiones)}
+            </span>
+          </button>
+
+          <div className="grid grid-cols-2 gap-x-4 text-xs">
+            <LedgerLine label="Accesorios" amount={row.cats.accesorios} tone="plus" />
+            <LedgerLine label="Reparaciones" amount={row.cats.reparaciones} tone="plus" />
+            <LedgerLine label="Gastos" amount={row.gastos} tone="minus" />
+            <LedgerLine label="De paso" amount={row.finance.dineroPaso} tone="muted" />
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function WeekStatement({
+  block,
+  subtitle,
+  onOpenPhones,
+  showHero = true
+}: {
+  block: WeekBlock;
+  subtitle: string;
+  onOpenPhones: (branchId?: string, branchName?: string) => void;
+  showHero?: boolean;
+}) {
+  const ours = money(block.totals.finance.ingresosPropios + block.totals.finance.comisiones);
+  const hasRows = block.branches.some(
+    (row) => row.tickets > 0 || row.gastos > 0 || row.ventas > 0 || row.phonesSold > 0
   );
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200">
-      <table className="w-full text-left text-xs min-w-[920px]">
-        <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px]">
-          <tr>
-            <th className="px-3 py-2.5 font-semibold">Sucursal</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Celulares</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Comisión</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Accesorios</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Reparaciones</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Gastos</th>
-            <th className="px-3 py-2.5 font-semibold text-right">Resultado</th>
-            <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Abonos*</th>
-            <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Recargas*</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {block.branches.map((row) => renderRow(row))}
-          {block.branches.length > 1 && renderRow(block.totals, true)}
-        </tbody>
-      </table>
-      <p className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 border-t border-slate-100">
-        Resultado = accesorios + reparaciones + comisiones − gastos. *Abonos, recargas y el cobro de equipos son dinero de paso: se regresan a otras compañías y no entran a la utilidad.
-      </p>
+    <div className="space-y-4">
+      {showHero && (
+      <div className="rounded-3xl bg-slate-950 text-white overflow-hidden">
+        <div className="px-5 sm:px-6 pt-5 pb-4 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+              {block.isCurrent ? 'Semana en curso' : 'Semana'}
+            </p>
+            <h2 className="text-2xl font-semibold mt-1 flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-slate-400" />
+              {block.label}
+            </h2>
+            <p className="text-sm text-slate-400 mt-1">{subtitle}</p>
+          </div>
+          <div className="lg:text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Resultado de Credicel</p>
+            <p className={`font-mono text-4xl sm:text-5xl font-bold tabular-nums leading-none mt-1 ${
+              block.totals.utilidad >= 0 ? 'text-white' : 'text-rose-300'
+            }`}>
+              ${peso(block.totals.utilidad)}
+            </p>
+          </div>
+        </div>
+        <div className="px-5 sm:px-6 pb-5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-slate-300 font-mono">
+            <span>${peso(block.totals.cats.accesorios)} accesorios</span>
+            <span className="text-slate-500">+</span>
+            <span>${peso(block.totals.cats.reparaciones)} reparaciones</span>
+            <span className="text-slate-500">+</span>
+            <span>${peso(block.totals.finance.comisiones)} comisiones</span>
+            <span className="text-slate-500">−</span>
+            <span>${peso(block.totals.finance.gastos)} gastos</span>
+          </div>
+          <div className="mt-4">
+            <CashSplitBar ours={ours} pass={block.totals.finance.dineroPaso} theme="dark" />
+          </div>
+        </div>
+      </div>
+      )}
+
+      {!showHero && (
+        <CashSplitBar ours={ours} pass={block.totals.finance.dineroPaso} />
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OursPanel row={block.totals} onOpenPhones={() => onOpenPhones()} />
+        <PassPanel row={block.totals} onOpenPhones={() => onOpenPhones()} />
+      </div>
+
+      {hasRows ? (
+        <div className={`grid gap-4 ${block.branches.length > 1 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+          {block.branches.map((row) => (
+            <BranchCard
+              key={row.branchId}
+              row={row}
+              onOpenPhones={() => onOpenPhones(row.branchId, row.branchName)}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+          Sin movimientos en esta semana{block.isCurrent ? ' todavía' : ''}.
+        </div>
+      )}
     </div>
   );
 }
@@ -470,107 +602,130 @@ function PhoneSalesModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-2xl border border-slate-200 shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 flex items-start justify-between gap-3 bg-amber-50">
+        <div className="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 bg-slate-950 text-white">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-800">Celulares vendidos</p>
-            <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-amber-700" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">Celulares vendidos</p>
+            <h3 className="text-base font-semibold mt-1 flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-slate-300" />
               {units} equipo{units === 1 ? '' : 's'} · {weekLabel}
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {branchName || 'Todas las sucursales'} · el cobro del equipo es dinero de paso; la comisión sí entra al resultado
-            </p>
-            <p className="text-xs font-semibold text-amber-900 mt-1">
-              Comisiones de este recorte ${formatMoney(commissions)}
+            <p className="text-xs text-slate-400 mt-0.5">
+              {branchName || 'Todas las sucursales'} · el cobro del equipo es dinero de paso
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-500 hover:bg-white cursor-pointer"
-            aria-label="Cerrar"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-start gap-3">
+            <div className="text-right hidden sm:block">
+              <p className="text-[10px] uppercase tracking-wider text-slate-400">Comisión de este recorte</p>
+              <p className="font-mono text-xl font-bold text-emerald-300">${peso(commissions)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-300 hover:bg-white/10 cursor-pointer"
+              aria-label="Cerrar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto bg-slate-50 sm:bg-white">
           {phones.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-slate-500">
               No hay celulares vendidos en este recorte.
             </div>
           ) : (
             <>
-            <table className="w-full text-left text-xs min-w-[800px]">
-              <thead className="bg-slate-50 text-slate-600 uppercase tracking-wide text-[10px] sticky top-0">
-                <tr>
-                  <th className="px-3 py-2.5 font-semibold">Folio / Fecha</th>
-                  <th className="px-3 py-2.5 font-semibold">Equipo</th>
-                  <th className="px-3 py-2.5 font-semibold">Cliente</th>
-                  <th className="px-3 py-2.5 font-semibold">Tipo</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Precio cobrado*</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Enganche*</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Saldo*</th>
-                  <th className="px-3 py-2.5 font-semibold text-right">Comisión</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+              <div className="sm:hidden divide-y divide-slate-200 p-3 space-y-3">
                 {phones.map((phone) => (
-                  <tr key={phone.id} className="hover:bg-amber-50/40">
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className="block font-mono font-semibold text-slate-900">{phone.folio}</span>
-                      <span className="block text-[10px] text-slate-500">{phone.dateLabel}</span>
-                      <span className="block text-[10px] text-slate-500">{phone.branchName} · {phone.operatorName}</span>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className="block font-semibold text-slate-900">{phone.model}</span>
-                      {phone.imei ? (
-                        <span className="block font-mono text-[10px] text-slate-600">IMEI {phone.imei}</span>
-                      ) : (
-                        <span className="block text-[10px] text-slate-400">Sin IMEI</span>
-                      )}
-                      {phone.quantity > 1 && (
-                        <span className="block text-[10px] text-amber-800">{phone.quantity} pzas</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className="block font-semibold text-slate-900">{phone.clientName}</span>
-                      {phone.clientPhone && (
-                        <span className="block text-[10px] text-slate-600">{phone.clientPhone}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                        phone.saleKind === 'credito'
-                          ? 'bg-indigo-100 text-indigo-800'
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {phone.saleKind === 'credito' ? phone.financing : 'Contado'}
-                      </span>
-                      <span className="block text-[10px] text-slate-500 mt-0.5">{phone.paymentMethod}</span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-900">
-                      ${formatMoney(phone.fullPrice)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
-                      ${formatMoney(phone.downPayment)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-indigo-800">
-                      {phone.remaining > 0 ? `$${formatMoney(phone.remaining)}` : '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono font-bold text-amber-900">
-                      ${formatMoney(phone.commission)}
-                      <span className="block text-[10px] font-medium text-slate-500">
-                        ${formatMoney(phoneCommissionRate(phone.branchId))} / pza
-                      </span>
-                    </td>
-                  </tr>
+                  <article key={phone.id} className="rounded-2xl bg-white border border-slate-200 p-3">
+                    <div className="flex justify-between gap-2">
+                      <p className="font-mono text-xs font-semibold text-slate-900">{phone.folio}</p>
+                      <p className="font-mono text-sm font-bold text-emerald-800">${peso(phone.commission)}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900 mt-1">{phone.model}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {phone.dateLabel} · {phone.branchName}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {phone.clientName}
+                      {phone.imei ? ` · IMEI ${phone.imei}` : ''}
+                    </p>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-slate-400">
+                      <div>Precio* <span className="block font-mono text-slate-600">${peso(phone.fullPrice)}</span></div>
+                      <div>Enganche* <span className="block font-mono text-slate-600">${peso(phone.downPayment)}</span></div>
+                      <div>Saldo* <span className="block font-mono text-slate-600">{phone.remaining ? `$${peso(phone.remaining)}` : '—'}</span></div>
+                    </div>
+                  </article>
                 ))}
-              </tbody>
-            </table>
-            <p className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 border-t border-slate-100">
-              *Precio, enganche y saldo son dinero de paso. Solo la comisión (Navojoa $1,000 / Huatabampo $350 por celular) entra al resultado.
-            </p>
+              </div>
+
+              <table className="hidden sm:table w-full text-left text-xs min-w-[800px]">
+                <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px] sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Folio / Fecha</th>
+                    <th className="px-3 py-2.5 font-semibold">Equipo</th>
+                    <th className="px-3 py-2.5 font-semibold">Cliente</th>
+                    <th className="px-3 py-2.5 font-semibold">Tipo</th>
+                    <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Precio*</th>
+                    <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Enganche*</th>
+                    <th className="px-3 py-2.5 font-semibold text-right text-slate-400">Saldo*</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Comisión</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {phones.map((phone) => (
+                    <tr key={phone.id} className="hover:bg-slate-50">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="block font-mono font-semibold text-slate-900">{phone.folio}</span>
+                        <span className="block text-[10px] text-slate-500">{phone.dateLabel}</span>
+                        <span className="block text-[10px] text-slate-500">{phone.branchName} · {phone.operatorName}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="block font-semibold text-slate-900">{phone.model}</span>
+                        {phone.imei ? (
+                          <span className="block font-mono text-[10px] text-slate-600">IMEI {phone.imei}</span>
+                        ) : (
+                          <span className="block text-[10px] text-slate-400">Sin IMEI</span>
+                        )}
+                        {phone.quantity > 1 && (
+                          <span className="block text-[10px] text-slate-500">{phone.quantity} pzas</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="block font-semibold text-slate-900">{phone.clientName}</span>
+                        {phone.clientPhone && (
+                          <span className="block text-[10px] text-slate-600">{phone.clientPhone}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          phone.saleKind === 'credito'
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {phone.saleKind === 'credito' ? phone.financing : 'Contado'}
+                        </span>
+                        <span className="block text-[10px] text-slate-500 mt-0.5">{phone.paymentMethod}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-400">${peso(phone.fullPrice)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-400">${peso(phone.downPayment)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-400">
+                        {phone.remaining > 0 ? `$${peso(phone.remaining)}` : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-800">
+                        ${peso(phone.commission)}
+                        <span className="block text-[10px] font-medium text-slate-400">
+                          ${peso(phoneCommissionRate(phone.branchId))} / pza
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-3 py-2 text-[10px] text-slate-500 bg-slate-50 border-t border-slate-100">
+                *Precio, enganche y saldo son dinero de paso. Solo la comisión (Navojoa $1,000 / Huatabampo $350 por celular) entra al resultado.
+              </p>
             </>
           )}
         </div>
@@ -618,126 +773,64 @@ export default function ExecutiveModule({
     });
   };
 
-  return (
-    <div className="space-y-5 pb-16">
-      <div className="bg-white rounded-2xl border border-slate-200 px-4 sm:px-5 py-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-semibold text-[#0047AB] uppercase tracking-wider">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Dirección
-            </div>
-            <h1 className="text-xl font-semibold text-slate-900 mt-0.5 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-slate-500" />
-              Ejercicio financiero por sucursal
-            </h1>
-            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-              Resultado = accesorios + reparaciones + comisiones − gastos. Abonos, enganches y recargas solo pasan: se regresan a otras compañías y no se registran como utilidad. Comisiones: Navojoa $1,000 por celular · Huatabampo $350 por celular.
-            </p>
-          </div>
+  const filterLabel = selectedBranchId === 'all' ? 'Navojoa y Huatabampo' : getBranchDisplayName(selectedBranchId);
 
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-              <Store className="w-3.5 h-3.5 text-[#0047AB]" />
-              <select
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="bg-transparent focus:outline-none cursor-pointer"
-              >
-                <option value="all">Todas las sucursales</option>
-                {ALL_BRANCHES.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {getBranchDisplayName(branch.id)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={onOpenNoticeModal}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#0047AB] hover:bg-blue-700 text-white rounded-xl text-xs font-semibold cursor-pointer"
-            >
-              <Megaphone className="w-3.5 h-3.5" />
-              Aviso a sucursales
-            </button>
+  return (
+    <div className="space-y-6 pb-16">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-[#0047AB] uppercase tracking-[0.18em]">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Dirección
           </div>
+          <h1 className="text-2xl font-semibold text-slate-900 mt-1 flex items-center gap-2">
+            <Building2 className="w-6 h-6 text-slate-400" />
+            Estado de resultados
+          </h1>
+          <p className="text-sm text-slate-500 mt-1 max-w-xl">
+            El recuadro oscuro es lo que gana Credicel. A la derecha, el dinero que solo transita.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            <Store className="w-3.5 h-3.5 text-[#0047AB]" />
+            <select
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value)}
+              className="bg-transparent focus:outline-none cursor-pointer"
+            >
+              <option value="all">Todas las sucursales</option>
+              {ALL_BRANCHES.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {getBranchDisplayName(branch.id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={onOpenNoticeModal}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#0047AB] hover:bg-blue-700 text-white rounded-full text-xs font-semibold cursor-pointer"
+          >
+            <Megaphone className="w-3.5 h-3.5" />
+            Aviso a sucursales
+          </button>
         </div>
       </div>
 
       {currentWeek && (
-        <section className="bg-white rounded-2xl border-2 border-[#0047AB]/20 shadow-xs overflow-hidden">
-          <div className="px-4 sm:px-5 py-4 border-b border-slate-100 bg-blue-50/50">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#0047AB]">Semana actual</p>
-                <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-500" />
-                  {currentWeek.label}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {selectedBranchId === 'all' ? 'Navojoa y Huatabampo' : getBranchDisplayName(selectedBranchId)}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-3 text-right">
-                <button
-                  type="button"
-                  disabled={currentWeek.totals.phonesSold === 0}
-                  onClick={() => openPhones(currentWeek)}
-                  className={`text-right ${currentWeek.totals.phonesSold > 0 ? 'cursor-pointer' : 'cursor-default'}`}
-                >
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Celulares</p>
-                  <p className="text-lg font-bold text-amber-800">{currentWeek.totals.phonesSold}</p>
-                </button>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Ingresos propios</p>
-                  <p className="text-lg font-bold font-mono text-slate-900">
-                    ${formatMoney(currentWeek.totals.finance.ingresosPropios)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Comisiones</p>
-                  <p className="text-lg font-bold font-mono text-amber-900">
-                    ${formatMoney(currentWeek.totals.finance.comisiones)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Gastos</p>
-                  <p className="text-lg font-bold font-mono text-rose-700">-${formatMoney(currentWeek.totals.gastos)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Resultado</p>
-                  <p className={`text-lg font-bold font-mono ${currentWeek.totals.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    ${formatMoney(currentWeek.totals.utilidad)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Dinero de paso</p>
-                  <p className="text-lg font-bold font-mono text-slate-400">
-                    ${formatMoney(currentWeek.totals.finance.dineroPaso)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4 sm:p-5 space-y-4">
-            <CategoryStrip
-              cats={currentWeek.totals.cats}
-              finance={currentWeek.totals.finance}
-              phonesSold={currentWeek.totals.phonesSold}
-              onOpenPhones={() => openPhones(currentWeek)}
-            />
-            <WeekTable block={currentWeek} onOpenPhones={(id, name) => openPhones(currentWeek, id, name)} />
-          </div>
-        </section>
+        <WeekStatement
+          block={currentWeek}
+          subtitle={filterLabel}
+          onOpenPhones={(id, name) => openPhones(currentWeek, id, name)}
+        />
       )}
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-900">Historial semanal</h2>
-          <p className="text-sm text-slate-500">
-            Semanas anteriores, lunes a domingo. El resultado no incluye abonos, recargas ni el cobro de equipos.
-          </p>
+          <h2 className="text-base font-semibold text-slate-900">Semanas anteriores</h2>
+          <p className="text-sm text-slate-500">Una línea por semana. Ábrela para ver Navojoa y Huatabampo.</p>
         </div>
 
         {historyWeeks.length === 0 ? (
@@ -748,55 +841,42 @@ export default function ExecutiveModule({
           historyWeeks.map((week) => {
             const open = openHistory[week.weekStart] ?? false;
             return (
-              <article key={week.weekStart} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <article key={week.weekStart} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                 <button
                   type="button"
                   onClick={() =>
                     setOpenHistory((prev) => ({ ...prev, [week.weekStart]: !open }))
                   }
-                  className="w-full px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left hover:bg-slate-50 cursor-pointer"
+                  className="w-full px-4 sm:px-5 py-3.5 flex items-center gap-3 text-left hover:bg-slate-50 cursor-pointer"
                 >
-                  <div className="flex items-start gap-2">
-                    {open ? (
-                      <ChevronDown className="w-4 h-4 text-slate-500 mt-0.5" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-slate-500 mt-0.5" />
-                    )}
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{week.label}</p>
-                      <p className="text-xs text-slate-500">
-                        {week.totals.phonesSold} celular{week.totals.phonesSold === 1 ? '' : 'es'} · {week.totals.tickets} tickets
-                      </p>
-                    </div>
+                  {open ? (
+                    <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">{week.label}</p>
+                    <p className="text-xs text-slate-500">
+                      {week.totals.phonesSold} celular{week.totals.phonesSold === 1 ? '' : 'es'} · {week.totals.tickets} tickets
+                    </p>
                   </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono sm:text-right">
-                    <span className="text-amber-900">
-                      Comisiones <strong>${formatMoney(week.totals.finance.comisiones)}</strong>
-                    </span>
-                    <span className="text-rose-700">
-                      Gastos <strong>-${formatMoney(week.totals.gastos)}</strong>
-                    </span>
-                    <span className={week.totals.utilidad >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                      Resultado <strong>${formatMoney(week.totals.utilidad)}</strong>
-                    </span>
-                    <span className="text-slate-400">
-                      Paso <strong>${formatMoney(week.totals.finance.dineroPaso)}</strong>
-                    </span>
+                  <div className="text-right shrink-0">
+                    <p className={`font-mono text-base font-bold tabular-nums ${week.totals.utilidad >= 0 ? 'text-slate-950' : 'text-rose-700'}`}>
+                      ${peso(week.totals.utilidad)}
+                    </p>
+                    <p className="text-[10px] text-slate-400">paso ${peso(week.totals.finance.dineroPaso)}</p>
                   </div>
                 </button>
-
-                <div className="px-4 sm:px-5 pb-4 space-y-3">
-                  <CategoryStrip
-                    cats={week.totals.cats}
-                    finance={week.totals.finance}
-                    phonesSold={week.totals.phonesSold}
-                    onOpenPhones={() => openPhones(week)}
-                  />
-                  {open && <WeekTable block={week} onOpenPhones={(id, name) => openPhones(week, id, name)} />}
-                  {!open && (
-                    <p className="text-[11px] text-slate-400">Toca la semana para ver el desglose por sucursal.</p>
-                  )}
-                </div>
+                {open && (
+                  <div className="px-4 sm:px-5 pb-5 border-t border-slate-100 pt-4">
+                    <WeekStatement
+                      block={week}
+                      subtitle={filterLabel}
+                      showHero={false}
+                      onOpenPhones={(id, name) => openPhones(week, id, name)}
+                    />
+                  </div>
+                )}
               </article>
             );
           })
