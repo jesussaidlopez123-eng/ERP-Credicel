@@ -6,24 +6,17 @@ import {
   Printer, 
   X, 
   Store, 
-  Clock, 
-  User, 
   Receipt, 
   ShoppingBag, 
   FileCheck2,
   Copy,
   Check,
-  Send,
   DollarSign,
-  AlertCircle,
   Coins,
   ShieldCheck,
   ArrowRight,
   ChevronDown,
-  ChevronUp,
-  SlidersHorizontal,
-  CheckSquare,
-  Square
+  ChevronUp
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
@@ -100,12 +93,6 @@ export default function CorteXModal({
   sessionOpenedAt
 }: CorteXModalProps) {
 
-  // Tabs: Arqueo, Ticket 58mm preview, or Copiar Lista
-  const [activeTab, setActiveTab] = useState<'arqueo' | 'ticket' | 'copiar_lista'>('arqueo');
-  
-  // Printing state
-  const [hasPrinted, setHasPrinted] = useState(false);
-
   // Accordion state in arqueo view
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     accesorios: false,
@@ -116,9 +103,7 @@ export default function CorteXModal({
     gastos: false,
   });
 
-  // Copy & Selection State
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   // Shift Finalization state
   const [isClosingShiftDialog, setIsClosingShiftDialog] = useState(false);
@@ -130,10 +115,6 @@ export default function CorteXModal({
   const [finishStatusMessage, setFinishStatusMessage] = useState<string>('');
   const [closedShiftFundSnapshot, setClosedShiftFundSnapshot] = useState<{ fundLeft: number; cashWithdrawn: number; notes: string } | null>(null);
   const [closedPrint, setClosedPrint] = useState<CorteTicketView | null>(null);
-
-  // Track selected items for custom WhatsApp sharing
-  const [selectedSoldItemIds, setSelectedSoldItemIds] = useState<Set<string>>(new Set());
-  const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set());
 
   const isHistoric = !!existingCorteRecord;
 
@@ -456,17 +437,8 @@ export default function CorteXModal({
     }));
   }
 
-  // Initialize selection
   useEffect(() => {
     if (isOpen) {
-      setSelectedSoldItemIds(new Set(allDetailedSoldItems.map(i => i.id)));
-      setSelectedExpenseIds(new Set(branchExpenses.map(e => e.id)));
-    }
-  }, [isOpen, branchTickets.length, branchExpenses.length]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setHasPrinted(false);
       setClosedPrint(null);
     }
   }, [isOpen]);
@@ -520,7 +492,6 @@ export default function CorteXModal({
         closedShiftFundSnapshot?.cashWithdrawn,
         closedShiftFundSnapshot?.notes
       )), 'Corte de caja');
-      setHasPrinted(true);
     } catch (e) {
       console.error('Error triggering window.print():', e);
     }
@@ -561,7 +532,7 @@ export default function CorteXModal({
     }));
   };
 
-  const generateWhatsAppText = () => {
+  const generateCopyText = () => {
     const lines: string[] = [];
     lines.push(`========================================`);
     lines.push(`📊 CORTE X • ${effectiveBranchName.toUpperCase()}`);
@@ -607,17 +578,11 @@ export default function CorteXModal({
   };
 
   const handleCopyClipboard = () => {
-    const text = generateWhatsAppText();
+    const text = generateCopyText();
     navigator.clipboard.writeText(text).then(() => {
       setCopiedNotification('¡Corte X copiado al portapapeles!');
       setTimeout(() => setCopiedNotification(null), 3000);
     });
-  };
-
-  const handleShareWhatsApp = () => {
-    const text = generateWhatsAppText();
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
   };
 
   const handleOpenCloseShiftDialog = () => {
@@ -750,7 +715,6 @@ export default function CorteXModal({
       setFinishStatusMessage('Imprimiendo resumen de ventas del día...');
       try {
         printThermalHtml(buildCorteThermalInnerHtml(printView), 'Corte de caja');
-        setHasPrinted(true);
       } catch (e) {
         console.error('Error al imprimir el corte:', e);
       }
@@ -778,64 +742,9 @@ export default function CorteXModal({
     }
   };
 
-  const filteredSoldItems = categoryFilter === 'all' 
-    ? allDetailedSoldItems 
-    : allDetailedSoldItems.filter(i => i.category === categoryFilter);
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
       
-      {/* 58mm POS Thermal Printing Stylesheet */}
-      <style>{`
-        @media print {
-          @page {
-            size: 58mm auto;
-            margin: 0mm !important;
-          }
-          html, body {
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            width: 58mm !important;
-            font-family: 'Courier New', Courier, monospace !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          #corte-thermal-receipt-container, #corte-thermal-receipt-container * {
-            visibility: visible !important;
-            display: block !important;
-          }
-          #corte-thermal-receipt-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 56mm !important;
-            max-width: 58mm !important;
-            padding: 0.5mm 0.8mm 5mm 0.8mm !important;
-            margin: 0 auto !important;
-            background: #ffffff !important;
-            color: #000000 !important;
-            font-family: 'Courier New', Courier, monospace !important;
-            font-size: 8px !important;
-            line-height: 1.1 !important;
-            word-break: break-word !important;
-          }
-          #corte-thermal-receipt-container .flex {
-            display: flex !important;
-          }
-          #corte-thermal-receipt-container .inline-block {
-            display: inline-block !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
-
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[95vh]">
         
         {/* Copied Toast Banner */}
@@ -890,7 +799,7 @@ export default function CorteXModal({
                 type="button"
                 onClick={handleCopyClipboard}
                 className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
-                title="Copiar texto para WhatsApp o mensaje"
+                title="Copiar corte al portapapeles"
               >
                 <Copy className="w-4 h-4 text-emerald-400" />
                 <span className="hidden sm:inline">Copiar</span>
@@ -905,55 +814,12 @@ export default function CorteXModal({
               </button>
             </div>
           </div>
-
-          {/* Simple Tab Bar */}
-          <div className="flex items-center px-4 pt-1 gap-2 bg-slate-950 text-xs overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('arqueo')}
-              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
-                activeTab === 'arqueo'
-                  ? 'bg-white text-slate-900 border-blue-500 shadow-sm'
-                  : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
-              }`}
-            >
-              <Calculator className="w-3.5 h-3.5 text-blue-600" />
-              <span>Arqueo y Balance de Caja</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('ticket')}
-              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
-                activeTab === 'ticket'
-                  ? 'bg-white text-slate-900 border-indigo-500 shadow-sm'
-                  : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Vista Ticket Térmico (58mm)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('copiar_lista')}
-              className={`px-4 py-2 rounded-t-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer border-t-2 shrink-0 ${
-                activeTab === 'copiar_lista'
-                  ? 'bg-white text-slate-900 border-emerald-500 shadow-sm'
-                  : 'text-slate-400 hover:text-white border-transparent hover:bg-slate-900'
-              }`}
-            >
-              <Send className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Copiar Lista (WhatsApp)</span>
-              <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-black px-1.5 py-0.2 rounded-full border border-emerald-500/30">
-                {allDetailedSoldItems.length + branchExpenses.length}
-              </span>
-            </button>
-          </div>
         </div>
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 overflow-y-auto flex-1 bg-slate-100/70 space-y-4 no-print">
 
-          {/* TAB 1: ARQUEO DE TURNO */}
-          {activeTab === 'arqueo' && (
+          {/* Arqueo de turno */}
             <div className="space-y-4">
               
               {/* Top KPI Cards Grid */}
@@ -1288,316 +1154,7 @@ export default function CorteXModal({
               </div>
 
             </div>
-          )}
 
-          {/* TAB 2: VISTA TICKET TÉRMICO (58MM) */}
-          {activeTab === 'ticket' && (
-            <div className="space-y-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
-                      <Receipt className="w-4 h-4 text-indigo-600" />
-                      <span>Vista Previa de Ticket Térmico (58mm)</span>
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      Formato optimizado para miniprinters e impresoras térmicas de 58mm (Atajo de teclado: <kbd className="px-1.5 py-0.5 bg-slate-100 text-slate-800 font-mono rounded font-bold border border-slate-300 text-[10px]">P</kbd>)
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePrintThermal}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Mandar a Imprimir (58mm)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleCopyClipboard}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copiar</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Simulated Thermal Ticket Preview Container */}
-                <div className="flex justify-center p-3 sm:p-6 bg-slate-200/70 rounded-2xl border border-slate-300">
-                  <div className="w-[232px] bg-white px-1.5 py-1 rounded-xl shadow-xl border border-slate-300 font-mono text-slate-950 text-[8px] leading-tight">
-                    {/* Header */}
-                    <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-slate-400">
-                      <h2 className="text-[11px] font-black tracking-tight uppercase leading-none text-slate-950 m-0">
-                        CrediCel
-                      </h2>
-                      <p className="text-[9.5px] font-extrabold uppercase text-slate-800">
-                        REPORTE DE CORTE DE CAJA (X)
-                      </p>
-                      <p className="text-[9.5px] font-bold text-slate-800">
-                        Sucursal: {effectiveBranchName}
-                      </p>
-                      <p className="text-[9px] text-slate-700">
-                        Cajero: {effectiveOperatorName}
-                      </p>
-                      <p className="text-[8.5px] text-slate-600">
-                        {currentDateStr} • {currentTimeStr}
-                      </p>
-                      <div className="inline-block mt-1 px-2 py-0.5 bg-slate-900 text-white font-mono font-black text-[9.5px] rounded">
-                        FOLIO: {corteFolio}
-                      </div>
-                    </div>
-
-                    {/* Financial Summary */}
-                    <div className="py-1.5 border-b border-dashed border-slate-400 space-y-1">
-                      <div className="font-black text-[9.5px] uppercase border-b border-slate-400 pb-0.5">
-                        RESUMEN FINANCIERO
-                      </div>
-                      <div className="flex justify-between text-[9.5px]">
-                        <span>Accesorios ({countAccesoriosProductos} pzs):</span>
-                        <span className="font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9.5px]">
-                        <span>Abonos Crédito ({countAbonos} ops):</span>
-                        <span className="font-bold">${totalAbonos.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9.5px]">
-                        <span>Enganches ({countEnganches} ops):</span>
-                        <span className="font-bold">${totalEnganches.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9.5px]">
-                        <span>Reparaciones ({countReparaciones} ops):</span>
-                        <span className="font-bold">${totalReparaciones.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9.5px]">
-                        <span>Recargas ({countRecargas} ops):</span>
-                        <span className="font-bold">${totalRecargas.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[10px] font-black border-t border-slate-900 pt-0.5">
-                        <span>TOTAL VENTAS:</span>
-                        <span>${totalSalesAll.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9.5px] text-rose-700 font-bold">
-                        <span>(-) GASTOS CAJA:</span>
-                        <span>-${totalExpenses.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[10.5px] font-black border-t border-double border-slate-900 pt-0.5">
-                        <span>UTILIDAD NETA:</span>
-                        <span>${netIncome.toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    {/* Detalle de Artículos Vendidos */}
-                    <div className="py-1.5 border-b border-dashed border-slate-400 space-y-1">
-                      <div className="font-black text-[9.5px] uppercase border-b border-slate-400 pb-0.5 flex justify-between">
-                        <span>DETALLE DE VENTAS</span>
-                        <span>({allDetailedSoldItems.length} PZS)</span>
-                      </div>
-                      {allDetailedSoldItems.length === 0 ? (
-                        <div className="text-[9px] italic text-center py-1 text-slate-500">Sin ventas registradas</div>
-                      ) : (
-                        <div className="space-y-1 max-h-[160px] overflow-y-auto pr-1">
-                          {allDetailedSoldItems.map((item, idx) => (
-                            <div key={item.id || idx} className="text-[9px] leading-tight border-b border-slate-100 pb-0.5">
-                              <div className="flex justify-between font-bold">
-                                <span className="truncate pr-1">{item.quantity}x {item.productName}</span>
-                                <span className="shrink-0">${item.totalPrice.toFixed(2)}</span>
-                              </div>
-                              <div className="flex justify-between text-[8px] text-slate-600">
-                                <span>Folio: {item.ticketFolio}</span>
-                                <span>{item.paymentMethod.toUpperCase()} • {item.time}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Detalle de Gastos */}
-                    {branchExpenses.length > 0 && (
-                      <div className="py-1.5 border-b border-dashed border-slate-400 space-y-1">
-                        <div className="font-black text-[9.5px] uppercase border-b border-slate-400 pb-0.5 flex justify-between">
-                          <span>SALIDAS / GASTOS DE CAJA</span>
-                          <span>({branchExpenses.length})</span>
-                        </div>
-                        <div className="space-y-0.5">
-                          {branchExpenses.map((exp, idx) => (
-                            <div key={exp.id || idx} className="flex justify-between text-[9px]">
-                              <span className="truncate pr-1 text-slate-700">• {exp.concept}</span>
-                              <span className="font-bold text-rose-700 shrink-0">-${exp.amount.toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Formas de Pago */}
-                    <div className="py-1.5 border-b border-dashed border-slate-400 space-y-0.5">
-                      <div className="font-black text-[9.5px] uppercase">
-                        FORMAS DE PAGO
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>Efectivo:</span>
-                        <span>${cashSalesTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>Tarjeta:</span>
-                        <span>${cardSalesTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>Transferencia:</span>
-                        <span>${transferSalesTotal.toFixed(2)}</span>
-                      </div>
-                    </div>
-
-                    {/* Arqueo de Cajón */}
-                    <div className="py-1.5 border-b-2 border-slate-900 space-y-0.5">
-                      <div className="font-black text-[9.5px] uppercase">
-                        ARQUEO DE CAJÓN
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>(+) Fondo Inicial:</span>
-                        <span>${effectiveInitialCash.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>(+) Efectivo Ventas:</span>
-                        <span>+${cashSalesTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[9px]">
-                        <span>(-) Gastos en Efectivo:</span>
-                        <span>-${totalExpenses.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-[10.5px] font-black border-t border-slate-900 pt-0.5">
-                        <span>TOTAL EN CAJA:</span>
-                        <span>${expectedCashInDrawer.toFixed(2)}</span>
-                      </div>
-                      {(() => {
-                        const fundLeftToDisplay = isHistoric 
-                          ? existingCorteRecord.cashFundLeftForNextShift 
-                          : (closedShiftFundSnapshot?.fundLeft !== undefined ? closedShiftFundSnapshot.fundLeft : (parseFloat(nextCashFundInput) || undefined));
-                        const cashWithdrawnToDisplay = isHistoric 
-                          ? existingCorteRecord.cashWithdrawn 
-                          : (closedShiftFundSnapshot?.cashWithdrawn !== undefined ? closedShiftFundSnapshot.cashWithdrawn : (fundLeftToDisplay !== undefined ? Math.max(0, expectedCashInDrawer - fundLeftToDisplay) : undefined));
-                        const notesToDisplay = isHistoric 
-                          ? existingCorteRecord.closingNotes 
-                          : (closedShiftFundSnapshot?.notes || shiftClosureNotes || undefined);
-
-                        return (
-                          <>
-                            {fundLeftToDisplay !== undefined && (
-                              <div className="flex justify-between text-[9px] pt-1">
-                                <span>Fondo Dejado Sig. Turno:</span>
-                                <span className="font-bold">${fundLeftToDisplay.toFixed(2)}</span>
-                              </div>
-                            )}
-                            {cashWithdrawnToDisplay !== undefined && (
-                              <div className="flex justify-between text-[9px]">
-                                <span>Efectivo a Entregar:</span>
-                                <span className="font-bold">${cashWithdrawnToDisplay.toFixed(2)}</span>
-                              </div>
-                            )}
-                            {notesToDisplay && (
-                              <div className="text-[8.5px] pt-1 border-t border-dotted border-slate-400 mt-1">
-                                <span className="font-bold">Observaciones:</span> {notesToDisplay}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Firmas de Conformidad */}
-                    <div className="pt-3 pb-1 space-y-3 text-center">
-                      <div>
-                        <div className="border-b border-slate-400 w-3/4 mx-auto mb-0.5"></div>
-                        <p className="text-[8px] font-bold text-slate-800 uppercase">
-                          Firma Cajero(a): {effectiveOperatorName}
-                        </p>
-                      </div>
-                      <div>
-                        <div className="border-b border-slate-400 w-3/4 mx-auto mb-0.5"></div>
-                        <p className="text-[8px] font-bold text-slate-800 uppercase">
-                          Firma Auditoría / Recibió
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="pt-1 text-center space-y-0.5">
-                      <p className="text-[8px] font-bold text-slate-700">
-                        *** FIN DEL REPORTE DE CORTE ***
-                      </p>
-                      <p className="text-[7.5px] text-slate-500">
-                        CrediCel ERP • Sistema Punto de Venta
-                      </p>
-                    </div>
-
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: COPIAR LISTA (WHATSAPP) */}
-          {activeTab === 'copiar_lista' && (
-            <div className="space-y-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 uppercase">Exportar a WhatsApp / Portapapeles</h4>
-                    <p className="text-[11px] text-slate-500">Copia el resumen o compártelo directamente con un clic</p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleCopyClipboard}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copiar al Portapapeles</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleShareWhatsApp}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-md cursor-pointer"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Enviar por WhatsApp</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Filter selector */}
-                <div className="flex items-center gap-2 text-xs">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="font-bold text-slate-600">Filtrar por categoría:</span>
-                  <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-slate-50 font-bold"
-                  >
-                    <option value="all">Todas ({allDetailedSoldItems.length})</option>
-                    <option value="accesorios">Accesorios ({categoryItems.accesorios.reduce((s, i) => s + i.count, 0)})</option>
-                    <option value="abonos">Abonos ({categoryItems.abonos.reduce((s, i) => s + i.count, 0)})</option>
-                    <option value="enganches">Enganches ({categoryItems.enganches.reduce((s, i) => s + i.count, 0)})</option>
-                    <option value="reparaciones">Taller ({categoryItems.reparaciones.reduce((s, i) => s + i.count, 0)})</option>
-                    <option value="recargas">Recargas ({categoryItems.recargas.reduce((s, i) => s + i.count, 0)})</option>
-                  </select>
-                </div>
-
-                {/* Preview Box */}
-                <div className="bg-slate-900 text-emerald-400 p-4 rounded-xl font-mono text-xs overflow-x-auto max-h-[300px] border border-slate-800 whitespace-pre-wrap select-all">
-                  {generateWhatsAppText()}
-                </div>
-              </div>
-            </div>
-          )}
 
         </div>
 
@@ -1631,212 +1188,6 @@ export default function CorteXModal({
           )}
         </div>
 
-      </div>
-
-      {/* =================================================================================== */}
-      {/* 58mm PRINTABLE THERMAL RECEIPT CONTAINER (Visible in @media print) */}
-      {/* =================================================================================== */}
-      <div 
-        id="corte-thermal-receipt-container" 
-        className="printable-thermal-receipt no-screen font-mono text-black bg-white w-[232px] px-1 py-1 text-[8px] leading-tight"
-      >
-        {/* Header */}
-        <div className="text-center pb-0.5 border-b border-dashed border-black">
-          <h2 className="text-[11px] font-black tracking-tight text-black uppercase leading-none m-0">
-            CrediCel
-          </h2>
-          <p className="text-[8px] font-extrabold uppercase m-0">
-            CORTE DE CAJA (X)
-          </p>
-          <p className="text-[8px] font-bold m-0">
-            {effectiveBranchName} · {effectiveOperatorName}
-          </p>
-          <p className="text-[7.5px] m-0">
-            {currentDateStr} · {currentTimeStr}
-          </p>
-          <div className="inline-block mt-0.5 px-1 bg-black text-white font-mono font-black text-[8px]">
-            {corteFolio}
-          </div>
-        </div>
-
-        {/* Financial Summary */}
-        <div className="py-0.5 border-b border-dashed border-black">
-          <div className="font-black text-[8px] uppercase border-b border-black">
-            RESUMEN
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Accesorios ({countAccesoriosProductos})</span>
-            <span className="font-bold">${totalAccesoriosProductos.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Abonos ({countAbonos})</span>
-            <span className="font-bold">${totalAbonos.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Enganches ({countEnganches})</span>
-            <span className="font-bold">${totalEnganches.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Reparaciones ({countReparaciones})</span>
-            <span className="font-bold">${totalReparaciones.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Recargas ({countRecargas})</span>
-            <span className="font-bold">${totalRecargas.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px] font-black border-t border-black">
-            <span>TOTAL VENTAS</span>
-            <span>${totalSalesAll.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px] text-black">
-            <span>(-) Gastos</span>
-            <span>-${totalExpenses.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[9px] font-black border-t border-black">
-            <span>UTILIDAD</span>
-            <span>${netIncome.toFixed(2)}</span>
-          </div>
-        </div>
-
-        {/* Detalle de Productos y Ventas Realizadas */}
-        <div className="py-0.5 border-b border-dashed border-black">
-          <div className="font-black text-[8px] uppercase border-b border-black flex justify-between">
-            <span>ARTICULOS</span>
-            <span>({allDetailedSoldItems.length})</span>
-          </div>
-
-          {allDetailedSoldItems.length === 0 ? (
-            <div className="text-[8px] italic text-center">Sin ventas</div>
-          ) : (
-            <div>
-              {allDetailedSoldItems.map((item, idx) => (
-                <div key={item.id || idx} className="text-[8px] leading-tight">
-                  <div className="flex justify-between font-bold">
-                    <span className="truncate pr-1">{item.quantity}x {item.productName}</span>
-                    <span className="shrink-0">${item.totalPrice.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-[7.5px]">
-                    <span>{item.ticketFolio}</span>
-                    <span>{item.paymentMethod} {item.time}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Detalle de Gastos de Caja */}
-        {branchExpenses.length > 0 && (
-          <div className="py-0.5 border-b border-dashed border-black">
-            <div className="font-black text-[8px] uppercase border-b border-black flex justify-between">
-              <span>GASTOS</span>
-              <span>({branchExpenses.length})</span>
-            </div>
-            <div>
-              {branchExpenses.map((exp, idx) => (
-                <div key={exp.id || idx} className="flex justify-between text-[8px]">
-                  <span className="truncate pr-1">{exp.concept}</span>
-                  <span className="font-bold shrink-0">-${exp.amount.toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Payment Methods */}
-        <div className="py-0.5 border-b border-dashed border-black">
-          <div className="font-black text-[8px] uppercase">
-            PAGOS
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Efectivo</span>
-            <span>${cashSalesTotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Tarjeta</span>
-            <span>${cardSalesTotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>Transferencia</span>
-            <span>${transferSalesTotal.toFixed(2)}</span>
-          </div>
-        </div>
-
-        {/* Cash Drawer Balance */}
-        <div className="py-0.5 border-b-2 border-black">
-          <div className="font-black text-[8px] uppercase">
-            CAJON
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>(+) Fondo</span>
-            <span>${effectiveInitialCash.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>(+) Efectivo</span>
-            <span>+${cashSalesTotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[8px]">
-            <span>(-) Gastos</span>
-            <span>-${totalExpenses.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-[9px] font-black border-t border-black">
-            <span>TOTAL CAJA</span>
-            <span>${expectedCashInDrawer.toFixed(2)}</span>
-          </div>
-          {(() => {
-            const fundLeftToDisplay = isHistoric 
-              ? existingCorteRecord.cashFundLeftForNextShift 
-              : (closedShiftFundSnapshot?.fundLeft !== undefined ? closedShiftFundSnapshot.fundLeft : (parseFloat(nextCashFundInput) || undefined));
-            const cashWithdrawnToDisplay = isHistoric 
-              ? existingCorteRecord.cashWithdrawn 
-              : (closedShiftFundSnapshot?.cashWithdrawn !== undefined ? closedShiftFundSnapshot.cashWithdrawn : (fundLeftToDisplay !== undefined ? Math.max(0, expectedCashInDrawer - fundLeftToDisplay) : undefined));
-            const notesToDisplay = isHistoric 
-              ? existingCorteRecord.closingNotes 
-              : (closedShiftFundSnapshot?.notes || shiftClosureNotes || undefined);
-
-            return (
-              <>
-                {fundLeftToDisplay !== undefined && (
-                  <div className="flex justify-between text-[8px]">
-                    <span>Fondo sig. turno</span>
-                    <span className="font-bold">${fundLeftToDisplay.toFixed(2)}</span>
-                  </div>
-                )}
-                {cashWithdrawnToDisplay !== undefined && (
-                  <div className="flex justify-between text-[8px]">
-                    <span>A entregar</span>
-                    <span className="font-bold">${cashWithdrawnToDisplay.toFixed(2)}</span>
-                  </div>
-                )}
-                {notesToDisplay && (
-                  <div className="text-[7.5px] border-t border-dotted border-black">
-                    <span className="font-bold">Obs:</span> {notesToDisplay}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-
-        {/* Firmas — un poco de espacio para escribir, sin desperdiciar papel */}
-        <div className="text-center" style={{ paddingTop: '8px' }}>
-          <div style={{ marginBottom: '10px' }}>
-            <div className="border-b border-black" style={{ width: '80%', margin: '0 auto 1px' }}></div>
-            <p className="text-[7.5px] font-bold uppercase m-0">
-              Cajero: {effectiveOperatorName}
-            </p>
-          </div>
-          <div>
-            <div className="border-b border-black" style={{ width: '80%', margin: '0 auto 1px' }}></div>
-            <p className="text-[7.5px] font-bold uppercase m-0">
-              Recibió
-            </p>
-          </div>
-        </div>
-
-        <p className="text-center text-[8px] font-bold m-0" style={{ paddingTop: '4px' }}>
-          FIN DE CORTE
-        </p>
       </div>
 
       {/* Finalizing & Auto-Logout Overlay */}
