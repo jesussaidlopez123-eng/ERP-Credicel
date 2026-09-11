@@ -6,7 +6,7 @@ export const INITIAL_OPERATORS: Operator[] = [
     name: 'Admin Principal', 
     username: 'admin', 
     password: '123', 
-    branchIds: ['b-bodega', 'b-navojoa', 'b-huatabampo'], 
+    branchIds: ['all'], 
     role: 'admin',
     isMainAdmin: true,
     createdAt: '2026-01-01'
@@ -36,7 +36,7 @@ export const INITIAL_OPERATORS: Operator[] = [
     name: 'Carlos López', 
     username: 'carlos', 
     password: '123', 
-    branchIds: ['b-bodega'], 
+    branchIds: ['b-matriz'], 
     role: 'cashier',
     isMainAdmin: false,
     createdAt: '2026-02-10'

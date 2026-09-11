@@ -16,6 +16,7 @@ import {
   Filter
 } from 'lucide-react';
 import { SaleTicket, Branch, Operator } from '../types';
+import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import TicketReceiptModal from './TicketReceiptModal';
 
 interface ReprintTicketModalProps {
@@ -65,7 +66,7 @@ export default function ReprintTicketModal({
     let list = sortedTickets;
 
     if (filterBranchId !== 'all') {
-      list = list.filter(t => t.branchId === filterBranchId);
+      list = list.filter((t) => normalizeBranchId(t.branchId) === normalizeBranchId(filterBranchId));
     }
 
     if (searchQuery.trim()) {
@@ -176,7 +177,7 @@ export default function ReprintTicketModal({
                 className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
               >
                 <option value="all">Todas las Sucursales</option>
-                <option value="b-bodega">Bodega</option>
+                <option value="b-matriz">Matriz</option>
                 <option value="b-navojoa">Navojoa</option>
                 <option value="b-huatabampo">Huatabampo</option>
               </select>
@@ -208,7 +209,7 @@ export default function ReprintTicketModal({
                   filteredTickets.map((ticket, idx) => {
                     const isSelected = selectedTicket?.id === ticket.id;
                     const isMostRecent = idx === 0 && !searchQuery && filterBranchId === 'all';
-                    const branchName = ticket.branchId === 'b-bodega' ? 'Bodega' : ticket.branchId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo';
+                    const branchName = getBranchDisplayName(ticket.branchId);
 
                     return (
                       <button
@@ -287,7 +288,7 @@ export default function ReprintTicketModal({
                       </div>
                       <div className="flex justify-between">
                         <span>Sucursal:</span>
-                        <strong className="text-slate-900">{selectedTicket.branchId === 'b-bodega' ? 'Bodega' : selectedTicket.branchId === 'b-navojoa' ? 'Navojoa' : 'Huatabampo'}</strong>
+                        <strong className="text-slate-900">{getBranchDisplayName(selectedTicket.branchId)}</strong>
                       </div>
                       <div className="flex justify-between">
                         <span>Cajero / Atendió:</span>

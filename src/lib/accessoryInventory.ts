@@ -7,18 +7,18 @@ import {
 } from './imeiInventory';
 
 export function emptyBranchStock(): Record<InventoryBranchId, number> {
-  return { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
+  return { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
 }
 
 function sumVisible(stock: Record<InventoryBranchId, number>): number {
-  return (stock['b-bodega'] || 0) + (stock['b-navojoa'] || 0) + (stock['b-huatabampo'] || 0);
+  return (stock['b-matriz'] || 0) + (stock['b-navojoa'] || 0) + (stock['b-huatabampo'] || 0);
 }
 
 function withStock(product: Product, branchStock: Record<InventoryBranchId, number>): Product {
   return {
     ...product,
     branchStock: {
-      'b-bodega': Math.max(0, branchStock['b-bodega'] || 0),
+      'b-matriz': Math.max(0, branchStock['b-matriz'] || 0),
       'b-navojoa': Math.max(0, branchStock['b-navojoa'] || 0),
       'b-huatabampo': Math.max(0, branchStock['b-huatabampo'] || 0)
     },
@@ -26,14 +26,14 @@ function withStock(product: Product, branchStock: Record<InventoryBranchId, numb
   };
 }
 
-/** Reúne piezas de claves ocultas (`all`, typos) en Bodega, Navojoa o Huatabampo. */
+/** Reúne piezas de claves ocultas (`all`, typos, Bodega) en Matriz, Navojoa o Huatabampo. */
 export function visibleAccessoryStock(product: Product): Record<InventoryBranchId, number> {
   const clean = emptyBranchStock();
   const map = product.branchStock || {};
   const keys = Object.keys(map);
   if (keys.length === 0) {
     const leftover = Math.max(0, Number(product.stock) || 0);
-    if (leftover > 0) clean['b-bodega'] = leftover;
+    if (leftover > 0) clean['b-matriz'] = leftover;
     return clean;
   }
   for (const [raw, qty] of Object.entries(map)) {

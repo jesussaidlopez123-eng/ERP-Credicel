@@ -23,6 +23,7 @@ import {
   Check
 } from 'lucide-react';
 import { Operator, Branch } from '../types';
+import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 
 interface SettingsModuleProps {
   operators: Operator[];
@@ -141,7 +142,11 @@ export default function SettingsModule({
     setFormPassword(op.password || '');
     setFormConfirmPassword(op.password || '');
     setFormRole(op.role);
-    setFormBranchIds(op.branchIds || []);
+    setFormBranchIds(
+      (op.branchIds || [])
+        .map((id) => normalizeBranchId(id))
+        .filter((id) => id && id !== 'all')
+    );
     setShowFormPassword(false);
     setModalError(null);
     setIsUserModalOpen(true);
@@ -465,14 +470,14 @@ export default function SettingsModule({
                       <div className="flex flex-wrap gap-1 items-center">
                         {op.branchIds && op.branchIds.length > 0 ? (
                           op.branchIds.map((bId) => {
-                            const branchObj = allBranches.find((b) => b.id === bId);
+                            const name = getBranchDisplayName(bId);
                             return (
                               <span
                                 key={bId}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-900 text-[11px] font-black rounded-lg border border-blue-200"
                               >
                                 <Building2 className="w-3 h-3 text-blue-600 shrink-0" />
-                                {branchObj ? branchObj.name : bId}
+                                {name}
                               </span>
                             );
                           })

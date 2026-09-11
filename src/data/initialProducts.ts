@@ -11,7 +11,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     costPrice: 0,
     price: 0,
     stock: 999,
-    branchStock: { 'b-bodega': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
+    branchStock: { 'b-matriz': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
     color: 'bg-indigo-600 text-white'
   },
   {
@@ -23,7 +23,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     costPrice: 0,
     price: 0,
     stock: 999,
-    branchStock: { 'b-bodega': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
+    branchStock: { 'b-matriz': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
     color: 'bg-blue-600 text-white'
   },
   {
@@ -35,7 +35,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     costPrice: 0,
     price: 0,
     stock: 9999,
-    branchStock: { 'b-bodega': 9999, 'b-navojoa': 9999, 'b-huatabampo': 9999 },
+    branchStock: { 'b-matriz': 9999, 'b-navojoa': 9999, 'b-huatabampo': 9999 },
     color: 'bg-emerald-600 text-white'
   },
   {
@@ -47,7 +47,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     costPrice: 0,
     price: 0,
     stock: 999,
-    branchStock: { 'b-bodega': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
+    branchStock: { 'b-matriz': 999, 'b-navojoa': 999, 'b-huatabampo': 999 },
     color: 'bg-amber-600 text-white'
   }
 ];

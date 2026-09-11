@@ -5,7 +5,7 @@ import {
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
-import { ADMIN_WORKSPACE, ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import { ADMIN_WORKSPACE, ALL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole, roleLabel } from '../lib/roles';
 import { isAfterCashClose } from '../lib/shiftHours';
 
@@ -44,10 +44,12 @@ export default function Login({
   const assignedBranch: Branch = React.useMemo(() => {
     if (!selectedOperator) return safeBranches[0];
     if (normalizeRole(selectedOperator.role) === 'admin') return ADMIN_WORKSPACE;
-    const allowed = (selectedOperator.branchIds || []).filter(Boolean);
-    const preferred = selectedBranchId && allowed.includes(selectedBranchId)
-      ? selectedBranchId
-      : (allowed.find((id) => id !== 'b-bodega') || allowed[0] || safeBranches[0]?.id);
+    const allowed = (selectedOperator.branchIds || [])
+      .map((id) => normalizeBranchId(id))
+      .filter((id) => id && id !== 'all');
+    const preferred = selectedBranchId && allowed.includes(normalizeBranchId(selectedBranchId))
+      ? normalizeBranchId(selectedBranchId)
+      : (allowed[0] || safeBranches[0]?.id);
     return safeBranches.find((b) => b.id === preferred) || safeBranches[0];
   }, [selectedOperator, safeBranches, selectedBranchId]);
 
@@ -115,7 +117,7 @@ export default function Login({
               Punto de venta CREDI CEL
             </h1>
             <p className="text-xs text-blue-100">
-              Navojoa · Huatabampo · Bodega
+              Matriz · Navojoa · Huatabampo
             </p>
           </div>
         </div>
@@ -179,7 +181,7 @@ export default function Login({
                   <div className="pt-0.5">
                     <p className="text-sm font-semibold text-blue-950">Administración</p>
                     <p className="text-[11px] text-blue-800/80 mt-0.5">
-                      Entras sin sucursal. Ves Navojoa, Huatabampo y Bodega. No se abre caja.
+                      Entras sin sucursal. Ves Matriz, Navojoa y Huatabampo. No se abre caja.
                     </p>
                   </div>
                 ) : (selectedOperator.branchIds || []).length > 1 ? (

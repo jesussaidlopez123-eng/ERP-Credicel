@@ -52,7 +52,7 @@ export default function CreditDeviceModal({
   const [downPayment, setDownPayment] = useState<string>('500');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const activeBranchId = currentBranch?.id || 'b-bodega';
+  const activeBranchId = currentBranch?.id || 'b-matriz';
 
   // Filter real equipment products from inventory (excluding generic action buttons)
   const availableEquipos = products.filter(

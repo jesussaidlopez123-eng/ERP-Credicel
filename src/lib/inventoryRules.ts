@@ -83,7 +83,7 @@ export function findImeiInInventory(
 }
 
 export function branchDisplayShort(branchId: string): string {
-  if (branchId === 'b-bodega') return 'Bodega';
+  if (branchId === 'b-matriz') return 'Matriz';
   if (branchId === 'b-navojoa') return 'Navojoa';
   if (branchId === 'b-huatabampo') return 'Huatabampo';
   return branchId;

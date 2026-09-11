@@ -15,10 +15,10 @@ export function getInitialInventoryMovements(): InventoryMovement[] {
       category: 'accesorio',
       inventoryType: 'accesorio',
       quantity: 50,
-      targetBranchId: 'b-bodega',
-      targetBranchName: 'Bodega Central',
+      targetBranchId: 'b-matriz',
+      targetBranchName: 'Matriz',
       operatorName: 'Said (Admin)',
-      details: 'Ingreso de 50 pieza(s) a Bodega Central de proveedor Distribuidora Celular MX'
+      details: 'Ingreso de 50 pieza(s) a Matriz de proveedor Distribuidora Celular MX'
     },
     {
       id: 'mov-init-2',
@@ -30,12 +30,12 @@ export function getInitialInventoryMovements(): InventoryMovement[] {
       category: 'accesorio',
       inventoryType: 'accesorio',
       quantity: 15,
-      sourceBranchId: 'b-bodega',
-      sourceBranchName: 'Bodega Central',
+      sourceBranchId: 'b-matriz',
+      sourceBranchName: 'Matriz',
       targetBranchId: 'b-navojoa',
       targetBranchName: 'Sucursal Navojoa',
       operatorName: 'Said (Admin)',
-      details: 'Traspaso de 15 pieza(s) de Bodega Central a Sucursal Navojoa para surtido de mostrador'
+      details: 'Traspaso de 15 pieza(s) de Matriz a Sucursal Navojoa para surtido de mostrador'
     },
     {
       id: 'mov-init-3',

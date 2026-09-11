@@ -537,7 +537,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
                         ) : (
                           <div className="flex items-center gap-1 text-slate-600 font-bold">
                             <Store className="w-3 h-3 text-slate-400" />
-                            <span>{mov.targetBranchName || mov.targetBranchId || 'Bodega Central'}</span>
+                            <span>{mov.targetBranchName || mov.targetBranchId || 'Matriz'}</span>
                           </div>
                         )}
                         <div className="text-[10px] text-slate-400 font-medium flex items-center justify-end gap-1">

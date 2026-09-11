@@ -59,7 +59,7 @@ export async function saleAlreadyCommitted(ticketId: string): Promise<boolean> {
  * Si esto no lanza error, la venta ya está a salvo aunque no haya internet.
  */
 export async function commitSale(ticket: SaleTicket): Promise<SaleTicket> {
-  const branchId = normalizeBranchId(ticket.branchId || ticket.sucursal_id || 'b-bodega');
+  const branchId = normalizeBranchId(ticket.branchId || ticket.sucursal_id);
   const enriched: SaleTicket = {
     ...ticket,
     branchId,
@@ -100,7 +100,7 @@ export async function commitSale(ticket: SaleTicket): Promise<SaleTicket> {
 // ----------------------------------------------------
 
 export async function commitExpense(expense: Expense): Promise<Expense> {
-  const branchId = normalizeBranchId(expense.branchId || expense.sucursal_id || 'b-bodega');
+  const branchId = normalizeBranchId(expense.branchId || expense.sucursal_id);
   const enriched: Expense = { ...expense, branchId, sucursal_id: branchId };
   const dateKey = hermosilloDateKey(enriched.timestamp || enriched.date) || trustedDateKey();
   const data = cleanForFirestore(stamp(enriched as unknown as Record<string, unknown>));

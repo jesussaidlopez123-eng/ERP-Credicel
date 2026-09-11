@@ -187,7 +187,7 @@ function PosModule({
   }, [cart, products]);
   const boardRepairRecords = useMemo(
     () =>
-      isAdminUser || currentBranch.id === 'b-bodega'
+      isAdminUser
         ? repairRecords
         : repairRecords.filter(
             (r) => normalizeBranchId(r.branchId) === normalizeBranchId(currentBranch.id)
@@ -236,7 +236,7 @@ function PosModule({
 
   useEffect(() => {
     const sessionId = activeCashSession?.id;
-    if (!sessionId || currentBranch.id === 'b-bodega') {
+    if (!sessionId || !hasCashTill(currentBranch.id)) {
       setDraftReady(true);
       return;
     }
@@ -249,7 +249,7 @@ function PosModule({
   useEffect(() => {
     if (!draftReady) return;
     const sessionId = activeCashSession?.id;
-    if (!sessionId || currentBranch.id === 'b-bodega') return;
+    if (!sessionId || !hasCashTill(currentBranch.id)) return;
     savePosDraft(currentBranch.id, currentOperator.id, sessionId, cart);
   }, [cart, draftReady, activeCashSession?.id, currentBranch.id, currentOperator.id]);
 
@@ -700,7 +700,7 @@ function PosModule({
       return;
     }
     if (!isAdminUser && !hasCashTill(currentBranch.id)) {
-      setSaleError('Administración no cobra. Entra a Navojoa o Huatabampo para registrar una venta.');
+      setSaleError('Administración no cobra. Entra a Matriz, Navojoa o Huatabampo para registrar una venta.');
       return;
     }
     if (cart.length === 0) return;
@@ -777,7 +777,7 @@ function PosModule({
         };
       }
     } else if (!hasCashTill(currentBranch.id)) {
-      setSaleError('Administración no cobra. Entra a Navojoa o Huatabampo para registrar una venta.');
+      setSaleError('Administración no cobra. Entra a Matriz, Navojoa o Huatabampo para registrar una venta.');
       return;
     }
 

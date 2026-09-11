@@ -27,19 +27,19 @@ const hidden = sanitizeAccessoryProduct(
     branchStock: { all: 5, 'b-nav': 3, 'b-navojoa': 2 }
   })
 );
-assert.equal(accessoryStockAt(hidden, 'b-bodega'), 5);
+assert.equal(accessoryStockAt(hidden, 'b-matriz'), 5);
 assert.equal(accessoryStockAt(hidden, 'b-navojoa'), 5);
 assert.equal(hidden.stock, 10);
 assert.ok(!hidden.branchStock?.all);
 
 const legacy = sanitizeAccessoryProduct(mica({ stock: 4 }));
-assert.equal(accessoryStockAt(legacy, 'b-bodega'), 4);
+assert.equal(accessoryStockAt(legacy, 'b-matriz'), 4);
 assert.equal(accessoryStockAt(legacy, 'b-navojoa'), 0);
 
 const soldLocal = removeAccessoryStock(
   mica({
     stock: 6,
-    branchStock: { 'b-bodega': 1, 'b-navojoa': 4, 'b-huatabampo': 1 }
+    branchStock: { 'b-matriz': 1, 'b-navojoa': 4, 'b-huatabampo': 1 }
   }),
   'b-navojoa',
   4
@@ -56,23 +56,23 @@ const soldFromHidden = removeAccessoryStock(
   3
 );
 assert.equal(accessoryTotalStock(soldFromHidden), 10);
-assert.equal(accessoryStockAt(soldFromHidden, 'b-bodega'), 10);
+assert.equal(accessoryStockAt(soldFromHidden, 'b-matriz'), 10);
 assert.equal(accessoryStockAt(soldFromHidden, 'b-navojoa'), 0);
 
 const moved = moveAccessoryStock(
   mica({
     stock: 5,
-    branchStock: { 'b-bodega': 5, 'b-navojoa': 0, 'b-huatabampo': 0 }
+    branchStock: { 'b-matriz': 5, 'b-navojoa': 0, 'b-huatabampo': 0 }
   }),
-  'b-bodega',
+  'b-matriz',
   'b-huatabampo',
   2
 );
-assert.equal(accessoryStockAt(moved, 'b-bodega'), 3);
+assert.equal(accessoryStockAt(moved, 'b-matriz'), 3);
 assert.equal(accessoryStockAt(moved, 'b-huatabampo'), 2);
 
 const added = addAccessoryStock(mica({ stock: 0, branchStock: emptyLike() }), 'all', 6);
-assert.equal(accessoryStockAt(added, 'b-bodega'), 6);
+assert.equal(accessoryStockAt(added, 'b-matriz'), 6);
 
 const reconciled = applyAccessoryIntegrity([
   mica({ stock: 3, branchStock: { all: 3, 'b-navojoa': 1 } })
@@ -83,5 +83,5 @@ assert.equal(reconciled.changed[0].stock, 4);
 console.log('accessoryInventory self-test ok');
 
 function emptyLike(): Record<string, number> {
-  return { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
+  return { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
 }

@@ -15,13 +15,15 @@ assert.equal(hermosilloDateKey(pastStamp), '2026-09-09');
 
 assert.equal(
   validateHistoricSaleTarget({ branchId: 'all', dateKey: '2026-09-09' }),
-  'Elige Navojoa o Huatabampo. Administración y Bodega no tienen corte de caja.'
+  'Elige Matriz, Navojoa o Huatabampo. Administración no tiene corte de caja.'
 );
 assert.equal(
   validateHistoricSaleTarget({ branchId: 'b-navojoa', dateKey: '2099-01-01' }, new Date('2026-09-10T12:00:00-07:00')),
   'No se puede registrar una venta en una fecha futura.'
 );
 assert.equal(validateHistoricSaleTarget({ branchId: 'b-huatabampo', dateKey: '2026-09-09' }, new Date('2026-09-10T12:00:00-07:00')), null);
+assert.equal(validateHistoricSaleTarget({ branchId: 'b-matriz', dateKey: '2026-09-09' }, new Date('2026-09-10T12:00:00-07:00')), null);
+assert.equal(validateHistoricSaleTarget({ branchId: 'Bodega', dateKey: '2026-09-09' }, new Date('2026-09-10T12:00:00-07:00')), null);
 
 const corte: CorteXRecord = {
   id: 'SES-NAV-20260909-1',

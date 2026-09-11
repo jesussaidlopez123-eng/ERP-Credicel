@@ -29,7 +29,7 @@ export function validateHistoricSaleTarget(
 ): string | null {
   const branchId = normalizeBranchId(target.branchId);
   if (!isCommercialTillBranch(branchId)) {
-    return 'Elige Navojoa o Huatabampo. Administración y Bodega no tienen corte de caja.';
+    return 'Elige Matriz, Navojoa o Huatabampo. Administración no tiene corte de caja.';
   }
   const dateKey = String(target.dateKey || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {

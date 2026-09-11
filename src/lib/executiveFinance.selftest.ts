@@ -12,7 +12,8 @@ import {
 assert.equal(phoneCommissionRate('b-navojoa'), 1000);
 assert.equal(phoneCommissionRate('Navojoa'), 1000);
 assert.equal(phoneCommissionRate('b-huatabampo'), 350);
-assert.equal(phoneCommissionRate('b-bodega'), 0);
+assert.equal(phoneCommissionRate('b-matriz'), 1000);
+assert.equal(phoneCommissionRate('Bodega'), 1000);
 assert.equal(phoneCommissionRate('all'), 0);
 assert.equal(phoneCommissionAmount('all', 10), 0);
 assert.equal(phoneCommissionAmount('b-navojoa', 3), 3000);

@@ -69,7 +69,7 @@ export const scheduledMidnightCleanup = functions.pubsub
     for (const docSnap of snapshot.docs) {
       const sesion = docSnap.data();
       const branchId = String(sesion.sucursal_id || '');
-      if (!branchId || branchId === 'b-bodega') continue;
+      if (!branchId || branchId === 'all' || branchId === 'admin') continue;
 
       const openKey = hermosilloDateKey(sesion.fecha_apertura || '');
       const deadline = openKey ? new Date(`${openKey}T23:00:00-07:00`) : null;

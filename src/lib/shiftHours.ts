@@ -1,5 +1,7 @@
 /** Cash day for CREDI CEL: America/Hermosillo (Sonora, no DST). Till closes at 23:00. */
 
+import { hasCashTill } from '../data/initialBranches';
+
 export const CASH_TIME_ZONE = 'America/Hermosillo';
 export const CASH_CLOSE_HOUR = 23;
 
@@ -90,7 +92,7 @@ export function sessionNeedsAutomaticCorte(
   now: Date = new Date()
 ): boolean {
   if (!session || session.estado !== 'ABIERTA') return false;
-  if (session.sucursal_id === 'b-bodega') return false;
+  if (!hasCashTill(session.sucursal_id)) return false;
   return now.getTime() >= sessionCloseDeadline(session.fecha_apertura, now).getTime();
 }
 

@@ -4,6 +4,7 @@ import { emptyExecutiveCats, type ExecutiveCatTotals } from './saleClassificatio
 
 /** Comisión por celular vendido (contado o crédito). El cobro del equipo no es utilidad. */
 export const PHONE_COMMISSION_BY_BRANCH: Record<string, number> = {
+  'b-matriz': 1000,
   'b-navojoa': 1000,
   'b-huatabampo': 350
 };

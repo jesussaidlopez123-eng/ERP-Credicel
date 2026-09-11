@@ -41,7 +41,7 @@ import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCas
 import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
-import { ALL_BRANCHES, COMMERCIAL_BRANCHES, normalizeBranchId, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
+import { ALL_BRANCHES, COMMERCIAL_BRANCHES, compareBranchIds, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
 import LazyWhen from './LazyWhen';
@@ -93,7 +93,7 @@ function SalesModule({
   salesTickets = [],
   expenses = [],
   currentBranch,
-  currentOperator = { id: 'op-admin', name: 'Admin Principal', username: 'admin', role: 'admin', branchIds: ['b-bodega'] },
+  currentOperator = { id: 'op-admin', name: 'Admin Principal', username: 'admin', role: 'admin', branchIds: ['all'] },
   allBranches = ALL_BRANCHES,
   cortesX = [],
   branchCashFunds = {},
@@ -263,7 +263,7 @@ function SalesModule({
     safeCortesX.forEach((corte) => {
       if (!corte) return;
       const normBId = normalizeBranchId(corte.branchId);
-      if (normBId === 'b-bodega') return; // Bodega is not a sales point
+      if (!hasCashTill(normBId)) return;
       const dateKey = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
       if (isPrematureAutoCorteRecord(corte)) {
         suppressedPrematureCorteIds.add(corte.id);
@@ -295,7 +295,7 @@ function SalesModule({
 
     safeTickets.forEach(t => {
       const normBId = normalizeBranchId(t.branchId);
-      if (normBId === 'b-bodega') return;
+      if (!hasCashTill(normBId)) return;
       if (t.corteXId && !cortesIdSet.has(t.corteXId)) {
         if (!orphanCorteMap[t.corteXId]) {
           orphanCorteMap[t.corteXId] = { branchId: normBId, tickets: [], expenses: [], maxTimestamp: t.timestamp };
@@ -309,7 +309,7 @@ function SalesModule({
 
     safeExpenses.forEach(e => {
       const normBId = normalizeBranchId(e.branchId);
-      if (normBId === 'b-bodega') return;
+      if (!hasCashTill(normBId)) return;
       if (e.corteXId && !cortesIdSet.has(e.corteXId)) {
         if (!orphanCorteMap[e.corteXId]) {
           orphanCorteMap[e.corteXId] = { branchId: normBId, tickets: [], expenses: [], maxTimestamp: e.timestamp || new Date().toISOString() };
@@ -376,21 +376,21 @@ function SalesModule({
 
     safeCortesX.forEach(c => {
       const normBId = normalizeBranchId(c.branchId);
-      if (normBId === 'b-bodega') return;
+      if (!hasCashTill(normBId)) return;
       const dKey = safeDateIsoKey(c.timestamp) || safeDateIsoKey(c.dateStr);
       if (dKey) dateKeysSet.add(dKey);
     });
 
     safeTickets.forEach(t => {
       const normBId = normalizeBranchId(t.branchId);
-      if (normBId === 'b-bodega') return;
+      if (!hasCashTill(normBId)) return;
       const dKey = safeDateIsoKey(t.timestamp);
       if (dKey) dateKeysSet.add(dKey);
     });
 
     safeExpenses.forEach(e => {
       const normBId = normalizeBranchId(e.branchId);
-      if (normBId === 'b-bodega') return;
+      if (!hasCashTill(normBId)) return;
       const dKey = safeDateIsoKey(e.timestamp || e.date);
       if (dKey) dateKeysSet.add(dKey);
     });
@@ -656,7 +656,7 @@ function SalesModule({
   const filteredTickets = useMemo(() => {
     return safeTickets.filter(ticket => {
       const normBId = normalizeBranchId(ticket.branchId);
-      if (normBId === 'b-bodega') return false;
+      if (!hasCashTill(normBId)) return false;
       if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
         return false;
       }
@@ -683,7 +683,7 @@ function SalesModule({
   const filteredExpenses = useMemo(() => {
     return safeExpenses.filter(expense => {
       const normBId = normalizeBranchId(expense.branchId);
-      if (normBId === 'b-bodega') return false;
+      if (!hasCashTill(normBId)) return false;
       if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
         return false;
       }

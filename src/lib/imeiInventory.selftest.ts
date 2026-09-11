@@ -26,9 +26,9 @@ const phone = (over: Partial<Product> = {}): Product => ({
 });
 
 assert.equal(normalizeImei('  3512 99  '), '351299');
-assert.equal(toInventoryBranchId('all'), 'b-bodega');
-assert.equal(toInventoryBranchId('Administracion'), 'b-bodega');
-assert.equal(toInventoryBranchId('sucursal-rara'), 'b-bodega');
+assert.equal(toInventoryBranchId('all'), 'b-matriz');
+assert.equal(toInventoryBranchId('Administracion'), 'b-matriz');
+assert.equal(toInventoryBranchId('sucursal-rara'), 'b-matriz');
 assert.equal(toInventoryBranchId('navojoa'), 'b-navojoa');
 
 const hidden = sanitizeEquipmentProduct(
@@ -38,35 +38,35 @@ const hidden = sanitizeEquipmentProduct(
     branchImeiMap: { all: ['111111111111111'], 'b-nav': ['222222222222222'] }
   })
 );
-assert.deepEqual(hidden.branchImeiMap?.['b-bodega'], ['111111111111111']);
+assert.deepEqual(hidden.branchImeiMap?.['b-matriz'], ['111111111111111']);
 assert.deepEqual(hidden.branchImeiMap?.['b-navojoa'], ['222222222222222']);
 assert.equal(hidden.stock, 2);
 assert.ok(!hidden.branchImeiMap?.all);
 
 const soldStay = removeImeisFromProduct(
   phone({
-    branchImeiMap: { 'b-bodega': ['AAA'], 'b-navojoa': ['BBB'] },
+    branchImeiMap: { 'b-matriz': ['AAA'], 'b-navojoa': ['BBB'] },
     imeiList: ['AAA', 'BBB'],
     stock: 2
   }),
   ['bbb']
 );
-assert.deepEqual(soldStay.branchImeiMap?.['b-bodega'], ['AAA']);
+assert.deepEqual(soldStay.branchImeiMap?.['b-matriz'], ['AAA']);
 assert.deepEqual(soldStay.branchImeiMap?.['b-navojoa'], []);
 assert.equal(soldStay.stock, 1);
 
 const moved = moveImeisOnProduct(
   phone({
-    branchImeiMap: { 'b-bodega': ['CCC'], 'b-navojoa': [], 'b-huatabampo': [] },
+    branchImeiMap: { 'b-matriz': ['CCC'], 'b-navojoa': [], 'b-huatabampo': [] },
     imeiList: ['CCC'],
     stock: 1
   }),
-  'b-bodega',
+  'b-matriz',
   'b-huatabampo',
   ['CCC']
 );
 assert.deepEqual(imeisAtBranch(moved, 'b-huatabampo'), ['CCC']);
-assert.deepEqual(imeisAtBranch(moved, 'b-bodega'), []);
+assert.deepEqual(imeisAtBranch(moved, 'b-matriz'), []);
 
 const added = addImeisToProduct(phone({ stock: 0, imeiList: [] }), 'b-navojoa', ['DDD']);
 assert.deepEqual(imeisAtBranch(added, 'b-navojoa'), ['DDD']);
@@ -75,7 +75,7 @@ const loc = locateImeiOnProduct(
   phone({ branchImeiMap: { all: ['EEE'] }, imeiList: ['EEE'] }),
   'eee'
 );
-assert.equal(loc?.branchId, 'b-bodega');
+assert.equal(loc?.branchId, 'b-matriz');
 assert.equal(loc?.hidden, true);
 
 const dangling = sanitizeEquipmentProduct(
@@ -86,7 +86,7 @@ const dangling = sanitizeEquipmentProduct(
   })
 );
 assert.deepEqual(imeisAtBranch(dangling, 'b-navojoa'), ['AAA']);
-assert.deepEqual(imeisAtBranch(dangling, 'b-bodega'), []);
+assert.deepEqual(imeisAtBranch(dangling, 'b-matriz'), []);
 assert.deepEqual(dangling.imeiList?.includes('BBB'), true);
 assert.equal(dangling.stock, 2);
 

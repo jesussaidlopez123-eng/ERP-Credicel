@@ -157,7 +157,7 @@ function InventoryModule({
   // Modal 2: Transferir
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSelectedProdId, setTransferSelectedProdId] = useState<string>('');
-  const [fromBranchId, setFromBranchId] = useState<string>('b-bodega');
+  const [fromBranchId, setFromBranchId] = useState<string>('b-matriz');
   const [toBranchId, setToBranchId] = useState<string>('');
   const [transferQuantity, setTransferQuantity] = useState<string>('1');
 
@@ -175,7 +175,7 @@ function InventoryModule({
   // Modal 3: Ajustar (Mermas / Corrección)
   const [isAjustarModalOpen, setIsAjustarModalOpen] = useState(false);
   const [ajustarSelectedProdId, setAjustarSelectedProdId] = useState<string>('');
-  const [ajustarBranchId, setAjustarBranchId] = useState<string>('b-bodega');
+  const [ajustarBranchId, setAjustarBranchId] = useState<string>('b-matriz');
   const [ajustarAction, setAjustarAction] = useState<'merma' | 'incremento'>('merma'); // merma = descontar, incremento = agregar
   const [ajustarQuantity, setAjustarQuantity] = useState<string>('1');
   const [ajustarReason, setAjustarReason] = useState<string>('Merma por producto dañado/defectuoso');
@@ -616,7 +616,7 @@ function InventoryModule({
             costPrice: numCost,
             price: numPrice,
             stock: 0,
-            branchStock: { 'b-bodega': 0, 'b-navojoa': 0, 'b-huatabampo': 0 },
+            branchStock: { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 },
             color: 'bg-slate-800 text-white'
           },
           destBranch,
@@ -725,12 +725,12 @@ function InventoryModule({
       // New equipment model
       const destBranch = toInventoryBranchId(branchId);
       const destStock = {
-        'b-bodega': destBranch === 'b-bodega' ? qty : 0,
+        'b-matriz': destBranch === 'b-matriz' ? qty : 0,
         'b-navojoa': destBranch === 'b-navojoa' ? qty : 0,
         'b-huatabampo': destBranch === 'b-huatabampo' ? qty : 0
       };
       const destImeis = {
-        'b-bodega': destBranch === 'b-bodega' ? finalImeis : [],
+        'b-matriz': destBranch === 'b-matriz' ? finalImeis : [],
         'b-navojoa': destBranch === 'b-navojoa' ? finalImeis : [],
         'b-huatabampo': destBranch === 'b-huatabampo' ? finalImeis : []
       };
@@ -783,7 +783,7 @@ function InventoryModule({
   const handleOpenTransfer = () => {
     const firstProd = tabProducts[0];
     setTransferSelectedProdId(firstProd ? firstProd.id : '');
-    setFromBranchId('b-bodega');
+    setFromBranchId('b-matriz');
     setToBranchId('');
     setTransferQuantity('1');
     setIsTransferModalOpen(true);
@@ -925,7 +925,7 @@ function InventoryModule({
   const handleOpenAjustar = () => {
     const firstProd = tabProducts[0];
     setAjustarSelectedProdId(firstProd ? firstProd.id : '');
-    setAjustarBranchId('b-bodega');
+    setAjustarBranchId('b-matriz');
     setAjustarAction('merma');
     setAjustarQuantity('1');
     setAjustarReason('Merma por producto dañado / defectuoso');
@@ -1232,7 +1232,7 @@ function InventoryModule({
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span>
                 {activeInventoryTab === 'accesorio'
-                  ? 'Stock solo en Bodega · Navojoa · Huatabampo'
+                  ? 'Stock solo en Matriz · Navojoa · Huatabampo'
                   : 'Anti-Duplicados'}
               </span>
             </div>
@@ -1278,7 +1278,7 @@ function InventoryModule({
             <button
               onClick={handleOpenTransfer}
               className="flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Transferir existencias entre sucursales o bodega"
+              title="Transferir existencias entre sucursales"
             >
               <ArrowRightLeft className="w-3.5 h-3.5" />
               <span>Transferir</span>
@@ -1369,15 +1369,15 @@ function InventoryModule({
                   <th className="p-3 text-right w-32">4. PRECIO FINAL</th>
                   <th className="p-3 text-center w-32 bg-blue-950 border-l border-slate-800">
                     <div className="flex items-center justify-center gap-1.5">
-                      <span>BODEGA</span>
+                      <span>MATRIZ</span>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleOpenPrintModalForBranch('b-bodega');
+                          handleOpenPrintModalForBranch('b-matriz');
                         }}
                         className="p-1 hover:bg-blue-800 text-blue-300 hover:text-amber-300 rounded transition-all cursor-pointer"
-                        title="Imprimir inventario exclusivo de Bodega Central"
+                        title="Imprimir inventario exclusivo de Matriz"
                       >
                         <Printer className="w-3.5 h-3.5" />
                       </button>
@@ -1428,7 +1428,7 @@ function InventoryModule({
                   </tr>
                 ) : (
                   filteredProducts.map((p) => {
-                    const bodegaQty = getBranchStock(p, 'b-bodega');
+                    const matrizQty = getBranchStock(p, 'b-matriz');
                     const navojoaQty = getBranchStock(p, 'b-navojoa');
                     const huatabampoQty = getBranchStock(p, 'b-huatabampo');
                     const totalQty = getTotalStock(p);
@@ -1467,7 +1467,7 @@ function InventoryModule({
                               const grouped = imeisGroupedByBranch(p);
                               const loose = unmappedImeis(p);
                               const imeiList = [
-                                ...grouped['b-bodega'],
+                                ...grouped['b-matriz'],
                                 ...grouped['b-navojoa'],
                                 ...grouped['b-huatabampo'],
                                 ...loose
@@ -1478,8 +1478,8 @@ function InventoryModule({
                               }
 
                               const locLabel = loose.length
-                                ? `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length} · sin sucursal ${loose.length}`
-                                : `NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · BDG ${grouped['b-bodega'].length}`;
+                                ? `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · sin sucursal ${loose.length}`
+                                : `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length}`;
 
                               if (imeiList.length === 1) {
                                 return (
@@ -1528,12 +1528,12 @@ function InventoryModule({
                           {p.price > 0 ? `$${p.price.toFixed(2)}` : <span className="text-slate-400 font-normal">Variable</span>}
                         </td>
 
-                        {/* 5. Cantidad Bodega */}
+                        {/* 5. Cantidad Matriz */}
                         <td className="p-3 text-center bg-blue-50/30 border-l border-slate-100">
                           <span className={`inline-block px-2.5 py-1 rounded-md font-black text-xs font-mono ${
-                            bodegaQty < 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-900'
+                            matrizQty < 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-900'
                           }`}>
-                            {bodegaQty}
+                            {matrizQty}
                           </span>
                         </td>
 
@@ -2389,8 +2389,8 @@ function InventoryModule({
                 <span className="text-[10px] font-extrabold text-slate-500 uppercase block">Stock en Sucursales:</span>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="p-1.5 bg-blue-100/50 rounded-lg">
-                    <span className="text-[10px] font-bold text-blue-900 block">Bodega</span>
-                    <span className="font-black font-mono text-xs text-blue-950">{getBranchStock(infoProduct, 'b-bodega')}</span>
+                    <span className="text-[10px] font-bold text-blue-900 block">Matriz</span>
+                    <span className="font-black font-mono text-xs text-blue-950">{getBranchStock(infoProduct, 'b-matriz')}</span>
                   </div>
                   <div className="p-1.5 bg-emerald-100/50 rounded-lg">
                     <span className="text-[10px] font-bold text-emerald-900 block">Navojoa</span>
@@ -2442,7 +2442,7 @@ function InventoryModule({
                 <div>
                   <h3 className="font-black text-base">Captura de IMEIs - {pendingEquipmentData.name}</h3>
                   <p className="text-[11px] font-bold text-slate-900 opacity-90">
-                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {ALL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'Bodega'}
+                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {ALL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'Matriz'}
                   </p>
                 </div>
               </div>

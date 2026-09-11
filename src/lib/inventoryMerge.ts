@@ -69,7 +69,7 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
   return sanitizeAccessoryProduct({
     ...catalog,
     branchStock: result,
-    stock: result['b-bodega'] + result['b-navojoa'] + result['b-huatabampo']
+    stock: INVENTORY_BRANCH_IDS.reduce((n, id) => n + (result[id] || 0), 0)
   });
 }
 
@@ -142,9 +142,9 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
   return sanitizeEquipmentProduct({
     ...catalog,
     branchImeiMap: result,
-    imeiList: [...result['b-bodega'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
-    imeis: [...result['b-bodega'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
-    imei: result['b-navojoa'][0] || result['b-huatabampo'][0] || result['b-bodega'][0] || extras[0] || ''
+    imeiList: [...result['b-matriz'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
+    imeis: [...result['b-matriz'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
+    imei: result['b-matriz'][0] || result['b-navojoa'][0] || result['b-huatabampo'][0] || extras[0] || ''
   });
 }
 

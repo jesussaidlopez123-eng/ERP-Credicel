@@ -21,7 +21,7 @@ import {
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord, PurchaseDraft } from '../types';
 import { formatTicketFolio, money, newSessionId } from './ids';
-import { branchFolioCode, COMMERCIAL_BRANCHES, normalizeBranchId, getBranchDisplayName } from '../data/initialBranches';
+import { branchFolioCode, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
@@ -99,18 +99,6 @@ export function cleanForFirestore<T>(data: T): Record<string, any> {
 // 0. SESIONES DE CAJA (ROOT COLLECTION: sesiones_caja)
 // ----------------------------------------------------
 
-function bodegaPlaceholderSession(operatorName: string): SesionCaja {
-  return {
-    id: 'SES-BODEGA-CENTRAL',
-    sucursal_id: 'b-bodega',
-    sucursal_nombre: 'Bodega',
-    operador_apertura: { uid: 'usr-bodega', nombre: operatorName },
-    estado: 'ABIERTA',
-    fecha_apertura: new Date().toISOString(),
-    monto_inicial_efectivo: 0
-  };
-}
-
 async function readBranchFundAmount(branchId: string, fallback: number = 0): Promise<number> {
   try {
     const fundSnap = await getDoc(doc(db, BRANCH_FUNDS_COLLECTION, branchId));
@@ -185,8 +173,8 @@ export async function getActiveCashSession(
   operatorUid: string = ''
 ): Promise<SesionCaja> {
   const normBId = normalizeBranchId(branchId);
-  if (normBId === 'b-bodega') {
-    return bodegaPlaceholderSession(operatorName);
+  if (!hasCashTill(normBId)) {
+    throw new Error('Esta sucursal no abre caja.');
   }
 
   const pending = inflightSessionByBranch.get(normBId);
@@ -292,8 +280,8 @@ export function subscribeToOpenCashSession(
   onError?: (err: unknown) => void
 ): () => void {
   const normBId = normalizeBranchId(branchId);
-  if (normBId === 'b-bodega') {
-    onSession(bodegaPlaceholderSession('Bodega'));
+  if (!hasCashTill(normBId)) {
+    onSession(null);
     return () => {};
   }
 
@@ -847,7 +835,7 @@ async function reopenClosedSession(session: SesionCaja): Promise<void> {
 export async function reopenPrematureAutoCorteIfNeeded(branchId: string): Promise<boolean> {
   try {
     const normBId = normalizeBranchId(branchId);
-    if (normBId === 'b-bodega') return false;
+    if (!hasCashTill(normBId)) return false;
     if (!canOpenNewCashSession()) return false;
 
     const fund = await readBranchFundAmount(normBId, 0);
@@ -925,7 +913,7 @@ export async function findSessionForCorteClose(
   preferredSessionId?: string
 ): Promise<SesionCaja | null> {
   const normBId = normalizeBranchId(branchId);
-  if (normBId === 'b-bodega') return null;
+  if (!hasCashTill(normBId)) return null;
   const key = dateKey || getHermosilloClock().dateKey;
 
   const preferred = await readSessionById(preferredSessionId || loadLastSessionId(normBId));
@@ -1015,8 +1003,8 @@ export async function closeOpenShiftForBranch(params: {
   createIfMissing?: boolean;
 }): Promise<{ success: boolean; sesion: SesionCaja; corteRecord: CorteXRecord }> {
   const normBId = normalizeBranchId(params.branchId);
-  if (normBId === 'b-bodega') {
-    throw new Error('Bodega no genera cortes de caja.');
+  if (!hasCashTill(normBId)) {
+    throw new Error('Esta sucursal no genera cortes de caja.');
   }
 
   const dateKey =
@@ -1070,7 +1058,7 @@ export async function closeCashSessionIfDue(params: {
   expensesSnapshot?: Expense[];
 }): Promise<{ closed: boolean; session: SesionCaja | null; corteRecord?: CorteXRecord }> {
   const normBId = normalizeBranchId(params.branchId);
-  if (normBId === 'b-bodega') {
+  if (!hasCashTill(normBId)) {
     return { closed: false, session: null };
   }
 
@@ -1445,7 +1433,7 @@ export async function allocateSaleFolio(branchId: string): Promise<string> {
 
 export async function saveSaleTicketToFirestore(ticket: SaleTicket) {
   try {
-    const normBId = normalizeBranchId(ticket.branchId || ticket.sucursal_id || 'b-bodega');
+    const normBId = normalizeBranchId(ticket.branchId || ticket.sucursal_id);
     const enrichedTicket: SaleTicket = {
       ...ticket,
       branchId: normBId,
@@ -1497,7 +1485,7 @@ export async function fetchOlderExpenses(beforeTimestamp: string, pageSize = HIS
 
 export async function saveExpenseToFirestore(expense: Expense) {
   try {
-    const normBId = normalizeBranchId(expense.branchId || expense.sucursal_id || 'b-bodega');
+    const normBId = normalizeBranchId(expense.branchId || expense.sucursal_id);
     const enrichedExpense: Expense = {
       ...expense,
       amount: money(Number(expense.amount) || 0),
@@ -1637,7 +1625,7 @@ export async function deleteRepairPriceFromFirestore(id: string) {
 export async function saveBranchFundToFirestore(branchId: string, fundAmount: number): Promise<void> {
   try {
     const normId = normalizeBranchId(branchId);
-    if (!normId || normId === 'b-bodega') return;
+    if (!normId || !hasCashTill(normId)) return;
     const docRef = doc(db, BRANCH_FUNDS_COLLECTION, normId);
     await setDoc(docRef, {
       branchId: normId,
@@ -1670,7 +1658,7 @@ export async function ensureBranchFundsZeroedOnce(): Promise<void> {
     const existing = await getDocs(collection(db, BRANCH_FUNDS_COLLECTION));
     const ids = new Set<string>(COMMERCIAL_BRANCHES.map((branch) => branch.id));
     existing.forEach((d) => {
-      if (d.id && d.id !== 'b-bodega') ids.add(d.id);
+      if (d.id && hasCashTill(d.id)) ids.add(d.id);
     });
 
     const resetAt = new Date().toISOString();
@@ -1980,7 +1968,7 @@ export async function deleteSaleTicketFromFirestore(
     }
   }
 
-  const normBId = normalizeBranchId(ticketData?.branchId || ticketData?.sucursal_id || 'b-bodega');
+  const normBId = normalizeBranchId(ticketData?.branchId || ticketData?.sucursal_id);
   const branchName = getBranchDisplayName(normBId);
   const operator = options?.operatorName || ticketData?.operatorName || 'Administrador';
   const reason = options?.reason || 'Error de captura de operador';

@@ -106,8 +106,8 @@ export interface Product {
   price: number; // Precio final
   costPrice?: number; // Precio inicial / costo de compra
   stock: number; // Stock total
-  branchStock?: Record<string, number>; // Stock por sucursal e.g. { 'b-bodega': 10, 'b-navojoa': 5, 'b-huatabampo': 2 }
-  branchImeiMap?: Record<string, string[]>; // IMEIs activos desglosados por sucursal e.g. { 'b-bodega': ['351234...'], 'b-navojoa': [...] }
+  branchStock?: Record<string, number>; // Stock por sucursal e.g. { 'b-matriz': 10, 'b-navojoa': 5, 'b-huatabampo': 2 }
+  branchImeiMap?: Record<string, string[]>; // IMEIs activos desglosados por sucursal e.g. { 'b-matriz': ['351234...'], 'b-navojoa': [...] }
   inventoryType?: 'accesorio' | 'equipo';
   color?: string;
   brand?: string;

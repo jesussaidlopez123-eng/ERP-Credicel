@@ -20,6 +20,7 @@ import {
   COMMERCIAL_BRANCHES,
   compareBranchIds,
   getBranchDisplayName,
+  hasCashTill,
   normalizeBranchId
 } from '../data/initialBranches';
 import {
@@ -288,14 +289,14 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[
 
   tickets.forEach((ticket) => {
     const bid = normalizeBranchId(ticket.branchId);
-    if (bid !== 'b-navojoa' && bid !== 'b-huatabampo') return;
+    if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(ticket.timestamp)));
     group?.tickets.push(ticket);
   });
 
   expenses.forEach((expense) => {
     const bid = normalizeBranchId(expense.branchId);
-    if (bid !== 'b-navojoa' && bid !== 'b-huatabampo') return;
+    if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(expense.timestamp || expense.date)));
     group?.expenses.push(expense);
   });
@@ -646,7 +647,7 @@ function WeekBoard({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[680px] text-sm">
+        <table className="w-full min-w-[820px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
               <th className="text-left font-semibold text-slate-500 px-4 py-3 w-[28%]">Concepto</th>
@@ -666,7 +667,7 @@ function WeekBoard({
               <th className="text-right font-semibold text-slate-950 px-4 py-3 w-[24%] bg-slate-100">
                 Totales
                 <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
-                  Navojoa + Huatabampo
+                  Matriz + Navojoa + Huatabampo
                 </span>
               </th>
             </tr>
@@ -832,7 +833,7 @@ export default function ExecutiveModule({
             Semana actual
           </h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-            Navojoa, Huatabampo y el total. Equipos cobrados, abonos y recargas se ven en la suma y al final se descuentan: no son utilidad.
+            Matriz, Navojoa, Huatabampo y el total. Equipos cobrados, abonos y recargas se ven en la suma y al final se descuentan: no son utilidad.
           </p>
         </div>
 

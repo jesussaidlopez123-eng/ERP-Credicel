@@ -11,7 +11,7 @@ const phone: Product = {
   price: 4000,
   stock: 2,
   imeiList: ['AAA', 'BBB'],
-  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
 };
 
 assert.equal(getBranchStockQty(phone, 'b-navojoa'), 1);

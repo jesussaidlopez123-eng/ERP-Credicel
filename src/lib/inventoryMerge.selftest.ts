@@ -28,15 +28,15 @@ const phone = (over: Partial<Product> = {}): Product => ({
 
 const serverAcc = mica({
   stock: 155,
-  branchStock: { 'b-navojoa': 155, 'b-huatabampo': 412, 'b-bodega': 0 }
+  branchStock: { 'b-navojoa': 155, 'b-huatabampo': 412, 'b-matriz': 0 }
 });
 const staleHua = mica({
   stock: 412,
-  branchStock: { 'b-navojoa': 0, 'b-huatabampo': 412, 'b-bodega': 0 }
+  branchStock: { 'b-navojoa': 0, 'b-huatabampo': 412, 'b-matriz': 0 }
 });
 const afterHuaSale = mica({
   stock: 411,
-  branchStock: { 'b-navojoa': 0, 'b-huatabampo': 411, 'b-bodega': 0 }
+  branchStock: { 'b-navojoa': 0, 'b-huatabampo': 411, 'b-matriz': 0 }
 });
 
 const mergedSale = applyInventoryWrite(serverAcc, afterHuaSale, snapshotInventory(staleHua));
@@ -45,7 +45,7 @@ assert.equal(accessoryStockAt(mergedSale, 'b-huatabampo'), 411);
 
 const afterNavIngreso = mica({
   stock: 195,
-  branchStock: { 'b-navojoa': 195, 'b-huatabampo': 412, 'b-bodega': 0 }
+  branchStock: { 'b-navojoa': 195, 'b-huatabampo': 412, 'b-matriz': 0 }
 });
 const mergedIngreso = applyInventoryWrite(serverAcc, afterNavIngreso, snapshotInventory(serverAcc));
 assert.equal(accessoryStockAt(mergedIngreso, 'b-navojoa'), 195);
@@ -54,17 +54,17 @@ assert.equal(accessoryStockAt(mergedIngreso, 'b-huatabampo'), 412);
 const serverPhone = phone({
   stock: 2,
   imeiList: ['AAA', 'BBB'],
-  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
 });
 const stalePhone = phone({
   stock: 1,
   imeiList: ['BBB'],
-  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': ['BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
 });
 const soldHua = phone({
   stock: 0,
   imeiList: [],
-  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
 });
 const mergedPhoneSale = applyInventoryWrite(serverPhone, soldHua, snapshotInventory(stalePhone));
 assert.deepEqual(imeisAtBranch(mergedPhoneSale, 'b-navojoa'), ['AAA']);
@@ -73,7 +73,7 @@ assert.deepEqual(imeisAtBranch(mergedPhoneSale, 'b-huatabampo'), []);
 const addedNav = phone({
   stock: 2,
   imeiList: ['BBB', 'CCC'],
-  branchImeiMap: { 'b-navojoa': ['CCC'], 'b-huatabampo': ['BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['CCC'], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
 });
 const mergedAdd = applyInventoryWrite(serverPhone, addedNav, snapshotInventory(stalePhone));
 assert.deepEqual(imeisAtBranch(mergedAdd, 'b-navojoa').sort(), ['AAA', 'CCC']);
@@ -85,7 +85,7 @@ assert.equal(accessoryStockAt(noBaseAcc, 'b-huatabampo'), 412);
 
 const staleNonZero = mica({
   stock: 10,
-  branchStock: { 'b-navojoa': 10, 'b-huatabampo': 412, 'b-bodega': 0 }
+  branchStock: { 'b-navojoa': 10, 'b-huatabampo': 412, 'b-matriz': 0 }
 });
 const noBaseStaleQty = applyInventoryWrite(serverAcc, staleNonZero, null);
 assert.equal(accessoryStockAt(noBaseStaleQty, 'b-navojoa'), 155);
@@ -98,27 +98,27 @@ assert.deepEqual(imeisAtBranch(noBasePhone, 'b-huatabampo'), ['BBB']);
 const staleListIncoming = phone({
   stock: 1,
   imeiList: ['AAA', 'BBB'],
-  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-matriz': [] }
 });
 const noDump = applyInventoryWrite(serverPhone, staleListIncoming, null);
 assert.deepEqual(imeisAtBranch(noDump, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(noDump, 'b-huatabampo'), ['BBB']);
-assert.deepEqual(imeisAtBranch(noDump, 'b-bodega'), []);
+assert.deepEqual(imeisAtBranch(noDump, 'b-matriz'), []);
 
 const noDumpWithBase = applyInventoryWrite(serverPhone, staleListIncoming, snapshotInventory(serverPhone));
 assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-huatabampo'), ['BBB']);
-assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-bodega'), []);
+assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-matriz'), []);
 
 const serverAfterTransfer = phone({
   stock: 2,
   imeiList: ['AAA', 'BBB'],
-  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': ['AAA', 'BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': ['AAA', 'BBB'], 'b-matriz': [] }
 });
 const staleNavView = phone({
   stock: 2,
   imeiList: ['AAA', 'BBB'],
-  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
 });
 const noRevert = applyInventoryWrite(serverAfterTransfer, staleNavView, snapshotInventory(staleNavView));
 assert.deepEqual(imeisAtBranch(noRevert, 'b-huatabampo').sort(), ['AAA', 'BBB']);
@@ -127,15 +127,15 @@ assert.deepEqual(imeisAtBranch(noRevert, 'b-navojoa'), []);
 const fromBodega = phone({
   stock: 1,
   imeiList: ['AAA'],
-  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-bodega': ['AAA'] }
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': ['AAA'] }
 });
 const toNavojoa = phone({
   stock: 1,
   imeiList: ['AAA'],
-  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-bodega': [] }
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-matriz': [] }
 });
 const transferred = applyInventoryWrite(fromBodega, toNavojoa, snapshotInventory(fromBodega));
 assert.deepEqual(imeisAtBranch(transferred, 'b-navojoa'), ['AAA']);
-assert.deepEqual(imeisAtBranch(transferred, 'b-bodega'), []);
+assert.deepEqual(imeisAtBranch(transferred, 'b-matriz'), []);
 
 console.log('inventoryMerge self-test ok');

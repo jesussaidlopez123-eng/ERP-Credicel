@@ -76,7 +76,7 @@ export default function ImeiTraceModal({
 
           {!result && (
             <p className="text-xs text-slate-500 font-medium">
-              El IMEI vive en Bodega, Navojoa o Huatabampo. Si se vendió, aquí aparece el ticket y deja de estar en inventario.
+              El IMEI vive en Matriz, Navojoa o Huatabampo. Si se vendió, aquí aparece el ticket y deja de estar en inventario.
             </p>
           )}
 
@@ -98,7 +98,7 @@ export default function ImeiTraceModal({
                     )}
                     {result.wasHidden && (
                       <p className="text-amber-800 mt-1">
-                        Estaba en una ubicación que no se veía. Quedó en Bodega para que se pueda transferir o vender.
+                        Estaba en una ubicación que no se veía. Quedó en Matriz para que se pueda transferir o vender.
                       </p>
                     )}
                   </div>

@@ -858,7 +858,7 @@ export default function Dashboard({
         !historic &&
         normalizeRole(currentOperator.role) !== 'admin' &&
         isAfterCashClose() &&
-        ticket.branchId !== 'b-bodega'
+        hasCashTill(ticket.branchId)
       ) {
         await closeCashSessionIfDue({
           branchId: ticket.branchId,
@@ -903,7 +903,7 @@ export default function Dashboard({
         }
       } else if (
         (!session || session.sucursal_id !== ticket.branchId || session.estado !== 'ABIERTA') &&
-        ticket.branchId !== 'b-bodega'
+        hasCashTill(ticket.branchId)
       ) {
         try {
           session = await getActiveCashSession(
@@ -1205,12 +1205,12 @@ export default function Dashboard({
 
   // Add Expense Handler
   const handleAddExpense = async (expense: Expense) => {
-    if (isAfterCashClose() && expense.branchId !== 'b-bodega') {
+    if (isAfterCashClose() && hasCashTill(expense.branchId)) {
       setSessionError('La caja ya cerró a las 11:00 p.m. No se registran gastos en este turno.');
       return;
     }
     let activeSessionId = expense.sesion_caja_id || activeCashSession?.id;
-    if (!activeSessionId && expense.branchId !== 'b-bodega') {
+    if (!activeSessionId && hasCashTill(expense.branchId)) {
       try {
         const activeSes = await getActiveCashSession(
           expense.branchId,
@@ -1268,7 +1268,7 @@ export default function Dashboard({
 
   const handleReceivePurchase = async (draft: PurchaseDraft) => {
     if (draft.inventoryApplied) return;
-    const targetBranchId = 'b-bodega';
+    const targetBranchId = 'b-matriz';
     const targetBranchName = getBranchDisplayName(targetBranchId);
     draft.items.forEach((item) => {
       const qty = Number(item.quantity) || 0;
@@ -1324,8 +1324,8 @@ export default function Dashboard({
   const handleFinalizeCorteX = async (corteRecord: CorteXRecord) => {
     const targetBranchId = normalizeBranchId(corteRecord.branchId || currentBranch.id);
     const targetBranchName = corteRecord.branchName || getBranchDisplayName(targetBranchId);
-    if (targetBranchId === 'b-bodega') {
-      console.warn('[CorteX] Bodega no genera cortes de caja.');
+    if (!hasCashTill(targetBranchId)) {
+      console.warn('[CorteX] Esta sucursal no genera cortes de caja.');
       return;
     }
     if (corteInFlightRef.current) {

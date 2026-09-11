@@ -71,7 +71,7 @@ async function main() {
     const add = (branch: string, n: number) => {
       if (branch === NAV) row.nav = Math.max(0, row.nav + n);
       else if (branch === 'b-huatabampo') row.hua = Math.max(0, row.hua + n);
-      else if (branch === 'b-bodega') row.bod = Math.max(0, row.bod + n);
+      else if (branch === 'b-matriz' || branch === 'b-bodega') row.bod = Math.max(0, row.bod + n);
     };
 
     if (m.type === 'traspaso') {

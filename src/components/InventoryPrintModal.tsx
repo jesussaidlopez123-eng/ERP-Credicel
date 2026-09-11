@@ -46,7 +46,7 @@ export default function InventoryPrintModal({
   currentBranch,
   currentOperator,
   allBranches = [
-    { id: 'b-bodega', name: 'Bodega Central' },
+    { id: 'b-matriz', name: 'Matriz' },
     { id: 'b-navojoa', name: 'Navojoa' },
     { id: 'b-huatabampo', name: 'Huatabampo' }
   ],
@@ -92,7 +92,7 @@ export default function InventoryPrintModal({
     if (isEquipmentProduct(product)) {
       if (branchId === 'all') {
         return (
-          imeisAtBranch(product, 'b-bodega').length +
+          imeisAtBranch(product, 'b-matriz').length +
           imeisAtBranch(product, 'b-navojoa').length +
           imeisAtBranch(product, 'b-huatabampo').length
         );
@@ -110,7 +110,7 @@ export default function InventoryPrintModal({
 
     const grouped = imeisGroupedByBranch(product);
     const branches = branchId === 'all'
-      ? (['b-bodega', 'b-navojoa', 'b-huatabampo'] as const)
+      ? (['b-matriz', 'b-navojoa', 'b-huatabampo'] as const)
       : [branchId];
 
     branches.forEach((bId) => {
@@ -244,7 +244,7 @@ export default function InventoryPrintModal({
         'Categoría',
         'Proveedor',
         'Stock Total',
-        'Stock Bodega Central',
+        'Stock Matriz',
         'Stock Navojoa',
         'Stock Huatabampo',
         'Costo Unitario ($)',
@@ -260,7 +260,7 @@ export default function InventoryPrintModal({
         'Categoría',
         'Proveedor',
         'Stock Total',
-        'Stock Bodega Central',
+        'Stock Matriz',
         'Stock Navojoa',
         'Stock Huatabampo',
         'Costo Unitario ($)',
@@ -277,7 +277,7 @@ export default function InventoryPrintModal({
         const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
         const typeLabel = isEquip ? 'Equipo Celular' : 'Accesorio';
         const stockTotal = getProductStock(prod, selectedBranchId);
-        const stockBodega = getProductStock(prod, 'b-bodega');
+        const stockBodega = getProductStock(prod, 'b-matriz');
         const stockNavojoa = getProductStock(prod, 'b-navojoa');
         const stockHuata = getProductStock(prod, 'b-huatabampo');
         const cost = prod.costPrice || 0;
@@ -373,7 +373,7 @@ export default function InventoryPrintModal({
         'Accesorio / Producto',
         'Categoría',
         'Stock Total',
-        'Bodega Central',
+        'Matriz',
         'Navojoa',
         'Huatabampo',
         'Costo Unit.',
@@ -386,7 +386,7 @@ export default function InventoryPrintModal({
         'Producto / Modelo',
         'Categoría',
         'Stock Total',
-        'Bodega Central',
+        'Matriz',
         'Navojoa',
         'Huatabampo',
         'Costo Unit.',
@@ -400,7 +400,7 @@ export default function InventoryPrintModal({
         const isEquip = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
         const typeLabel = isEquip ? 'Celular' : 'Accesorio';
         const stockTotal = getProductStock(prod, selectedBranchId);
-        const stockBodega = getProductStock(prod, 'b-bodega');
+        const stockBodega = getProductStock(prod, 'b-matriz');
         const stockNavojoa = getProductStock(prod, 'b-navojoa');
         const stockHuata = getProductStock(prod, 'b-huatabampo');
         const cost = prod.costPrice || 0;

@@ -1,9 +1,16 @@
 import { CreditAccount, InventoryMovement, Product, SaleTicket } from '../types';
-import { ALL_BRANCHES, getBranchDisplayName, isAdminWorkspace, normalizeBranchId } from '../data/initialBranches';
+import {
+  ALL_BRANCHES,
+  BRANCH_IDS,
+  getBranchDisplayName,
+  isAdminWorkspace,
+  normalizeBranchId,
+  type BranchId
+} from '../data/initialBranches';
 import { isPhoneUnitSale } from './saleClassification';
 
-export const INVENTORY_BRANCH_IDS = ['b-bodega', 'b-navojoa', 'b-huatabampo'] as const;
-export type InventoryBranchId = (typeof INVENTORY_BRANCH_IDS)[number];
+export const INVENTORY_BRANCH_IDS = BRANCH_IDS;
+export type InventoryBranchId = BranchId;
 
 export function normalizeImei(raw?: string | null): string {
   return String(raw || '')
@@ -20,16 +27,16 @@ export function isEquipmentProduct(product?: Product | null): boolean {
   );
 }
 
-/** Solo Bodega, Navojoa o Huatabampo. Administración y claves raras van a Bodega para que se vean. */
+/** Solo Matriz, Navojoa o Huatabampo. Administración y claves raras van a Matriz. */
 export function toInventoryBranchId(id?: string): InventoryBranchId {
-  if (!id || !String(id).trim() || isAdminWorkspace(id)) return 'b-bodega';
+  if (!id || !String(id).trim() || isAdminWorkspace(id)) return 'b-matriz';
   const norm = normalizeBranchId(id);
-  if (norm === 'b-bodega' || norm === 'b-navojoa' || norm === 'b-huatabampo') return norm;
-  return 'b-bodega';
+  if (norm === 'b-matriz' || norm === 'b-navojoa' || norm === 'b-huatabampo') return norm;
+  return 'b-matriz';
 }
 
 export function emptyBranchImeiMap(): Record<InventoryBranchId, string[]> {
-  return { 'b-bodega': [], 'b-navojoa': [], 'b-huatabampo': [] };
+  return { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] };
 }
 
 function uniquePush(list: string[], imei: string): void {
@@ -63,16 +70,16 @@ export function locateImeiOnProduct(product: Product, rawImei: string): { branch
   }
   const loose = [...(product.imeiList || []), ...(product.imeis || []), product.imei || ''];
   if (loose.some((im) => normalizeImei(im) === needle)) {
-    return { branchId: 'b-bodega', hidden: true };
+    return { branchId: 'b-matriz', hidden: true };
   }
   return null;
 }
 
-/** IMEIs por sucursal canónica. No mete a Bodega los que solo viven en imeiList. */
+/** IMEIs por sucursal canónica. No mete a Matriz los que solo viven en imeiList. */
 export function canonicalBranchImeiMap(product: Product): Record<InventoryBranchId, string[]> {
   const clean = emptyBranchImeiMap();
   const seen = new Set<string>();
-  const order: InventoryBranchId[] = ['b-navojoa', 'b-huatabampo', 'b-bodega'];
+  const order: InventoryBranchId[] = ['b-navojoa', 'b-huatabampo', 'b-matriz'];
   const map = product.branchImeiMap || {};
 
   const ingest = (rawKey: string, list: string[]) => {
@@ -121,12 +128,12 @@ function rebuildEquipmentFromMap(
     extraClean.push(n);
   }
 
-  const located = [...clean['b-bodega'], ...clean['b-navojoa'], ...clean['b-huatabampo']];
+  const located = [...clean['b-matriz'], ...clean['b-navojoa'], ...clean['b-huatabampo']];
   const imeiList = [...located, ...extraClean];
   const prevStock = product.branchStock || {};
   const branchStock = {
     ...prevStock,
-    'b-bodega': clean['b-bodega'].length,
+    'b-matriz': clean['b-matriz'].length,
     'b-navojoa': clean['b-navojoa'].length,
     'b-huatabampo': clean['b-huatabampo'].length
   };
@@ -144,7 +151,7 @@ function rebuildEquipmentFromMap(
 
 /**
  * Normaliza claves de sucursal. Los IMEI que solo están en imeiList se conservan
- * en la lista, no se mudan a Bodega: eso era la fuga hacia una sucursal ajena.
+ * en la lista, no se mudan a Matriz.
  */
 export function sanitizeEquipmentProduct(product: Product): Product {
   if (!isEquipmentProduct(product)) return product;
@@ -199,7 +206,7 @@ export function imeisAtBranch(product: Product, branchId: string): string[] {
 export function imeisGroupedByBranch(product: Product): Record<InventoryBranchId, string[]> {
   const clean = canonicalBranchImeiMap(product);
   return {
-    'b-bodega': [...clean['b-bodega']],
+    'b-matriz': [...clean['b-matriz']],
     'b-navojoa': [...clean['b-navojoa']],
     'b-huatabampo': [...clean['b-huatabampo']]
   };
