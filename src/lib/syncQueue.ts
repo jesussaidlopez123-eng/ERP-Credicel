@@ -259,7 +259,6 @@ export async function commitProduct(product: Product, base?: Product | Inventory
   await enqueue({
     kind: 'docWrite',
     groupKey: 'catalogo',
-    id: `product-${product.id}`,
     label: `Inventario ${product.name || product.id}`,
     payload: {
       writes: [

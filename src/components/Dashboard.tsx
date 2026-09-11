@@ -197,8 +197,6 @@ export default function Dashboard({
   const cloudRepairIdsRef = useRef<Set<string> | null>(null);
   const rescuedRepairIdsRef = useRef(new Set<string>());
   const recentlySoldImeisRef = useRef(new Set<string>());
-  const imeiOrphanPersistRef = useRef(false);
-  const imeiSoldPersistRef = useRef(false);
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
@@ -474,24 +472,9 @@ export default function Dashboard({
     const sold = collectSoldImeis(salesTickets);
     recentlySoldImeisRef.current.forEach((im) => sold.add(im));
     const { next, changed } = applyCatalogIntegrity(products, sold);
-    if (changed.length === 0) {
-      if (!imeiOrphanPersistRef.current) imeiOrphanPersistRef.current = true;
-      if (sold.size > 0) imeiSoldPersistRef.current = true;
-      return;
-    }
-    const shouldPersist =
-      !imeiOrphanPersistRef.current || (!imeiSoldPersistRef.current && sold.size > 0);
-    if (!shouldPersist) return;
-    imeiOrphanPersistRef.current = true;
-    if (sold.size > 0) imeiSoldPersistRef.current = true;
+    if (changed.length === 0) return;
     setProducts(next);
     scheduleSaveCachedList('products', next);
-    changed.forEach((product) => {
-      const base = products.find((p) => p.id === product.id);
-      commitProduct(product, base).catch((err) =>
-        console.error('Error alineando inventario:', err)
-      );
-    });
   }, [cloudSynced, products, salesTickets]);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.

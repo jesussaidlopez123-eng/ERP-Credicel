@@ -59,12 +59,10 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
       result[branch] = Math.max(0, (serverVis[branch] || 0) + delta);
     }
   } else {
-    // Sin foto previa: no se acepta dejar una sucursal en 0 si la nube aún tiene piezas.
-    // Así un guardado viejo de Huatabampo no vuelve a borrar Navojoa.
+    // Sin foto previa no se baja stock: un guardado viejo con 10 piezas
+    // no puede dejar Navojoa en 10 si la nube tiene 155.
     for (const branch of INVENTORY_BRANCH_IDS) {
-      const incomingQty = incomingVis[branch] || 0;
-      const serverQty = serverVis[branch] || 0;
-      result[branch] = incomingQty === 0 && serverQty > 0 ? serverQty : incomingQty;
+      result[branch] = Math.max(incomingVis[branch] || 0, serverVis[branch] || 0);
     }
   }
 
@@ -75,54 +73,78 @@ function applyAccessoryWrite(server: Product, incoming: Product, base?: Inventor
   });
 }
 
+function locationsFromMap(map: Record<string, string[]>): Map<string, (typeof INVENTORY_BRANCH_IDS)[number]> {
+  const loc = new Map<string, (typeof INVENTORY_BRANCH_IDS)[number]>();
+  for (const branch of INVENTORY_BRANCH_IDS) {
+    for (const imei of map[branch] || []) {
+      if (!loc.has(imei)) loc.set(imei, branch);
+    }
+  }
+  return loc;
+}
+
 function applyEquipmentWrite(server: Product, incoming: Product, base?: InventorySnapshot | null): Product {
   const catalog = { ...server, ...incoming };
-  const incomingMap = canonicalBranchImeiMap(incoming);
-  const incomingMapped = new Set<string>();
-  for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const imei of incomingMap[branch]) incomingMapped.add(imei);
-  }
-  const incomingAll = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
-
-  const removed = new Set<string>();
-  if (base) {
-    const baseAll = collectProductImeis(asProductForStock(incoming, base)).map(normalizeImei).filter(Boolean);
-    for (const imei of baseAll) {
-      if (imei && !incomingAll.has(imei)) removed.add(imei);
-    }
-  }
-
-  const map = emptyBranchImeiMap();
   const keep = sanitizeEquipmentProduct(server);
-  const keepMap = canonicalBranchImeiMap(keep);
-  for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const imei of keepMap[branch]) {
-      if (!imei || removed.has(imei) || incomingMapped.has(imei)) continue;
-      map[branch].push(imei);
-    }
+  const serverMap = canonicalBranchImeiMap(keep);
+  const incomingMap = canonicalBranchImeiMap(incoming);
+  const incomingAll = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
+  const serverAll = new Set(collectProductImeis(keep).map(normalizeImei).filter(Boolean));
+  const serverLoc = locationsFromMap(serverMap);
+  const incomingLoc = locationsFromMap(incomingMap);
+
+  let baseLoc: Map<string, (typeof INVENTORY_BRANCH_IDS)[number]> | null = null;
+  let baseAll = new Set<string>();
+  if (base) {
+    const baseProd = asProductForStock(incoming, base);
+    baseLoc = locationsFromMap(canonicalBranchImeiMap(baseProd));
+    baseAll = new Set(collectProductImeis(baseProd).map(normalizeImei).filter(Boolean));
   }
 
-  for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const imei of incomingMap[branch]) {
-      if (!imei || removed.has(imei)) continue;
-      for (const key of INVENTORY_BRANCH_IDS) {
-        map[key] = map[key].filter((im) => im !== imei);
-      }
-      map[branch].push(imei);
+  const result = emptyBranchImeiMap();
+  const placed = new Set<string>();
+  const place = (imei: string, branch: (typeof INVENTORY_BRANCH_IDS)[number]) => {
+    if (!imei || placed.has(imei)) return;
+    placed.add(imei);
+    result[branch].push(imei);
+  };
+
+  const removed = (imei: string) => Boolean(baseLoc && baseAll.has(imei) && !incomingAll.has(imei));
+
+  for (const imei of new Set([...serverAll, ...incomingAll])) {
+    if (removed(imei)) continue;
+    const onServer = serverLoc.get(imei);
+    const onIncoming = incomingLoc.get(imei);
+    const onBase = baseLoc?.get(imei);
+
+    if (!baseLoc) {
+      if (onServer) place(imei, onServer);
+      else if (onIncoming) place(imei, onIncoming);
+      continue;
     }
+
+    if (onBase && onIncoming && onBase !== onIncoming) {
+      place(imei, onIncoming);
+      continue;
+    }
+    if (onServer) {
+      place(imei, onServer);
+      continue;
+    }
+    if (onIncoming) place(imei, onIncoming);
   }
 
   const extras = [
-    ...unmappedImeis(keep).filter((im) => !removed.has(im) && !incomingMapped.has(im) && !incomingAll.has(im)),
-    ...unmappedImeis(incoming).filter((im) => !removed.has(im) && !incomingMapped.has(im))
+    ...unmappedImeis(keep).filter((im) => !placed.has(im) && !removed(im)),
+    ...unmappedImeis(incoming).filter((im) => !placed.has(im) && !removed(im))
   ];
 
   return sanitizeEquipmentProduct({
     ...catalog,
-    branchImeiMap: map,
-    imeiList: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo'], ...extras],
-    imeis: [...map['b-bodega'], ...map['b-navojoa'], ...map['b-huatabampo'], ...extras],
-    imei: map['b-navojoa'][0] || map['b-huatabampo'][0] || map['b-bodega'][0] || extras[0] || ''
+    branchImeiMap: result,
+    imeiList: [...result['b-bodega'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
+    imeis: [...result['b-bodega'], ...result['b-navojoa'], ...result['b-huatabampo'], ...extras],
+    imei: result['b-navojoa'][0] || result['b-huatabampo'][0] || result['b-bodega'][0] || extras[0] || ''
   });
 }
 
