@@ -45,12 +45,7 @@ import {
   fetchOlderRepairRecords
 } from '../lib/firebase';
 import { isNonInventorySaleItem } from '../lib/inventoryRules';
-import {
-  collectSoldImeis,
-  isEquipmentProduct,
-  normalizeImei,
-  removeImeisFromProduct
-} from '../lib/imeiInventory';
+import { isEquipmentProduct, normalizeImei, removeImeisFromProduct } from '../lib/imeiInventory';
 import { addAccessoryStock, applyCatalogIntegrity, removeAccessoryStock } from '../lib/accessoryInventory';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
@@ -221,7 +216,7 @@ export default function Dashboard({
           INITIAL_PRODUCTS.forEach((p) => {
             if (!byId.has(p.id)) byId.set(p.id, p);
           });
-          const sold = collectSoldImeis(salesTicketsRef.current);
+          const sold = new Set<string>();
           recentlySoldImeisRef.current.forEach((im) => sold.add(im));
           const next = applyCatalogIntegrity(Array.from(byId.values()), sold).next;
           setProducts(next);
@@ -466,16 +461,6 @@ export default function Dashboard({
     if (!canOpenModule(currentOperator.role, id)) return;
     startTransition(() => setActiveModule(id));
   }, [currentOperator.role]);
-
-  useEffect(() => {
-    if (!cloudSynced || products.length === 0) return;
-    const sold = collectSoldImeis(salesTickets);
-    recentlySoldImeisRef.current.forEach((im) => sold.add(im));
-    const { next, changed } = applyCatalogIntegrity(products, sold);
-    if (changed.length === 0) return;
-    setProducts(next);
-    scheduleSaveCachedList('products', next);
-  }, [cloudSynced, products, salesTickets]);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);

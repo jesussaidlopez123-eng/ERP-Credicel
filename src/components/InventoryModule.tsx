@@ -24,7 +24,8 @@ import {
   Fingerprint,
   Printer,
   Pencil,
-  Tag
+  Tag,
+  RotateCcw
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
 import { ALL_BRANCHES } from '../data/initialBranches';
@@ -49,6 +50,7 @@ import {
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
+import { normalizeRole } from '../lib/roles';
 
 const InventoryMovementsModal = lazy(() =>
   import('./InventoryMovementsModal').then((m) => ({ default: m.InventoryMovementsModal }))
@@ -57,6 +59,7 @@ const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
 const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
 const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
+const InventoryRestoreModal = lazy(() => import('./InventoryRestoreModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -111,6 +114,7 @@ function InventoryModule({
 
   // Modal 0: Historial de Movimientos de los últimos 15 días
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
+  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
 
   // Modals state
   // Modal 1: Ingresar (Agregar Stock / Nuevo Producto / Nuevo Equipo)
@@ -1335,6 +1339,19 @@ function InventoryModule({
             </button>
 
             {/* Botón HISTORIAL DE MOVIMIENTOS */}
+            {(normalizeRole(currentOperator?.role) === 'admin' ||
+              normalizeRole(currentOperator?.role) === 'manager') && (
+              <button
+                type="button"
+                onClick={() => setIsRestoreModalOpen(true)}
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-800 hover:bg-amber-900 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+                title="Comparar existencias de Huatabampo, Navojoa y Matriz contra el kardex y devolver lo que falte"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-200" />
+                <span>Kardex sucursales</span>
+              </button>
+            )}
+
             <button
               onClick={() => setIsMovementsModalOpen(true)}
               className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-slate-700"
@@ -3257,6 +3274,14 @@ function InventoryModule({
           movements={inventoryMovements}
           credits={creditAccounts}
           initialImei={traceInitialImei}
+        />
+      </LazyWhen>
+
+      <LazyWhen when={isRestoreModalOpen}>
+        <InventoryRestoreModal
+          open={isRestoreModalOpen}
+          currentOperator={currentOperator}
+          onClose={() => setIsRestoreModalOpen(false)}
         />
       </LazyWhen>
 

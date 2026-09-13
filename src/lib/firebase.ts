@@ -20,13 +20,17 @@ import {
 } from 'firebase/firestore';
 import firebaseConfigData from '../../firebase-applet-config.json';
 import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotification, InventoryMovement, SesionCaja, CorteXRecord, CreditAccount, RepairRecord, PurchaseDraft } from '../types';
-import { formatTicketFolio, money, newSessionId } from './ids';
+import { formatTicketFolio, money, newSessionId, newUniqueId } from './ids';
 import { branchFolioCode, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
 import { isNonInventorySaleItem } from './inventoryRules';
-import { addImeisToProduct, isEquipmentProduct } from './imeiInventory';
+import { addImeisToProduct, isEquipmentProduct, staleInventoryMapKeys } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
 import { applyInventoryWrite, snapshotInventory, type InventorySnapshot } from './inventoryMerge';
+import {
+  applyRestoreActionsToProducts,
+  type RestoreAction
+} from './inventoryRestore';
 import {
   AUTO_CORTE_NOTE,
   CashTillLockedError,
@@ -1258,6 +1262,22 @@ export function subscribeToProducts(
   );
 }
 
+function withStaleBranchDeletes(server: Product | null, payload: Record<string, any>): Record<string, any> {
+  const next = { ...payload };
+  const imeiMap = { ...(payload.branchImeiMap || {}) };
+  for (const key of staleInventoryMapKeys(server?.branchImeiMap)) {
+    imeiMap[key] = deleteField();
+  }
+  if (payload.branchImeiMap || Object.keys(imeiMap).length > 0) next.branchImeiMap = imeiMap;
+
+  const stockMap = { ...(payload.branchStock || {}) };
+  for (const key of staleInventoryMapKeys(server?.branchStock as Record<string, unknown> | undefined)) {
+    stockMap[key] = deleteField();
+  }
+  if (payload.branchStock || Object.keys(stockMap).length > 0) next.branchStock = stockMap;
+  return next;
+}
+
 export async function saveProductToFirestore(product: Product, base?: InventorySnapshot | Product | null) {
   try {
     const docRef = doc(db, PRODUCTS_COLLECTION, product.id);
@@ -1265,7 +1285,7 @@ export async function saveProductToFirestore(product: Product, base?: InventoryS
       const snap = await tx.get(docRef);
       const server = snap.exists() ? ({ id: snap.id, ...snap.data() } as Product) : null;
       const merged = applyInventoryWrite(server, product, base || null);
-      tx.set(docRef, cleanForFirestore(merged), { merge: true });
+      tx.set(docRef, withStaleBranchDeletes(server, cleanForFirestore(merged)), { merge: true });
     });
   } catch (err) {
     console.error('[Firestore] Error saving product:', err);
@@ -1929,6 +1949,78 @@ export async function saveInventoryMovementsBatchToFirestore(movements: Inventor
     console.error('[Firestore] Error saving batch inventory movements:', err);
     throw err;
   }
+}
+
+export async function cleanupStaleBranchKeys(): Promise<number> {
+  const { products } = await fetchInventoryRestoreSources();
+  let changed = 0;
+  for (const product of products) {
+    const stale = [
+      ...staleInventoryMapKeys(product.branchImeiMap),
+      ...staleInventoryMapKeys(product.branchStock as Record<string, unknown> | undefined)
+    ];
+    if (stale.length === 0) continue;
+    await saveProductToFirestore(product, snapshotInventory(product));
+    changed += 1;
+  }
+  return changed;
+}
+
+export async function fetchInventoryRestoreSources(): Promise<{
+  products: Product[];
+  movements: InventoryMovement[];
+  tickets: SaleTicket[];
+}> {
+  const [prodSnap, movSnap, salesSnap, ventasSnap] = await Promise.all([
+    getDocs(collection(db, PRODUCTS_COLLECTION)),
+    getDocs(collection(db, MOVEMENTS_COLLECTION)),
+    getDocs(collection(db, SALES_COLLECTION)),
+    getDocs(collection(db, VENTAS_COLLECTION))
+  ]);
+
+  const products = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+  const movements = movSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryMovement));
+  const ticketsMap = new Map<string, SaleTicket>();
+  for (const d of [...salesSnap.docs, ...ventasSnap.docs]) {
+    ticketsMap.set(d.id, { id: d.id, ...d.data() } as SaleTicket);
+  }
+
+  return { products, movements, tickets: [...ticketsMap.values()] };
+}
+
+export async function persistInventoryRestore(
+  original: Product[],
+  actions: RestoreAction[],
+  operatorName: string
+): Promise<Product[]> {
+  await cleanupStaleBranchKeys();
+  const updated = applyRestoreActionsToProducts(original, actions);
+  const originalById = new Map(original.map((p) => [p.id, p]));
+
+  for (const product of updated) {
+    const before = originalById.get(product.id);
+    if (!before) continue;
+    if (JSON.stringify(snapshotInventory(before)) === JSON.stringify(snapshotInventory(product))) continue;
+    await saveProductToFirestore(product, snapshotInventory(before));
+  }
+
+  const movements: InventoryMovement[] = actions.map((action) => ({
+    id: newUniqueId('mov-rest'),
+    timestamp: new Date().toISOString(),
+    type: 'ajuste',
+    productId: action.productId,
+    productCode: action.productCode,
+    productName: action.productName,
+    inventoryType: action.kind,
+    quantity: action.kind === 'equipo' ? action.imeis.length : action.accessoryQty,
+    targetBranchId: action.branchId,
+    targetBranchName: action.branchName,
+    operatorName,
+    details: `Restauración de ${action.kind === 'equipo' ? 'IMEI' : 'stock'} de ${action.branchName} según kardex: ${action.detail}`,
+    imeis: action.imeis.length ? action.imeis : undefined
+  }));
+  await saveInventoryMovementsBatchToFirestore(movements);
+  return updated;
 }
 
 export async function clearTestSalesAndExpensesFromFirestore() {

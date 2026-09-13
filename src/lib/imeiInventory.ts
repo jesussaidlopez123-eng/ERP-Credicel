@@ -60,12 +60,13 @@ export function collectProductImeis(product: Product): string[] {
 export function locateImeiOnProduct(product: Product, rawImei: string): { branchId: string; hidden: boolean } | null {
   const needle = normalizeImei(rawImei);
   if (!needle) return null;
-  const map = product.branchImeiMap || {};
-  for (const [rawKey, list] of Object.entries(map)) {
-    if ((list || []).some((im) => normalizeImei(im) === needle)) {
-      const dest = toInventoryBranchId(rawKey);
-      const hidden = dest !== rawKey && !INVENTORY_BRANCH_IDS.includes(rawKey as InventoryBranchId);
-      return { branchId: dest, hidden };
+  const grouped = canonicalBranchImeiMap(product);
+  for (const branch of ['b-navojoa', 'b-huatabampo', 'b-matriz'] as const) {
+    if ((grouped[branch] || []).includes(needle)) {
+      const rawHasCanonical = ((product.branchImeiMap || {})[branch] || []).some(
+        (im) => normalizeImei(im) === needle
+      );
+      return { branchId: branch, hidden: !rawHasCanonical };
     }
   }
   const loose = [...(product.imeiList || []), ...(product.imeis || []), product.imei || ''];
@@ -101,6 +102,11 @@ export function canonicalBranchImeiMap(product: Product): Record<InventoryBranch
 }
 
 /** IMEIs que están en la lista plana pero no en ninguna sucursal del mapa. */
+/** Claves viejas (Bodega, all, typos) que Firestore deja al hacer merge. */
+export function staleInventoryMapKeys(map?: Record<string, unknown> | null): string[] {
+  return Object.keys(map || {}).filter((key) => !INVENTORY_BRANCH_IDS.includes(key as InventoryBranchId));
+}
+
 export function unmappedImeis(product: Product): string[] {
   const mapped = new Set<string>();
   const grouped = canonicalBranchImeiMap(product);

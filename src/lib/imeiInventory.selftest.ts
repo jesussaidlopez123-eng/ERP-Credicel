@@ -78,6 +78,16 @@ const loc = locateImeiOnProduct(
 assert.equal(loc?.branchId, 'b-matriz');
 assert.equal(loc?.hidden, true);
 
+const preferHua = locateImeiOnProduct(
+  phone({
+    branchImeiMap: { 'b-bodega': ['HUA111'], 'b-huatabampo': ['HUA111'] },
+    imeiList: ['HUA111']
+  }),
+  'HUA111'
+);
+assert.equal(preferHua?.branchId, 'b-huatabampo');
+assert.equal(preferHua?.hidden, false);
+
 const dangling = sanitizeEquipmentProduct(
   phone({
     stock: 2,

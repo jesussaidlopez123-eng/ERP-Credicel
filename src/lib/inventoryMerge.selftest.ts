@@ -105,6 +105,16 @@ assert.deepEqual(imeisAtBranch(noDump, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(noDump, 'b-huatabampo'), ['BBB']);
 assert.deepEqual(imeisAtBranch(noDump, 'b-matriz'), []);
 
+const strippedIncoming = phone({
+  stock: 0,
+  imeiList: [],
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const strippedBase = snapshotInventory(strippedIncoming);
+const keepAfterStripView = applyInventoryWrite(serverPhone, strippedIncoming, strippedBase);
+assert.deepEqual(imeisAtBranch(keepAfterStripView, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(keepAfterStripView, 'b-huatabampo'), ['BBB']);
+
 const noDumpWithBase = applyInventoryWrite(serverPhone, staleListIncoming, snapshotInventory(serverPhone));
 assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(noDumpWithBase, 'b-huatabampo'), ['BBB']);
