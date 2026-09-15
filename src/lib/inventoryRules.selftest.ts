@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Product } from '../types';
-import { findImeiInInventory, getBranchStockQty } from './inventoryRules.ts';
+import { findImeiInInventory, getBranchStockQty, restoreBranchForSaleItem } from './inventoryRules.ts';
 
 const phone: Product = {
   id: 'prod-x',
@@ -28,5 +28,8 @@ assert.equal(other.status, 'other_branch');
 const adminHit = findImeiInInventory([phone], 'BBB', 'all');
 assert.equal(adminHit.status, 'found');
 assert.equal(adminHit.status === 'found' ? adminHit.branchId : '', 'b-huatabampo');
+
+assert.equal(restoreBranchForSaleItem({ metadata: { stockBranchId: 'b-huatabampo' } }, 'b-matriz'), 'b-huatabampo');
+assert.equal(restoreBranchForSaleItem({ metadata: {} }, 'b-navojoa'), 'b-navojoa');
 
 console.log('inventoryRules self-test ok');

@@ -149,6 +149,9 @@ export interface CartItemMetadata {
 
   // For Phone Cases (Fundas)
   caseModel?: string; // e.g. iPhone 13 Pro Max, Samsung A54, Redmi Note 12, etc.
+
+  /** Sucursal de donde salió el IMEI o las piezas (no siempre es la del ticket). */
+  stockBranchId?: string;
 }
 
 
@@ -275,6 +278,8 @@ export interface SaleTicket {
   corteXId?: string;
   corteXClosedAt?: string;
   estado?: 'COMPLETADA' | 'CANCELADA';
+  /** IMEI de las líneas de equipo, para buscar el ticket en Trazar IMEI. */
+  imeis?: string[];
   /** Admin cargó esta venta a un día/sucursal después, p. ej. al corte de ayer. */
   historicPost?: {
     postedAt: string;

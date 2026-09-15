@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Fingerprint, Search, Smartphone, X } from 'lucide-react';
 import { CreditAccount, InventoryMovement, Product, SaleTicket } from '../types';
 import { getBranchDisplayName } from '../data/initialBranches';
+import { fetchImeiHistory } from '../lib/firebase';
 import { normalizeImei, traceImei, type ImeiTraceStatus } from '../lib/imeiInventory';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface ImeiTraceModalProps {
   isOpen: boolean;
@@ -31,16 +33,69 @@ export default function ImeiTraceModal({
   initialImei = ''
 }: ImeiTraceModalProps) {
   const [query, setQuery] = useState(initialImei);
+  const [cloudMovements, setCloudMovements] = useState<InventoryMovement[]>([]);
+  const [cloudTickets, setCloudTickets] = useState<SaleTicket[]>([]);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const debouncedQuery = useDebouncedValue(query, 400);
 
   useEffect(() => {
     if (isOpen) setQuery(initialImei);
   }, [isOpen, initialImei]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setCloudMovements([]);
+      setCloudTickets([]);
+      return;
+    }
+    const imei = normalizeImei(debouncedQuery);
+    if (imei.length < 8) {
+      setCloudMovements([]);
+      setCloudTickets([]);
+      return;
+    }
+    let cancelled = false;
+    setCloudBusy(true);
+    fetchImeiHistory(imei)
+      .then((extra) => {
+        if (cancelled) return;
+        setCloudMovements(extra.movements);
+        setCloudTickets(extra.tickets);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCloudMovements([]);
+        setCloudTickets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCloudBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, debouncedQuery]);
+
+  const mergedTickets = useMemo(() => {
+    const byId = new Map<string, SaleTicket>();
+    for (const row of [...tickets, ...cloudTickets]) {
+      if (row?.id) byId.set(row.id, row);
+    }
+    return [...byId.values()];
+  }, [tickets, cloudTickets]);
+
+  const mergedMovements = useMemo(() => {
+    const byId = new Map<string, InventoryMovement>();
+    for (const row of [...movements, ...cloudMovements]) {
+      if (row?.id) byId.set(row.id, row);
+    }
+    return [...byId.values()];
+  }, [movements, cloudMovements]);
+
   const result = useMemo(() => {
     const imei = normalizeImei(query);
     if (!imei) return null;
-    return traceImei(imei, { products, tickets, movements, credits });
-  }, [query, products, tickets, movements, credits]);
+    return traceImei(imei, { products, tickets: mergedTickets, movements: mergedMovements, credits });
+  }, [query, products, mergedTickets, mergedMovements, credits]);
 
   if (!isOpen) return null;
 
@@ -121,6 +176,9 @@ export default function ImeiTraceModal({
 
               <div>
                 <p className="text-[10px] font-black uppercase text-slate-500 mb-1.5">Historial</p>
+                {cloudBusy && (
+                  <p className="text-[11px] font-medium text-slate-500 mb-1.5">Buscando movimientos viejos en la nube…</p>
+                )}
                 {result.events.length === 0 ? (
                   <p className="text-xs text-slate-400">Aún no hay movimientos guardados de este IMEI.</p>
                 ) : (

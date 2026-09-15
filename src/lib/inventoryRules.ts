@@ -6,7 +6,8 @@ import {
   imeisAtBranch,
   isEquipmentProduct,
   locateImeiOnProduct,
-  normalizeImei
+  normalizeImei,
+  toInventoryBranchId
 } from './imeiInventory';
 
 export const VIRTUAL_POS_PRODUCT_IDS = new Set([
@@ -87,4 +88,12 @@ export function branchDisplayShort(branchId: string): string {
   if (branchId === 'b-navojoa') return 'Navojoa';
   if (branchId === 'b-huatabampo') return 'Huatabampo';
   return branchId;
+}
+
+/** Al borrar una venta, el IMEI vuelve a esta sucursal (la de origen, no la del ticket si difieren). */
+export function restoreBranchForSaleItem(
+  item: { metadata?: { stockBranchId?: string } | null },
+  ticketBranchId?: string
+): string {
+  return toInventoryBranchId(item.metadata?.stockBranchId || ticketBranchId);
 }

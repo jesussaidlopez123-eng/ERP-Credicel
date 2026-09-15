@@ -69,15 +69,15 @@ export default function CreditDeviceModal({
   const checkImeiInSystem = (cleanImei: string) => {
     const lookup = findImeiInInventory(products, cleanImei, activeBranchId);
     if (lookup.status === 'found') {
-      return { found: true, product: lookup.product, otherBranch: null as string | null };
+      return { found: true, product: lookup.product, otherBranch: null as string | null, stockBranchId: lookup.branchId };
     }
     if (lookup.status === 'other_branch' && isAdminWorkspace(activeBranchId)) {
-      return { found: true, product: lookup.product, otherBranch: null as string | null };
+      return { found: true, product: lookup.product, otherBranch: null as string | null, stockBranchId: lookup.branchId };
     }
     if (lookup.status === 'other_branch') {
-      return { found: false, product: null, otherBranch: branchDisplayShort(lookup.branchId) };
+      return { found: false, product: null, otherBranch: branchDisplayShort(lookup.branchId), stockBranchId: lookup.branchId };
     }
-    return { found: false, product: null, otherBranch: null as string | null };
+    return { found: false, product: null, otherBranch: null as string | null, stockBranchId: undefined as string | undefined };
   };
 
   const cleanImeiInput = imei.trim().toUpperCase();
@@ -210,6 +210,7 @@ export default function CreditDeviceModal({
         clientPhone: clientPhone.trim(),
         deviceModel: deviceModel.trim(),
         imei: cleanImei,
+        stockBranchId: check.stockBranchId,
         downPayment: engancheAmount,
         fullPrice: totalEquipmentPrice,
         remainingBalance: financedBalance,

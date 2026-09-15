@@ -23,8 +23,8 @@ import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotificatio
 import { formatTicketFolio, money, newSessionId, newUniqueId } from './ids';
 import { branchFolioCode, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
-import { isNonInventorySaleItem } from './inventoryRules';
-import { addImeisToProduct, isEquipmentProduct, staleInventoryMapKeys } from './imeiInventory';
+import { isNonInventorySaleItem, restoreBranchForSaleItem } from './inventoryRules';
+import { addImeisToProduct, isEquipmentProduct, normalizeImei, staleInventoryMapKeys } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
 import { applyInventoryWrite, snapshotInventory, type InventorySnapshot } from './inventoryMerge';
 import {
@@ -1926,6 +1926,69 @@ export async function fetchOlderInventoryMovements(
   return fetchOlderDocuments<InventoryMovement>(MOVEMENTS_COLLECTION, 'timestamp', beforeTimestamp, pageSize);
 }
 
+/** Kardex y tickets de un IMEI aunque no estén en los últimos 400 de pantalla. */
+export async function fetchImeiHistory(rawImei: string): Promise<{
+  movements: InventoryMovement[];
+  tickets: SaleTicket[];
+}> {
+  const imei = normalizeImei(rawImei);
+  if (!imei) return { movements: [], tickets: [] };
+
+  const movementsById = new Map<string, InventoryMovement>();
+  const ticketsById = new Map<string, SaleTicket>();
+
+  try {
+    const movSnap = await getDocs(
+      query(collection(db, MOVEMENTS_COLLECTION), where('imeis', 'array-contains', imei), limit(80))
+    );
+    movSnap.forEach((d) => {
+      movementsById.set(d.id, { id: d.id, ...d.data() } as InventoryMovement);
+    });
+  } catch (err) {
+    console.warn('[Firestore] historial IMEI (kardex):', err);
+  }
+
+  try {
+    const [ventasSnap, salesSnap] = await Promise.all([
+      getDocs(query(collection(db, VENTAS_COLLECTION), where('imeis', 'array-contains', imei), limit(20))),
+      getDocs(query(collection(db, SALES_COLLECTION), where('imeis', 'array-contains', imei), limit(20)))
+    ]);
+    for (const d of [...ventasSnap.docs, ...salesSnap.docs]) {
+      ticketsById.set(d.id, { id: d.id, ...d.data() } as SaleTicket);
+    }
+  } catch (err) {
+    console.warn('[Firestore] historial IMEI (tickets):', err);
+  }
+
+  const missingTicketIds = new Set<string>();
+  for (const movement of movementsById.values()) {
+    const ref = String(movement.ticketId || '').trim();
+    if (ref && !ticketsById.has(ref)) missingTicketIds.add(ref);
+  }
+  await Promise.all(
+    [...missingTicketIds].map(async (id) => {
+      try {
+        const ventaSnap = await getDoc(doc(db, VENTAS_COLLECTION, id));
+        if (ventaSnap.exists()) {
+          ticketsById.set(id, { id: ventaSnap.id, ...ventaSnap.data() } as SaleTicket);
+          return;
+        }
+        const salesSnap = await getDoc(doc(db, SALES_COLLECTION, id));
+        if (salesSnap.exists()) {
+          ticketsById.set(id, { id: salesSnap.id, ...salesSnap.data() } as SaleTicket);
+        }
+      } catch (err) {
+        console.warn('[Firestore] ticket de movimiento IMEI:', err);
+      }
+    })
+  );
+
+  return {
+    movements: [...movementsById.values()],
+    tickets: [...ticketsById.values()]
+  };
+}
+
 export async function saveInventoryMovementToFirestore(movement: InventoryMovement) {
   try {
     const docRef = doc(db, MOVEMENTS_COLLECTION, movement.id);
@@ -2076,12 +2139,14 @@ export async function deleteSaleTicketFromFirestore(
         const prodSnap = await getDoc(prodRef);
         if (!prodSnap.exists()) continue;
 
-        const currentProd = prodSnap.data() as Product;
+        const currentProd = { id: prodSnap.id, ...(prodSnap.data() as Product) };
         const qty = item.quantity || 1;
         const imeiSold = item.metadata?.imei;
+        const restoreBranch = restoreBranchForSaleItem(item, normBId);
+        const restoreName = getBranchDisplayName(restoreBranch);
         const restored = isEquipmentProduct(currentProd) && imeiSold
-          ? addImeisToProduct(currentProd, normBId, [imeiSold])
-          : addAccessoryStock(currentProd, normBId, qty);
+          ? addImeisToProduct(currentProd, restoreBranch, [imeiSold])
+          : addAccessoryStock(currentProd, restoreBranch, qty);
 
         await saveProductToFirestore(restored, snapshotInventory(currentProd));
 
@@ -2099,8 +2164,8 @@ export async function deleteSaleTicketFromFirestore(
           quantity: qty,
           previousStock: currentProd.stock,
           newStock: restored.stock,
-          targetBranchId: normBId,
-          targetBranchName: branchName,
+          targetBranchId: restoreBranch,
+          targetBranchName: restoreName,
           operatorName: operator,
           ticketId,
           details: `Reversa de inventario por eliminación de Ticket #${ticketId.slice(-6)} (${reason})`,

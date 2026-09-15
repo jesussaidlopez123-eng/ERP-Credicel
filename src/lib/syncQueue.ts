@@ -58,7 +58,13 @@ export async function saleAlreadyCommitted(ticketId: string): Promise<boolean> {
  * Deja la venta guardada en el equipo y encolada para la nube.
  * Si esto no lanza error, la venta ya está a salvo aunque no haya internet.
  */
-export async function commitSale(ticket: SaleTicket): Promise<SaleTicket> {
+export async function commitSale(
+  ticket: SaleTicket,
+  extras?: {
+    products?: Array<{ product: Product; base?: Product | InventorySnapshot | null }>;
+    movements?: InventoryMovement[];
+  }
+): Promise<SaleTicket> {
   const branchId = normalizeBranchId(ticket.branchId || ticket.sucursal_id);
   const enriched: SaleTicket = {
     ...ticket,
@@ -78,17 +84,41 @@ export async function commitSale(ticket: SaleTicket): Promise<SaleTicket> {
     updatedAt: trustedIso()
   });
 
+  const writes: Array<{
+    collection: string;
+    id: string;
+    data: Record<string, unknown>;
+    inventoryBase?: InventorySnapshot;
+  }> = [];
+
+  for (const row of extras?.products || []) {
+    writes.push({
+      collection: PRODUCTS_COLLECTION,
+      id: row.product.id,
+      data: cleanForFirestore(row.product as unknown as Record<string, unknown>),
+      inventoryBase: row.base ? snapshotInventory(row.base as Product) : undefined
+    });
+  }
+
+  writes.push(
+    { collection: VENTAS_COLLECTION, id: enriched.id, data },
+    { collection: SALES_COLLECTION, id: enriched.id, data }
+  );
+
+  for (const movement of extras?.movements || []) {
+    writes.push({
+      collection: INVENTORY_MOVEMENTS_COLLECTION,
+      id: movement.id,
+      data: cleanForFirestore(stamp(movement as unknown as Record<string, unknown>))
+    });
+  }
+
   await enqueue({
     kind: 'docWrite',
     groupKey: branchId,
     id: `sale-${enriched.id}`,
     label: `Venta ${enriched.folio || enriched.id}`,
-    payload: {
-      writes: [
-        { collection: VENTAS_COLLECTION, id: enriched.id, data },
-        { collection: SALES_COLLECTION, id: enriched.id, data }
-      ]
-    }
+    payload: { writes }
   });
 
   kickDrain();

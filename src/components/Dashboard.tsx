@@ -44,8 +44,8 @@ import {
   fetchOlderInventoryMovements,
   fetchOlderRepairRecords
 } from '../lib/firebase';
-import { isNonInventorySaleItem } from '../lib/inventoryRules';
-import { isEquipmentProduct, normalizeImei, removeImeisFromProduct } from '../lib/imeiInventory';
+import { isNonInventorySaleItem, restoreBranchForSaleItem } from '../lib/inventoryRules';
+import { findImeiOnCatalog, isEquipmentProduct, normalizeImei, removeImeisFromProduct } from '../lib/imeiInventory';
 import { addAccessoryStock, applyCatalogIntegrity, removeAccessoryStock } from '../lib/accessoryInventory';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
@@ -917,18 +917,118 @@ export default function Dashboard({
         enrichedTicket.folio = await allocateFolio(enrichedTicket.branchId, enrichedTicket.timestamp);
       }
 
-      await commitSale(enrichedTicket);
-      localOnlyRef.current.sales = [
-        enrichedTicket,
-        ...localOnlyRef.current.sales.filter((t) => t.id !== enrichedTicket.id)
-      ];
-      setSalesTickets((prev) => {
-        const next = [enrichedTicket, ...prev.filter((t) => t.id !== enrichedTicket.id)];
-        saveCachedList('sales', next);
-        return next;
+      const catalogNow = productsRef.current;
+      enrichedTicket.items = (enrichedTicket.items || []).map((item) => {
+        const imei = item.metadata?.imei;
+        if (!imei) {
+          if (item.metadata?.stockBranchId) return item;
+          return {
+            ...item,
+            metadata: { ...item.metadata, stockBranchId: enrichedTicket.branchId }
+          };
+        }
+        if (item.metadata?.stockBranchId) return item;
+        const hit = findImeiOnCatalog(catalogNow, imei);
+        return {
+          ...item,
+          metadata: {
+            ...item.metadata,
+            stockBranchId: hit?.branchId || enrichedTicket.branchId
+          }
+        };
       });
-      observeTrustedIso(enrichedTicket.timestamp);
-      if (session) rememberLastSession(ticket.branchId, session);
+      const ticketImeis = enrichedTicket.items
+        .map((item) => normalizeImei(item.metadata?.imei))
+        .filter(Boolean);
+      if (ticketImeis.length > 0) enrichedTicket.imeis = ticketImeis;
+
+    const saleMovements: InventoryMovement[] = [];
+    const qtyByProduct = new Map<string, number>();
+    const imeisByProduct = new Map<string, string[]>();
+    const stockBranchByProduct = new Map<string, string>();
+
+    enrichedTicket.items.forEach((item) => {
+      if (isNonInventorySaleItem(item)) return;
+      const catalog = catalogNow.find((p) => p.id === item.product.id)
+        || catalogNow.find((p) => item.metadata?.imei && (
+          p.imeiList?.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase())
+          || p.imei?.toUpperCase() === item.metadata!.imei!.toUpperCase()
+          || Object.values(p.branchImeiMap || {}).some((list) => list.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase()))
+        ));
+      const prod = catalog || item.product;
+      const prodId = prod.id;
+      const stockBranch = restoreBranchForSaleItem(item, enrichedTicket.branchId);
+      stockBranchByProduct.set(prodId, stockBranch);
+      qtyByProduct.set(prodId, (qtyByProduct.get(prodId) || 0) + (item.quantity || 1));
+      if (item.metadata?.imei) {
+        imeisByProduct.set(prodId, [...(imeisByProduct.get(prodId) || []), item.metadata.imei]);
+      }
+
+      const stockBranchName = ALL_BRANCHES.find((b) => b.id === stockBranch)?.name || stockBranch;
+      saleMovements.push({
+        id: newUniqueId('mov'),
+        timestamp: new Date().toISOString(),
+        type: 'venta',
+        productId: prodId,
+        productCode: prod.code || 'S/C',
+        productName: catalog?.name || prod.name || 'Artículo',
+        category: prod.category,
+        inventoryType: prod.inventoryType,
+        quantity: -(item.quantity || 1),
+        targetBranchId: stockBranch,
+        targetBranchName: stockBranchName,
+        operatorName: enrichedTicket.operatorName || currentOperator.name,
+        operatorId: currentOperator.id,
+        ticketId: enrichedTicket.id,
+        unitPrice: item.unitPrice,
+        details: `Venta POS en Ticket #${enrichedTicket.folio || enrichedTicket.id}: ${item.quantity} pza(s) en ${stockBranchName}`,
+        imeis: item.metadata?.imei ? [normalizeImei(item.metadata.imei)] : undefined
+      });
+    });
+
+    const productWrites: Array<{ product: Product; base: Product }> = [];
+    const nextCatalog = catalogNow.map((p) => {
+      const qty = qtyByProduct.get(p.id) || 0;
+      const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => normalizeImei(im));
+      if (qty <= 0 && soldImeis.length === 0) return p;
+
+      soldImeis.forEach((im) => recentlySoldImeisRef.current.add(im));
+
+      let updatedProduct: Product;
+      if (isEquipmentProduct(p) && soldImeis.length > 0) {
+        updatedProduct = removeImeisFromProduct(p, soldImeis);
+      } else {
+        updatedProduct = removeAccessoryStock(
+          p,
+          stockBranchByProduct.get(p.id) || enrichedTicket.branchId,
+          qty || soldImeis.length
+        );
+      }
+      productWrites.push({ product: updatedProduct, base: p });
+      return updatedProduct;
+    });
+
+    await commitSale(enrichedTicket, {
+      products: productWrites,
+      movements: saleMovements
+    });
+    localOnlyRef.current.sales = [
+      enrichedTicket,
+      ...localOnlyRef.current.sales.filter((t) => t.id !== enrichedTicket.id)
+    ];
+    setSalesTickets((prev) => {
+      const next = [enrichedTicket, ...prev.filter((t) => t.id !== enrichedTicket.id)];
+      saveCachedList('sales', next);
+      return next;
+    });
+    observeTrustedIso(enrichedTicket.timestamp);
+    if (session) rememberLastSession(ticket.branchId, session);
+
+    if (saleMovements.length > 0) {
+      setInventoryMovements((prev) => [...saleMovements, ...prev]);
+    }
+    setProducts(nextCatalog);
+    scheduleSaveCachedList('products', nextCatalog);
 
       if (enrichedTicket.corteXId) {
         const closed =
@@ -957,77 +1057,8 @@ export default function Dashboard({
         }
       }
 
-    const branchName = ALL_BRANCHES.find((b) => b.id === enrichedTicket.branchId)?.name || enrichedTicket.branchId;
-    const saleMovements: InventoryMovement[] = [];
-    const qtyByProduct = new Map<string, number>();
-    const imeisByProduct = new Map<string, string[]>();
-
-    enrichedTicket.items.forEach((item) => {
-      if (isNonInventorySaleItem(item)) return;
-      const catalog = products.find((p) => p.id === item.product.id)
-        || products.find((p) => item.metadata?.imei && (
-          p.imeiList?.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase())
-          || p.imei?.toUpperCase() === item.metadata!.imei!.toUpperCase()
-          || Object.values(p.branchImeiMap || {}).some((list) => list.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase()))
-        ));
-      const prod = catalog || item.product;
-      const prodId = prod.id;
-      qtyByProduct.set(prodId, (qtyByProduct.get(prodId) || 0) + (item.quantity || 1));
-      if (item.metadata?.imei) {
-        imeisByProduct.set(prodId, [...(imeisByProduct.get(prodId) || []), item.metadata.imei]);
-      }
-
-      saleMovements.push({
-        id: newUniqueId('mov'),
-        timestamp: new Date().toISOString(),
-        type: 'venta',
-        productId: prodId,
-        productCode: prod.code || 'S/C',
-        productName: catalog?.name || prod.name || 'Artículo',
-        category: prod.category,
-        inventoryType: prod.inventoryType,
-        quantity: -(item.quantity || 1),
-        targetBranchId: enrichedTicket.branchId,
-        targetBranchName: branchName,
-        operatorName: enrichedTicket.operatorName || currentOperator.name,
-        operatorId: currentOperator.id,
-        ticketId: enrichedTicket.folio || enrichedTicket.id,
-        unitPrice: item.unitPrice,
-        details: `Venta POS en Ticket #${enrichedTicket.folio || enrichedTicket.id}: ${item.quantity} pza(s) en ${branchName}`,
-        imeis: item.metadata?.imei ? [item.metadata.imei] : undefined
-      });
-    });
-
-    if (saleMovements.length > 0) {
-      setInventoryMovements((prev) => [...saleMovements, ...prev]);
-      commitInventoryMovements(saleMovements).catch((err) =>
-        console.error('Error encolando movimientos de inventario:', err)
-      );
-    }
-
-    setProducts((prevProducts) =>
-      prevProducts.map((p) => {
-        const qty = qtyByProduct.get(p.id) || 0;
-        const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => normalizeImei(im));
-        if (qty <= 0 && soldImeis.length === 0) return p;
-
-        soldImeis.forEach((im) => recentlySoldImeisRef.current.add(normalizeImei(im)));
-
-        let updatedProduct: Product;
-        if (isEquipmentProduct(p) && soldImeis.length > 0) {
-          updatedProduct = removeImeisFromProduct(p, soldImeis);
-        } else {
-          updatedProduct = removeAccessoryStock(p, enrichedTicket.branchId, qty || soldImeis.length);
-        }
-
-        commitProduct(updatedProduct, p).catch((err) =>
-          console.error('Error encolando el descuento de inventario:', err)
-        );
-        return updatedProduct;
-      })
-    );
-
     const nowIso = new Date().toISOString();
+    const branchName = getBranchDisplayName(enrichedTicket.branchId);
     for (const item of enrichedTicket.items) {
       const meta = item.metadata;
       if (meta?.saleType === 'credito' && (meta.remainingBalance || 0) > 0 && meta.imei) {
