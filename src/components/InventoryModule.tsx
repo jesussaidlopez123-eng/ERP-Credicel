@@ -1,12 +1,10 @@
 import React, { useState, useMemo, lazy } from 'react';
 import { 
-  Package, 
   Plus, 
   Search, 
   ArrowRightLeft, 
   Smartphone, 
   Headphones, 
-  Building2, 
   X, 
   PlusCircle, 
   AlertTriangle, 
@@ -21,11 +19,9 @@ import {
   AlertCircle,
   Check,
   Ban,
-  Fingerprint,
   Printer,
   Pencil,
-  Tag,
-  RotateCcw
+  Tag
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
 import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
@@ -53,7 +49,6 @@ import {
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
-import { normalizeRole } from '../lib/roles';
 
 const InventoryMovementsModal = lazy(() =>
   import('./InventoryMovementsModal').then((m) => ({ default: m.InventoryMovementsModal }))
@@ -62,7 +57,6 @@ const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
 const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
 const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
-const InventoryRestoreModal = lazy(() => import('./InventoryRestoreModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -117,7 +111,6 @@ function InventoryModule({
 
   // Modal 0: Historial de Movimientos de los últimos 15 días
   const [isMovementsModalOpen, setIsMovementsModalOpen] = useState(false);
-  const [isRestoreModalOpen, setIsRestoreModalOpen] = useState(false);
 
   // Modals state
   // Modal 1: Ingresar (Agregar Stock / Nuevo Producto / Nuevo Equipo)
@@ -439,9 +432,7 @@ function InventoryModule({
     };
   };
 
-  // --- HANDLER: INGRESAR (MODELO, CANTIDAD Y SUCURSAL) ---
-  const handleOpenIngresar = () => {
-    setIngresarMode('existente');
+  const resetIngresarFields = () => {
     setIngresarSelectedProdId('');
     setIngresarBranchId('');
     setIngresarQuantity('');
@@ -450,6 +441,19 @@ function InventoryModule({
     setNewCostPrice('');
     setNewPrice('');
     setNewSupplier('');
+  };
+
+  const handleOpenNuevoProducto = () => {
+    resetIngresarFields();
+    setIngresarMode('nuevo');
+    setIsIngresarModalOpen(true);
+  };
+
+  const handleOpenIngresarForProduct = (prodId: string) => {
+    setInfoProduct(null);
+    resetIngresarFields();
+    setIngresarMode('existente');
+    setIngresarSelectedProdId(prodId);
     setIsIngresarModalOpen(true);
   };
 
@@ -774,8 +778,9 @@ function InventoryModule({
   };
 
   // --- HANDLER: TRANSFERIR (SUC ORIGEN, SUC DESTINO, MODELO Y CANTIDAD) ---
-  const handleOpenTransfer = () => {
-    setTransferSelectedProdId('');
+  const handleOpenTransfer = (prodId?: string) => {
+    setInfoProduct(null);
+    setTransferSelectedProdId(prodId || '');
     setFromBranchId('');
     setToBranchId('');
     setTransferQuantity('');
@@ -918,8 +923,9 @@ function InventoryModule({
   };
 
   // --- HANDLER: AJUSTAR / MERMAS (MODELO, CANTIDAD, UBICACIÓN/SUCURSAL Y MOTIVO) ---
-  const handleOpenAjustar = () => {
-    setAjustarSelectedProdId('');
+  const handleOpenAjustar = (prodId?: string) => {
+    setInfoProduct(null);
+    setAjustarSelectedProdId(prodId || '');
     setAjustarBranchId('');
     setAjustarAction('');
     setAjustarQuantity('');
@@ -1089,10 +1095,18 @@ function InventoryModule({
   };
 
   // --- HANDLER: CAMBIAR PRECIOS ($) ---
-  const handleOpenPriceModal = () => {
-    setPriceSelectedProdId('');
-    setEditCostPrice('');
-    setEditSalePrice('');
+  const handleOpenPriceModal = (prodId?: string) => {
+    setInfoProduct(null);
+    if (prodId) {
+      setPriceSelectedProdId(prodId);
+      const prod = products.find((p) => p.id === prodId);
+      setEditCostPrice(prod?.costPrice !== undefined ? prod.costPrice.toString() : '');
+      setEditSalePrice(prod?.price !== undefined ? prod.price.toString() : '');
+    } else {
+      setPriceSelectedProdId('');
+      setEditCostPrice('');
+      setEditSalePrice('');
+    }
     setIsPriceModalOpen(true);
   };
 
@@ -1263,110 +1277,48 @@ function InventoryModule({
           </div>
         </div>
 
-        {/* FILA 2: BOTONERA DE ACCIONES Y OPERACIONES (RESPONSIVA CON FLEX-WRAP) */}
-        <div className="flex flex-wrap items-center justify-start sm:justify-between gap-1.5 pt-2 border-t border-slate-100">
-          
-          {/* Grupo 1: Operaciones de Stock */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* Botón INGRESAR */}
-            <button
-              onClick={handleOpenIngresar}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Ingresar nuevas existencias de producto"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Ingresar</span>
-            </button>
+        {/* FILA 2: ALTA Y REPORTES */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={handleOpenNuevoProducto}
+            className={`flex items-center justify-center gap-1 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
+              activeInventoryTab === 'equipo'
+                ? 'bg-blue-700 hover:bg-blue-800'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+            title={activeInventoryTab === 'equipo' ? 'Registrar un modelo de equipo nuevo' : 'Registrar un accesorio nuevo'}
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>Nuevo producto</span>
+          </button>
 
-            {/* Botón TRANSFERIR */}
-            <button
-              onClick={handleOpenTransfer}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Transferir existencias entre sucursales"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              <span>Transferir</span>
-            </button>
+          <button
+            onClick={() => setIsPrintModalOpen(true)}
+            className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
+              activeInventoryTab === 'equipo'
+                ? 'bg-blue-800 hover:bg-blue-900'
+                : 'bg-purple-800 hover:bg-purple-900'
+            }`}
+            title={`Generar e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos' : 'Accesorios'}`}
+          >
+            <Printer className="w-3.5 h-3.5 text-amber-300" />
+            <span>{activeInventoryTab === 'equipo' ? 'Reporte Equipos' : 'Reporte Accesorios'}</span>
+          </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setTraceInitialImei('');
-                setIsImeiTraceOpen(true);
-              }}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Buscar un IMEI y ver en qué sucursal está o si ya se vendió"
-            >
-              <Fingerprint className="w-3.5 h-3.5" />
-              <span>Trazar IMEI</span>
-            </button>
-
-            {/* Botón AJUSTAR */}
-            <button
-              onClick={handleOpenAjustar}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Ajustar mermas o corregir stock"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Ajustar</span>
-            </button>
-
-            {/* Botón CAMBIAR PRECIOS ($) */}
-            <button
-              onClick={handleOpenPriceModal}
-              className="flex items-center justify-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Cambiar Precio Inicial (Compra) y Precio Final (Venta)"
-            >
-              <DollarSign className="w-3.5 h-3.5" />
-              <span>Precios</span>
-            </button>
-          </div>
-
-          {/* Grupo 2: Impresiones y Auditoría */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* Botón IMPRIMIR REPORTE INVENTARIO */}
-            <button
-              onClick={() => setIsPrintModalOpen(true)}
-              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
-                activeInventoryTab === 'equipo' 
-                  ? 'bg-blue-800 hover:bg-blue-900' 
-                  : 'bg-purple-800 hover:bg-purple-900'
-              }`}
-              title={`Generar e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos' : 'Accesorios'}`}
-            >
-              <Printer className="w-3.5 h-3.5 text-amber-300" />
-              <span>{activeInventoryTab === 'equipo' ? 'Reporte Equipos' : 'Reporte Accesorios'}</span>
-            </button>
-
-            {/* Botón HISTORIAL DE MOVIMIENTOS */}
-            {(normalizeRole(currentOperator?.role) === 'admin' ||
-              normalizeRole(currentOperator?.role) === 'manager') && (
-              <button
-                type="button"
-                onClick={() => setIsRestoreModalOpen(true)}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-800 hover:bg-amber-900 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-                title="Comparar existencias de Huatabampo, Navojoa y Matriz contra el kardex y devolver lo que falte"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-amber-200" />
-                <span>Kardex sucursales</span>
-              </button>
+          <button
+            onClick={() => setIsMovementsModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-slate-700"
+            title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
+          >
+            <History className="w-3.5 h-3.5 text-purple-300" />
+            <span>Historial</span>
+            {inventoryMovements && inventoryMovements.length > 0 && (
+              <span className="px-1.5 py-0.2 text-[10px] font-black bg-purple-500 text-white rounded-full">
+                {inventoryMovements.length}
+              </span>
             )}
-
-            <button
-              onClick={() => setIsMovementsModalOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-slate-700"
-              title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
-            >
-              <History className="w-3.5 h-3.5 text-purple-300" />
-              <span>Historial</span>
-              {inventoryMovements && inventoryMovements.length > 0 && (
-                <span className="px-1.5 py-0.2 text-[10px] font-black bg-purple-500 text-white rounded-full">
-                  {inventoryMovements.length}
-                </span>
-              )}
-            </button>
-          </div>
-
+          </button>
         </div>
 
       </div>
@@ -1433,7 +1385,7 @@ function InventoryModule({
                     </div>
                   </th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
-                  <th className="p-3 text-center w-24">ACCIONES</th>
+                  <th className="p-3 text-center min-w-[220px]">ACCIONES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -1579,9 +1531,41 @@ function InventoryModule({
                           </span>
                         </td>
 
-                        {/* Acciones: Solo iconos compactos para ganar espacio en la tabla */}
-                        <td className="p-2.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
+                        {/* Acciones por fila: stock, precios, etiquetas, editar e info */}
+                        <td className="p-2 text-center">
+                          <div className="flex flex-wrap items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenIngresarForProduct(p.id)}
+                              className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white transition-all cursor-pointer border border-emerald-200 shadow-2xs"
+                              title={`Agregar existencias de ${p.name}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenTransfer(p.id)}
+                              className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-800 hover:text-white transition-all cursor-pointer border border-blue-200 shadow-2xs"
+                              title={`Transferir ${p.name}`}
+                            >
+                              <ArrowRightLeft className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAjustar(p.id)}
+                              className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-600 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-200 shadow-2xs"
+                              title={`Ajustar o dar merma de ${p.name}`}
+                            >
+                              <SlidersHorizontal className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPriceModal(p.id)}
+                              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white transition-all cursor-pointer border border-indigo-200 shadow-2xs"
+                              title={`Cambiar precios de ${p.name}`}
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
+                            </button>
                             {p.category !== 'recarga' && p.category !== 'servicio' && (p.code || '').trim() && (
                               <button
                                 type="button"
@@ -1606,7 +1590,7 @@ function InventoryModule({
                             <button
                               type="button"
                               onClick={() => setInfoProduct(p)}
-                              className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all cursor-pointer border border-blue-200 shadow-2xs"
+                              className="p-1.5 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-800 hover:text-white transition-all cursor-pointer border border-slate-200 shadow-2xs"
                               title="Ver información detallada del artículo y proveedor"
                             >
                               <Info className="w-3.5 h-3.5" />
@@ -2448,6 +2432,41 @@ function InventoryModule({
                     <span className="font-black font-mono text-xs text-purple-950">{getBranchStock(infoProduct, 'b-huatabampo')}</span>
                   </div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenIngresarForProduct(infoProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Agregar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenTransfer(infoProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  Transferir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAjustar(infoProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  Ajustar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenPriceModal(infoProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  Precios
+                </button>
               </div>
 
               <div className="flex items-center justify-between pt-2">
@@ -3296,14 +3315,6 @@ function InventoryModule({
           movements={inventoryMovements}
           credits={creditAccounts}
           initialImei={traceInitialImei}
-        />
-      </LazyWhen>
-
-      <LazyWhen when={isRestoreModalOpen}>
-        <InventoryRestoreModal
-          open={isRestoreModalOpen}
-          currentOperator={currentOperator}
-          onClose={() => setIsRestoreModalOpen(false)}
         />
       </LazyWhen>
 
