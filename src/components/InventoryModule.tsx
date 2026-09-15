@@ -21,7 +21,8 @@ import {
   Ban,
   Printer,
   Pencil,
-  Tag
+  Tag,
+  MoreHorizontal
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
 import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
@@ -128,6 +129,7 @@ function InventoryModule({
 
   // Modal Info Producto Detallado
   const [infoProduct, setInfoProduct] = useState<Product | null>(null);
+  const [actionsProduct, setActionsProduct] = useState<Product | null>(null);
 
   // Modal Editar / Modificar Registro de Producto o Teléfono
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -443,6 +445,11 @@ function InventoryModule({
     setNewSupplier('');
   };
 
+  const closeProductPanels = () => {
+    setInfoProduct(null);
+    setActionsProduct(null);
+  };
+
   const handleOpenNuevoProducto = () => {
     resetIngresarFields();
     setIngresarMode('nuevo');
@@ -450,7 +457,7 @@ function InventoryModule({
   };
 
   const handleOpenIngresarForProduct = (prodId: string) => {
-    setInfoProduct(null);
+    closeProductPanels();
     resetIngresarFields();
     setIngresarMode('existente');
     setIngresarSelectedProdId(prodId);
@@ -779,7 +786,7 @@ function InventoryModule({
 
   // --- HANDLER: TRANSFERIR (SUC ORIGEN, SUC DESTINO, MODELO Y CANTIDAD) ---
   const handleOpenTransfer = (prodId?: string) => {
-    setInfoProduct(null);
+    closeProductPanels();
     setTransferSelectedProdId(prodId || '');
     setFromBranchId('');
     setToBranchId('');
@@ -924,7 +931,7 @@ function InventoryModule({
 
   // --- HANDLER: AJUSTAR / MERMAS (MODELO, CANTIDAD, UBICACIÓN/SUCURSAL Y MOTIVO) ---
   const handleOpenAjustar = (prodId?: string) => {
-    setInfoProduct(null);
+    closeProductPanels();
     setAjustarSelectedProdId(prodId || '');
     setAjustarBranchId('');
     setAjustarAction('');
@@ -1096,7 +1103,7 @@ function InventoryModule({
 
   // --- HANDLER: CAMBIAR PRECIOS ($) ---
   const handleOpenPriceModal = (prodId?: string) => {
-    setInfoProduct(null);
+    closeProductPanels();
     if (prodId) {
       setPriceSelectedProdId(prodId);
       const prod = products.find((p) => p.id === prodId);
@@ -1385,7 +1392,7 @@ function InventoryModule({
                     </div>
                   </th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
-                  <th className="p-3 text-center w-[248px]">ACCIONES</th>
+                  <th className="p-3 text-center w-28">ACCIONES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -1531,71 +1538,16 @@ function InventoryModule({
                           </span>
                         </td>
 
-                        {/* Acciones por fila: stock, precios, etiquetas, editar e info */}
                         <td className="p-2 text-center">
-                          <div className="flex items-center justify-center gap-1 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenIngresarForProduct(p.id)}
-                              className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-600 text-emerald-800 hover:text-white transition-all cursor-pointer border border-emerald-200 shadow-2xs"
-                              title={`Agregar existencias de ${p.name}`}
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenTransfer(p.id)}
-                              className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-800 hover:text-white transition-all cursor-pointer border border-blue-200 shadow-2xs"
-                              title={`Transferir ${p.name}`}
-                            >
-                              <ArrowRightLeft className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenAjustar(p.id)}
-                              className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-600 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-200 shadow-2xs"
-                              title={`Ajustar o dar merma de ${p.name}`}
-                            >
-                              <SlidersHorizontal className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenPriceModal(p.id)}
-                              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-800 hover:text-white transition-all cursor-pointer border border-indigo-200 shadow-2xs"
-                              title={`Cambiar precios de ${p.name}`}
-                            >
-                              <DollarSign className="w-3.5 h-3.5" />
-                            </button>
-                            {p.category !== 'recarga' && p.category !== 'servicio' && (p.code || '').trim() && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setLabelTargetProduct(p);
-                                  setIsLabelsModalOpen(true);
-                                }}
-                                className="p-1.5 rounded-lg bg-[#0047AB]/10 hover:bg-[#0047AB] text-[#0047AB] hover:text-white transition-all cursor-pointer border border-[#0047AB]/30 shadow-2xs"
-                                title={`Imprimir etiquetas de ${p.name}`}
-                              >
-                                <Tag className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setEditingProduct(p)}
-                              className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white transition-all cursor-pointer border border-amber-300 shadow-2xs"
-                              title={`Modificar datos de ${isTypeEquipo ? 'este teléfono' : 'este artículo'}`}
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setInfoProduct(p)}
-                              className="p-1.5 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-800 hover:text-white transition-all cursor-pointer border border-slate-200 shadow-2xs"
-                              title="Ver información detallada del artículo y proveedor"
-                            >
-                              <Info className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setActionsProduct(p)}
+                            className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-extrabold cursor-pointer shadow-2xs"
+                            title={`Acciones de ${p.name}`}
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                            <span>Acciones</span>
+                          </button>
                         </td>
 
                       </tr>
@@ -2325,6 +2277,114 @@ function InventoryModule({
         </div>
       )}
 
+      {/* VENTANA EMERGENTE: ACCIONES DEL ARTÍCULO */}
+      {actionsProduct && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto"
+          onClick={closeProductPanels}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 bg-slate-900 text-white">
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-sm">Acciones</h3>
+                <p className="text-[11px] text-slate-300 font-semibold truncate">
+                  {actionsProduct.code} · {actionsProduct.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeProductPanels}
+                className="text-slate-400 hover:text-white cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleOpenIngresarForProduct(actionsProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Agregar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenTransfer(actionsProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  Transferir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAjustar(actionsProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  Ajustar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenPriceModal(actionsProduct.id)}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold rounded-xl text-xs cursor-pointer"
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  Precios
+                </button>
+              </div>
+
+              {actionsProduct.category !== 'recarga' && actionsProduct.category !== 'servicio' && (actionsProduct.code || '').trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLabelTargetProduct(actionsProduct);
+                    closeProductPanels();
+                    setIsLabelsModalOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-[#0047AB]/10 hover:bg-[#0047AB] text-[#0047AB] hover:text-white font-extrabold rounded-xl text-xs cursor-pointer border border-[#0047AB]/30 transition-all"
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  Etiquetas
+                </button>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = actionsProduct;
+                    closeProductPanels();
+                    setEditingProduct(target);
+                  }}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-100 hover:bg-amber-500 text-amber-950 hover:text-white font-extrabold rounded-xl text-xs cursor-pointer border border-amber-200 transition-all"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Modificar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = actionsProduct;
+                    setActionsProduct(null);
+                    setInfoProduct(target);
+                  }}
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-800 text-slate-800 hover:text-white font-extrabold rounded-xl text-xs cursor-pointer border border-slate-200 transition-all"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                  Info
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* VENTANA EMERGENTE 5: DETALLES E INFORMACIÓN ADICIONAL (PROVEEDOR, IMEI, PRECIOS Y STOCK) */}
       {infoProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -2366,7 +2426,7 @@ function InventoryModule({
                         type="button"
                         onClick={() => {
                           setViewingImeisProduct(infoProduct);
-                          setInfoProduct(null);
+                          closeProductPanels();
                         }}
                         className="text-[10px] font-extrabold text-blue-700 hover:underline cursor-pointer"
                       >
@@ -2474,7 +2534,7 @@ function InventoryModule({
                   type="button"
                   onClick={() => {
                     const target = infoProduct;
-                    setInfoProduct(null);
+                    closeProductPanels();
                     setEditingProduct(target);
                   }}
                   className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs shadow-sm cursor-pointer transition-all"
