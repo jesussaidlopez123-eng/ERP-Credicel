@@ -233,6 +233,37 @@ export function collectSoldImeis(tickets: SaleTicket[]): Set<string> {
   return sold;
 }
 
+export function findImeiOnCatalog(
+  products: Product[],
+  rawImei: string
+): { product: Product; branchId: string } | null {
+  const needle = normalizeImei(rawImei);
+  if (!needle) return null;
+  for (const product of products || []) {
+    const loc = locateImeiOnProduct(product, needle);
+    if (loc) return { product, branchId: loc.branchId };
+    if (collectProductImeis(product).some((im) => normalizeImei(im) === needle)) {
+      return { product, branchId: 'b-matriz' };
+    }
+  }
+  return null;
+}
+
+export function findSoldImeiTicket(tickets: SaleTicket[] | undefined, rawImei: string): SaleTicket | undefined {
+  const needle = normalizeImei(rawImei);
+  if (!needle) return undefined;
+  for (const ticket of tickets || []) {
+    for (const item of ticket.items || []) {
+      if (normalizeImei(item.metadata?.imei) !== needle) continue;
+      if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
+      if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {
+        return ticket;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function applyEquipmentIntegrity(
   products: Product[],
   soldImeis: Set<string>
@@ -345,14 +376,16 @@ export function traceImei(
 
   events.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
 
-  if (ticket && !loc) {
+  if (ticket) {
     return {
       imei,
       status: 'vendido',
       product,
-      branchId: ticket.branchId,
-      branchName: getBranchDisplayName(ticket.branchId),
-      wasHidden: false,
+      branchId: loc?.branchId || ticket.branchId,
+      branchName: loc
+        ? ALL_BRANCHES.find((b) => b.id === loc.branchId)?.name || getBranchDisplayName(loc.branchId)
+        : getBranchDisplayName(ticket.branchId),
+      wasHidden: Boolean(loc?.hidden),
       ticket,
       credit,
       events

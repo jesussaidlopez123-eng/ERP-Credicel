@@ -28,14 +28,17 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
-import { ALL_BRANCHES } from '../data/initialBranches';
+import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
 import {
   addImeisToProduct,
   collectProductImeis,
+  findImeiOnCatalog,
+  findSoldImeiTicket,
   imeisAtBranch,
   imeisGroupedByBranch,
   isEquipmentProduct,
   moveImeisOnProduct,
+  normalizeImei,
   removeImeisFromProduct,
   toInventoryBranchId,
   unmappedImeis
@@ -391,63 +394,48 @@ function InventoryModule({
     batch: string[],
     currentIndex: number
   ) => {
-    const clean = imeiToTest.trim().toUpperCase();
+    const clean = normalizeImei(imeiToTest);
     if (!clean) {
       return {
         isDuplicate: false,
         isDuplicateInBatch: false,
         batchDuplicateIndex: -1,
         isDuplicateInSystem: false,
+        soldAlready: false,
         conflictingProduct: undefined,
         conflictingBranchId: undefined,
-        conflictingBranchName: undefined
+        conflictingBranchName: undefined,
+        conflictingTicketFolio: undefined
       };
     }
 
-    // A) Revisar si está repetido dentro del mismo lote que se está capturando
     const batchDuplicateIndex = batch.findIndex(
-      (otherImei, idx) => idx !== currentIndex && otherImei.trim().toUpperCase() === clean
+      (otherImei, idx) => idx !== currentIndex && normalizeImei(otherImei) === clean
     );
     const isDuplicateInBatch = batchDuplicateIndex !== -1;
 
-    // B) Revisar si ya existe en la base de datos de productos
-    let conflictingProduct: Product | undefined;
-    let conflictingBranchId: string | undefined;
+    const catalogHit = findImeiOnCatalog(products, clean);
+    const soldTicket = findSoldImeiTicket(salesTickets, clean);
 
-    for (const p of products) {
-      // 1. Revisar en branchImeiMap (para saber la sucursal exacta)
-      if (p.branchImeiMap) {
-        for (const [bId, imeis] of Object.entries(p.branchImeiMap)) {
-          if (Array.isArray(imeis) && imeis.some((im) => im.trim().toUpperCase() === clean)) {
-            conflictingProduct = p;
-            conflictingBranchId = bId;
-            break;
-          }
-        }
-      }
-      if (conflictingProduct) break;
-
-      // 2. Revisar en imeiList o imei individual
-      const pImeis = p.imeiList || (p.imei ? [p.imei] : []);
-      if (pImeis.some((im) => im.trim().toUpperCase() === clean)) {
-        conflictingProduct = p;
-        break;
-      }
-    }
-
-    const isDuplicateInSystem = !!conflictingProduct;
-    const branchName = conflictingBranchId 
-      ? (ALL_BRANCHES.find(b => b.id === conflictingBranchId)?.name || conflictingBranchId)
-      : undefined;
+    const conflictingProduct = catalogHit?.product;
+    const conflictingBranchId = catalogHit?.branchId;
+    const isDuplicateInSystem = Boolean(catalogHit || soldTicket);
+    const branchName = conflictingBranchId
+      ? getBranchDisplayName(conflictingBranchId)
+      : soldTicket
+        ? getBranchDisplayName(soldTicket.branchId)
+        : undefined;
 
     return {
       isDuplicate: isDuplicateInBatch || isDuplicateInSystem,
       isDuplicateInBatch,
       batchDuplicateIndex,
       isDuplicateInSystem,
+      soldAlready: Boolean(soldTicket),
       conflictingProduct,
       conflictingBranchId,
-      conflictingBranchName: branchName
+      conflictingBranchName: branchName,
+      conflictingTicketFolio: soldTicket?.folio || soldTicket?.id
     };
   };
 
@@ -657,7 +645,7 @@ function InventoryModule({
 
     if (!pendingEquipmentData) return;
 
-    const finalImeis = imeiInputs.map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const finalImeis = imeiInputs.map((s) => normalizeImei(s)).filter(Boolean);
 
     const { isExisting, selectedProdId, branchId, qty, name, code, costPrice, price, supplier } = pendingEquipmentData;
 
@@ -692,9 +680,12 @@ function InventoryModule({
     // 4. Check external duplicates across entire system
     for (const im of finalImeis) {
       const dupCheck = checkDuplicateImei(im, finalImeis, -1);
-      if (dupCheck.isDuplicateInSystem && dupCheck.conflictingProduct) {
+      if (dupCheck.isDuplicateInSystem) {
+        const soldNote = dupCheck.soldAlready
+          ? `Ya se vendió en el ticket ${dupCheck.conflictingTicketFolio}. No se puede volver a ingresar.`
+          : `Ya está en inventario:\n• Producto: "${dupCheck.conflictingProduct?.name || 'Equipo'}"\n• Ubicación: ${dupCheck.conflictingBranchName || 'Sistema'}`;
         alert(
-          `❌ IMEI YA EXISTE EN EL SISTEMA:\n\nEl IMEI "${im}" ya está registrado en el inventario activo:\n• Producto: "${dupCheck.conflictingProduct.name}"\n• Ubicación: ${dupCheck.conflictingBranchName || 'Sistema'}\n\nLos IMEIs son identificadores mundiales únicos y no pueden duplicarse bajo ninguna circunstancia.`
+          `❌ IMEI YA EXISTE EN EL SISTEMA:\n\nEl IMEI "${im}" no se puede registrar otra vez.\n${soldNote}\n\nLos IMEIs son identificadores únicos.`
         );
         return;
       }
@@ -2613,11 +2604,13 @@ function InventoryModule({
                         </div>
                       )}
 
-                      {hasSystemDup && dupCheck?.conflictingProduct && (
+                      {hasSystemDup && (dupCheck?.conflictingProduct || dupCheck?.soldAlready) && (
                         <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-800 bg-rose-100 p-1.5 rounded-lg border border-rose-300">
                           <Ban className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                           <span>
-                            ❌ YA EXISTE EN SISTEMA: Registrado en "{dupCheck.conflictingProduct.name}" ({dupCheck.conflictingBranchName || 'Inventario'})
+                            {dupCheck?.soldAlready
+                              ? `❌ YA VENDIDO: Ticket ${dupCheck.conflictingTicketFolio} (${dupCheck.conflictingBranchName || 'sucursal'})`
+                              : `❌ YA EXISTE EN SISTEMA: Registrado en "${dupCheck?.conflictingProduct?.name}" (${dupCheck?.conflictingBranchName || 'Inventario'})`}
                           </span>
                         </div>
                       )}

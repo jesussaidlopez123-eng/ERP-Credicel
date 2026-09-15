@@ -1008,7 +1008,7 @@ export default function Dashboard({
     setProducts((prevProducts) =>
       prevProducts.map((p) => {
         const qty = qtyByProduct.get(p.id) || 0;
-        const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => im.toUpperCase());
+        const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => normalizeImei(im));
         if (qty <= 0 && soldImeis.length === 0) return p;
 
         soldImeis.forEach((im) => recentlySoldImeisRef.current.add(normalizeImei(im)));
@@ -1096,6 +1096,10 @@ export default function Dashboard({
       typeof ticket === 'object'
         ? ticket
         : salesTicketsRef.current.find((row) => row.id === ticketId);
+    for (const item of ticketData?.items || []) {
+      const imei = normalizeImei(item.metadata?.imei);
+      if (imei) recentlySoldImeisRef.current.delete(imei);
+    }
     setSalesTickets((prev) => prev.filter((t) => t.id !== ticketId));
     // Sin esto el ticket cancelado reaparecía al recargar, desde el respaldo local.
     localOnlyRef.current.sales = localOnlyRef.current.sales.filter((t) => t.id !== ticketId);

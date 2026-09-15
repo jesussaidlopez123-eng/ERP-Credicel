@@ -4,6 +4,8 @@ import {
   addImeisToProduct,
   applyEquipmentIntegrity,
   collectSoldImeis,
+  findImeiOnCatalog,
+  findSoldImeiTicket,
   imeisAtBranch,
   locateImeiOnProduct,
   moveImeisOnProduct,
@@ -138,5 +140,24 @@ assert.equal(reconciled.changed[0].stock, 1);
 const traced = traceImei('FFF', { products: reconciled.next, tickets: [ticket] });
 assert.equal(traced.status, 'vendido');
 assert.equal(traced.ticket?.folio, 'NAV-0101-001');
+
+const stillListed = phone({
+  branchImeiMap: { 'b-navojoa': ['FFF'] },
+  imeiList: ['FFF'],
+  stock: 1
+});
+const tracedListed = traceImei('FFF', { products: [stillListed], tickets: [ticket] });
+assert.equal(tracedListed.status, 'vendido');
+
+const onlyImeisField = phone({
+  imeis: ['3512 991234567'],
+  imeiList: [],
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const catalogHit = findImeiOnCatalog([onlyImeisField], '3512991234567');
+assert.equal(catalogHit?.product.id, 'prod-x');
+
+const soldHit = findSoldImeiTicket([ticket], 'fff');
+assert.equal(soldHit?.folio, 'NAV-0101-001');
 
 console.log('imeiInventory self-test ok');

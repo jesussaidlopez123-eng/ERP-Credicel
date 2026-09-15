@@ -124,14 +124,21 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
     }
 
     if (onBase && onIncoming && onBase !== onIncoming) {
-      place(imei, onIncoming);
+      // Traspaso de este cliente: solo si la nube todavía tiene el IMEI.
+      // Si otra caja ya lo vendió, no lo revivimos en el destino.
+      if (onServer) place(imei, onIncoming);
       continue;
     }
     if (onServer) {
       place(imei, onServer);
       continue;
     }
-    if (onIncoming) place(imei, onIncoming);
+    if (onIncoming) {
+      // Este cliente no lo movió (sigue donde lo vio). Si la nube ya no lo tiene,
+      // otra caja lo descontó: no lo volvemos a escribir.
+      if (onBase && onBase === onIncoming) continue;
+      place(imei, onIncoming);
+    }
   }
 
   const extras = [

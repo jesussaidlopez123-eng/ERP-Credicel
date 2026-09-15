@@ -148,4 +148,35 @@ const transferred = applyInventoryWrite(fromBodega, toNavojoa, snapshotInventory
 assert.deepEqual(imeisAtBranch(transferred, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(transferred, 'b-matriz'), []);
 
+const bothPhones = phone({
+  stock: 2,
+  imeiList: ['AAA', 'BBB'],
+  branchImeiMap: { 'b-navojoa': ['AAA', 'BBB'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const afterASold = phone({
+  stock: 1,
+  imeiList: ['BBB'],
+  branchImeiMap: { 'b-navojoa': ['BBB'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const tabBSoldOther = phone({
+  stock: 1,
+  imeiList: ['AAA'],
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const noResurrect = applyInventoryWrite(afterASold, tabBSoldOther, snapshotInventory(bothPhones));
+assert.deepEqual(imeisAtBranch(noResurrect, 'b-navojoa'), []);
+assert.equal(noResurrect.stock, 0);
+
+const stillTransfer = applyInventoryWrite(
+  bothPhones,
+  phone({
+    stock: 2,
+    imeiList: ['AAA', 'BBB'],
+    branchImeiMap: { 'b-navojoa': ['BBB'], 'b-huatabampo': ['AAA'], 'b-matriz': [] }
+  }),
+  snapshotInventory(bothPhones)
+);
+assert.deepEqual(imeisAtBranch(stillTransfer, 'b-huatabampo'), ['AAA']);
+assert.deepEqual(imeisAtBranch(stillTransfer, 'b-navojoa'), ['BBB']);
+
 console.log('inventoryMerge self-test ok');

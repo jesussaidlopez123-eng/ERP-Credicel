@@ -34,7 +34,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
-import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort } from '../lib/inventoryRules';
+import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem } from '../lib/inventoryRules';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { todayCashDateKey } from '../lib/dateUtils';
 import {
@@ -735,30 +735,6 @@ function PosModule({
           ? reused.timestamp
           : buildHistoricSaleTimestamp(dateKey);
 
-      for (const item of cart) {
-        if (isVirtualPosProduct(item.product) || item.product.category === 'recarga' || item.product.category === 'servicio' || item.metadata?.repairType || item.metadata?.saleType === 'abono') {
-          continue;
-        }
-        if (item.metadata?.imei) {
-          const lookup = findImeiInInventory(products, item.metadata.imei, branchId);
-          if (lookup.status !== 'found') {
-            const msg =
-              lookup.status === 'other_branch'
-                ? `El IMEI está en ${branchDisplayShort(lookup.branchId)}. Elige esa sucursal o haz el traspaso.`
-                : `El IMEI ${item.metadata.imei} no está en el inventario de ${getBranchDisplayName(branchId)}.`;
-            setSaleError(msg);
-            throw new Error(msg);
-          }
-        } else {
-          const available = getBranchStockQty(item.product, branchId);
-          if (item.quantity > available) {
-            const msg = `No hay stock suficiente de ${item.product.name} en ${getBranchDisplayName(branchId)}. Disponible: ${available}.`;
-            setSaleError(msg);
-            throw new Error(msg);
-          }
-        }
-      }
-
       const closed = findClosedCorteForDay(cortesX, branchId, dateKey);
       if (closed) {
         corteXId = closed.id;
@@ -779,6 +755,29 @@ function PosModule({
     } else if (!hasCashTill(currentBranch.id)) {
       setSaleError('Administración no cobra. Entra a Matriz, Navojoa o Huatabampo para registrar una venta.');
       return;
+    }
+
+    for (const item of cart) {
+      if (isNonInventorySaleItem(item)) continue;
+      if (item.metadata?.imei) {
+        const lookup = findImeiInInventory(products, item.metadata.imei, branchId);
+        if (lookup.status !== 'found') {
+          const msg =
+            lookup.status === 'other_branch'
+              ? `El IMEI está en ${branchDisplayShort(lookup.branchId)}. Elige esa sucursal o haz el traspaso.`
+              : `El IMEI ${item.metadata.imei} ya no está en el inventario de ${getBranchDisplayName(branchId)}.`;
+          setSaleError(msg);
+          throw new Error(msg);
+        }
+      } else {
+        const live = products.find((p) => p.id === item.product.id) || item.product;
+        const available = getBranchStockQty(live, branchId);
+        if (item.quantity > available) {
+          const msg = `No hay stock suficiente de ${item.product.name} en ${getBranchDisplayName(branchId)}. Disponible: ${available}.`;
+          setSaleError(msg);
+          throw new Error(msg);
+        }
+      }
     }
 
     const newTicket: SaleTicket = {
