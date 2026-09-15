@@ -50,6 +50,14 @@ export function getBranchStockQty(product: Product, branchId: string): number {
   return accessoryStockAt(product, branchId);
 }
 
+/** Celulares reales en una sucursal. El botón EQ-VENTA no tiene IMEI propio. */
+export function realEquipmentStockAt(products: Product[], branchId: string): number {
+  return (products || []).reduce((sum, product) => {
+    if (isVirtualPosProduct(product) || !isEquipmentProduct(product)) return sum;
+    return sum + getBranchStockQty(product, branchId);
+  }, 0);
+}
+
 export type ImeiLookup =
   | { status: 'found'; product: Product; branchId: string }
   | { status: 'other_branch'; product: Product; branchId: string }

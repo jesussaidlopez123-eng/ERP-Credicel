@@ -324,7 +324,7 @@ export default function CreditDeviceModal({
               >
                 <option value="">-- Seleccionar modelo disponible en inventario --</option>
                 {availableEquipos.map((eq) => {
-                  const bStock = eq.branchStock?.[activeBranchId] ?? eq.stock ?? 0;
+                  const bStock = getBranchStockQty(eq, activeBranchId);
                   return (
                     <option key={eq.id} value={eq.id}>
                       {eq.name} - ${eq.price ? eq.price.toFixed(2) : '0.00'} (Stock: {bStock})

@@ -34,7 +34,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
-import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem } from '../lib/inventoryRules';
+import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem, realEquipmentStockAt } from '../lib/inventoryRules';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { todayCashDateKey } from '../lib/dateUtils';
 import {
@@ -172,8 +172,12 @@ function PosModule({
   const isAdminUser = normalizeRole(currentOperator.role) === 'admin';
   const posStockBranchId = hasCashTill(currentBranch.id) ? currentBranch.id : '';
   const stockAt = (product: Product, branchId?: string) => {
-    if (branchId && hasCashTill(branchId)) return getBranchStockQty(product, branchId);
-    if (posStockBranchId) return getBranchStockQty(product, posStockBranchId);
+    const target = branchId && hasCashTill(branchId) ? branchId : posStockBranchId;
+    if (product.id === 'prod-equipo-credito-gen') {
+      if (target) return realEquipmentStockAt(products, target);
+      return COMMERCIAL_BRANCHES.reduce((sum, branch) => sum + realEquipmentStockAt(products, branch.id), 0);
+    }
+    if (target) return getBranchStockQty(product, target);
     return COMMERCIAL_BRANCHES.reduce((sum, branch) => sum + getBranchStockQty(product, branch.id), 0);
   };
   const suggestedHistoricBranchId = useMemo(() => {
