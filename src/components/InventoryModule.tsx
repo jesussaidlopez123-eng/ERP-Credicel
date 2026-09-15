@@ -125,7 +125,7 @@ function InventoryModule({
   const [ingresarMode, setIngresarMode] = useState<'existente' | 'nuevo'>('existente');
   const [ingresarSelectedProdId, setIngresarSelectedProdId] = useState<string>('');
   const [ingresarBranchId, setIngresarBranchId] = useState<string>('');
-  const [ingresarQuantity, setIngresarQuantity] = useState<string>('1');
+  const [ingresarQuantity, setIngresarQuantity] = useState<string>('');
   // Form fields for new product / equipo
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -164,9 +164,9 @@ function InventoryModule({
   // Modal 2: Transferir
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSelectedProdId, setTransferSelectedProdId] = useState<string>('');
-  const [fromBranchId, setFromBranchId] = useState<string>('b-matriz');
+  const [fromBranchId, setFromBranchId] = useState<string>('');
   const [toBranchId, setToBranchId] = useState<string>('');
-  const [transferQuantity, setTransferQuantity] = useState<string>('1');
+  const [transferQuantity, setTransferQuantity] = useState<string>('');
 
   // Modal 2B: Selección de IMEIs para Traspaso
   const [isTransferImeiModalOpen, setIsTransferImeiModalOpen] = useState(false);
@@ -182,10 +182,10 @@ function InventoryModule({
   // Modal 3: Ajustar (Mermas / Corrección)
   const [isAjustarModalOpen, setIsAjustarModalOpen] = useState(false);
   const [ajustarSelectedProdId, setAjustarSelectedProdId] = useState<string>('');
-  const [ajustarBranchId, setAjustarBranchId] = useState<string>('b-matriz');
-  const [ajustarAction, setAjustarAction] = useState<'merma' | 'incremento'>('merma'); // merma = descontar, incremento = agregar
-  const [ajustarQuantity, setAjustarQuantity] = useState<string>('1');
-  const [ajustarReason, setAjustarReason] = useState<string>('Merma por producto dañado/defectuoso');
+  const [ajustarBranchId, setAjustarBranchId] = useState<string>('');
+  const [ajustarAction, setAjustarAction] = useState<'merma' | 'incremento' | ''>('');
+  const [ajustarQuantity, setAjustarQuantity] = useState<string>('');
+  const [ajustarReason, setAjustarReason] = useState<string>('');
 
   // Modal 3B: Selección de IMEIs a dar de baja por Ajuste/Merma
   const [isAjustarImeiModalOpen, setIsAjustarImeiModalOpen] = useState(false);
@@ -442,10 +442,9 @@ function InventoryModule({
   // --- HANDLER: INGRESAR (MODELO, CANTIDAD Y SUCURSAL) ---
   const handleOpenIngresar = () => {
     setIngresarMode('existente');
-    const firstProd = tabProducts[0];
-    setIngresarSelectedProdId(firstProd ? firstProd.id : '');
+    setIngresarSelectedProdId('');
     setIngresarBranchId('');
-    setIngresarQuantity('1');
+    setIngresarQuantity('');
     setNewCode('');
     setNewName('');
     setNewCostPrice('');
@@ -776,11 +775,10 @@ function InventoryModule({
 
   // --- HANDLER: TRANSFERIR (SUC ORIGEN, SUC DESTINO, MODELO Y CANTIDAD) ---
   const handleOpenTransfer = () => {
-    const firstProd = tabProducts[0];
-    setTransferSelectedProdId(firstProd ? firstProd.id : '');
-    setFromBranchId('b-matriz');
+    setTransferSelectedProdId('');
+    setFromBranchId('');
     setToBranchId('');
-    setTransferQuantity('1');
+    setTransferQuantity('');
     setIsTransferModalOpen(true);
   };
 
@@ -789,6 +787,11 @@ function InventoryModule({
     const prod = products.find(p => p.id === transferSelectedProdId);
     if (!prod) {
       alert('Selecciona un modelo a transferir.');
+      return;
+    }
+
+    if (!fromBranchId.trim()) {
+      alert('Selecciona la sucursal origen. No se asume ninguna por defecto.');
       return;
     }
 
@@ -820,15 +823,13 @@ function InventoryModule({
     // Si es un equipo celular, abrir el modal de selección de IMEIs para el traspaso
     const isEquipment = prod.inventoryType === 'equipo' || prod.category === 'equipo_credito';
     if (isEquipment) {
-      const availImeis = imeisAtBranch(prod, fromBranchId);
-
       setPendingTransferData({
         product: prod,
         fromBranchId,
         toBranchId,
         qty
       });
-      setSelectedTransferImeis(availImeis.slice(0, qty));
+      setSelectedTransferImeis([]);
       setTransferImeiScanInput('');
       setIsTransferModalOpen(false);
       setIsTransferImeiModalOpen(true);
@@ -918,12 +919,11 @@ function InventoryModule({
 
   // --- HANDLER: AJUSTAR / MERMAS (MODELO, CANTIDAD, UBICACIÓN/SUCURSAL Y MOTIVO) ---
   const handleOpenAjustar = () => {
-    const firstProd = tabProducts[0];
-    setAjustarSelectedProdId(firstProd ? firstProd.id : '');
-    setAjustarBranchId('b-matriz');
-    setAjustarAction('merma');
-    setAjustarQuantity('1');
-    setAjustarReason('Merma por producto dañado / defectuoso');
+    setAjustarSelectedProdId('');
+    setAjustarBranchId('');
+    setAjustarAction('');
+    setAjustarQuantity('');
+    setAjustarReason('');
     setIsAjustarModalOpen(true);
   };
 
@@ -932,6 +932,21 @@ function InventoryModule({
     const prod = products.find(p => p.id === ajustarSelectedProdId);
     if (!prod) {
       alert('Selecciona un modelo.');
+      return;
+    }
+
+    if (!ajustarBranchId.trim()) {
+      alert('Selecciona la sucursal. No se asume ninguna por defecto.');
+      return;
+    }
+
+    if (ajustarAction !== 'merma' && ajustarAction !== 'incremento') {
+      alert('Elige si vas a descontar merma o a sumar una corrección.');
+      return;
+    }
+
+    if (!ajustarReason.trim()) {
+      alert('Escribe el motivo del ajuste.');
       return;
     }
 
@@ -954,8 +969,6 @@ function InventoryModule({
           return;
         }
 
-        const availImeis = imeisAtBranch(prod, ajustarBranchId);
-
         setPendingAjustarData({
           product: prod,
           branchId: ajustarBranchId,
@@ -963,7 +976,7 @@ function InventoryModule({
           qty,
           reason: ajustarReason
         });
-        setSelectedAjustarImeis(availImeis.slice(0, qty));
+        setSelectedAjustarImeis([]);
         setAjustarImeiScanInput('');
         setIsAjustarModalOpen(false);
         setIsAjustarImeiModalOpen(true);
@@ -1077,16 +1090,9 @@ function InventoryModule({
 
   // --- HANDLER: CAMBIAR PRECIOS ($) ---
   const handleOpenPriceModal = () => {
-    const firstProd = tabProducts[0];
-    if (firstProd) {
-      setPriceSelectedProdId(firstProd.id);
-      setEditCostPrice(firstProd.costPrice !== undefined ? firstProd.costPrice.toString() : '0');
-      setEditSalePrice(firstProd.price !== undefined ? firstProd.price.toString() : '0');
-    } else {
-      setPriceSelectedProdId('');
-      setEditCostPrice('');
-      setEditSalePrice('');
-    }
+    setPriceSelectedProdId('');
+    setEditCostPrice('');
+    setEditSalePrice('');
     setIsPriceModalOpen(true);
   };
 
@@ -1094,8 +1100,11 @@ function InventoryModule({
     setPriceSelectedProdId(prodId);
     const prod = products.find(p => p.id === prodId);
     if (prod) {
-      setEditCostPrice(prod.costPrice !== undefined ? prod.costPrice.toString() : '0');
-      setEditSalePrice(prod.price !== undefined ? prod.price.toString() : '0');
+      setEditCostPrice(prod.costPrice !== undefined ? prod.costPrice.toString() : '');
+      setEditSalePrice(prod.price !== undefined ? prod.price.toString() : '');
+    } else {
+      setEditCostPrice('');
+      setEditSalePrice('');
     }
   };
 
@@ -1669,19 +1678,23 @@ function InventoryModule({
                     <select
                       value={ingresarSelectedProdId}
                       onChange={(e) => setIngresarSelectedProdId(e.target.value)}
+                      required
                       className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-emerald-600"
                     >
-                      {tabProducts.length === 0 ? (
-                        <option value="">
-                          {activeInventoryTab === 'equipo' ? 'No hay modelos de equipo registrados' : 'No hay accesorios registrados'}
+                      <option value="">
+                        {tabProducts.length === 0
+                          ? activeInventoryTab === 'equipo'
+                            ? 'No hay modelos de equipo registrados'
+                            : 'No hay accesorios registrados'
+                          : activeInventoryTab === 'equipo'
+                            ? 'Seleccionar modelo…'
+                            : 'Seleccionar accesorio…'}
+                      </option>
+                      {tabProducts.map(p => (
+                        <option key={p.id} value={p.id}>
+                          [{p.code}] {p.name}
                         </option>
-                      ) : (
-                        tabProducts.map(p => (
-                          <option key={p.id} value={p.id}>
-                            [{p.code}] {p.name}
-                          </option>
-                        ))
-                      )}
+                      ))}
                     </select>
                   </div>
                 </>
@@ -1903,6 +1916,7 @@ function InventoryModule({
                     type="number"
                     min="1"
                     required
+                    placeholder="Cantidad"
                     value={ingresarQuantity}
                     onChange={(e) => setIngresarQuantity(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-emerald-600"
@@ -1959,17 +1973,21 @@ function InventoryModule({
                 <select
                   value={transferSelectedProdId}
                   onChange={(e) => setTransferSelectedProdId(e.target.value)}
+                  required
                   className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-600"
                 >
-                  {tabProducts.length === 0 ? (
-                    <option value="">No hay elementos disponibles para transferir</option>
-                  ) : (
-                    tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {tabProducts.length === 0
+                      ? 'No hay elementos disponibles para transferir'
+                      : activeInventoryTab === 'equipo'
+                        ? 'Seleccionar modelo…'
+                        : 'Seleccionar accesorio…'}
+                  </option>
+                  {tabProducts.map(p => (
+                    <option key={p.id} value={p.id}>
+                      [{p.code}] {p.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1982,8 +2000,10 @@ function InventoryModule({
                   <select
                     value={fromBranchId}
                     onChange={(e) => setFromBranchId(e.target.value)}
+                    required
                     className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                   >
+                    <option value="">Seleccionar origen…</option>
                     {ALL_BRANCHES.map(b => {
                       const prod = products.find(p => p.id === transferSelectedProdId);
                       const qtyInB = prod ? getBranchStock(prod, b.id) : 0;
@@ -2025,6 +2045,7 @@ function InventoryModule({
                   type="number"
                   min="1"
                   required
+                  placeholder="Cantidad"
                   value={transferQuantity}
                   onChange={(e) => setTransferQuantity(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-base font-extrabold text-slate-900 focus:ring-2 focus:ring-blue-600"
@@ -2080,17 +2101,21 @@ function InventoryModule({
                 <select
                   value={ajustarSelectedProdId}
                   onChange={(e) => setAjustarSelectedProdId(e.target.value)}
+                  required
                   className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-amber-600"
                 >
-                  {tabProducts.length === 0 ? (
-                    <option value="">No hay elementos disponibles para ajustar</option>
-                  ) : (
-                    tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {tabProducts.length === 0
+                      ? 'No hay elementos disponibles para ajustar'
+                      : activeInventoryTab === 'equipo'
+                        ? 'Seleccionar modelo…'
+                        : 'Seleccionar accesorio…'}
+                  </option>
+                  {tabProducts.map(p => (
+                    <option key={p.id} value={p.id}>
+                      [{p.code}] {p.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -2102,8 +2127,10 @@ function InventoryModule({
                 <select
                   value={ajustarBranchId}
                   onChange={(e) => setAjustarBranchId(e.target.value)}
+                  required
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white"
                 >
+                  <option value="">Seleccionar sucursal…</option>
                   {ALL_BRANCHES.map(b => {
                     const prod = products.find(p => p.id === ajustarSelectedProdId);
                     const qtyInB = prod ? getBranchStock(prod, b.id) : 0;
@@ -2144,6 +2171,11 @@ function InventoryModule({
                   + Sumar Corrección
                 </button>
               </div>
+              {!ajustarAction && (
+                <p className="text-[11px] font-bold text-amber-800 -mt-2">
+                  Elige si vas a descontar merma o a sumar una corrección. No se asume ninguna acción.
+                </p>
+              )}
 
               {/* Cantidad & Motivo */}
               <div className="space-y-3 p-3 bg-amber-50/60 border border-amber-200 rounded-xl">
@@ -2155,6 +2187,7 @@ function InventoryModule({
                     type="number"
                     min="1"
                     required
+                    placeholder="Cantidad"
                     value={ajustarQuantity}
                     onChange={(e) => setAjustarQuantity(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl text-base font-extrabold text-slate-900 focus:ring-2 focus:ring-amber-600 bg-white"
@@ -2225,17 +2258,21 @@ function InventoryModule({
                 <select
                   value={priceSelectedProdId}
                   onChange={(e) => handleSelectProductForPriceChange(e.target.value)}
+                  required
                   className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-indigo-600"
                 >
-                  {tabProducts.length === 0 ? (
-                    <option value="">No hay artículos disponibles</option>
-                  ) : (
-                    tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))
-                  )}
+                  <option value="">
+                    {tabProducts.length === 0
+                      ? 'No hay artículos disponibles'
+                      : activeInventoryTab === 'equipo'
+                        ? 'Seleccionar modelo…'
+                        : 'Seleccionar accesorio…'}
+                  </option>
+                  {tabProducts.map(p => (
+                    <option key={p.id} value={p.id}>
+                      [{p.code}] {p.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -2252,10 +2289,11 @@ function InventoryModule({
                       step="0.01"
                       min="0"
                       required
+                      disabled={!priceSelectedProdId}
                       value={editCostPrice}
                       onChange={(e) => setEditCostPrice(e.target.value)}
-                      className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-600 bg-white"
-                      placeholder="0.00"
+                      className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-600 bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                      placeholder={priceSelectedProdId ? '0.00' : 'Selecciona un artículo'}
                     />
                   </div>
                 </div>
@@ -2271,10 +2309,11 @@ function InventoryModule({
                       step="0.01"
                       min="0"
                       required
+                      disabled={!priceSelectedProdId}
                       value={editSalePrice}
                       onChange={(e) => setEditSalePrice(e.target.value)}
-                      className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-600 bg-white"
-                      placeholder="0.00"
+                      className="w-full pl-7 pr-3 py-2 border border-slate-300 rounded-xl text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-600 bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                      placeholder={priceSelectedProdId ? '0.00' : 'Selecciona un artículo'}
                     />
                   </div>
                 </div>
@@ -2450,7 +2489,7 @@ function InventoryModule({
                 <div>
                   <h3 className="font-black text-base">Captura de IMEIs - {pendingEquipmentData.name}</h3>
                   <p className="text-[11px] font-bold text-slate-900 opacity-90">
-                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {ALL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'Matriz'}
+                    Cantidad: {pendingEquipmentData.qty} equipo(s) a ingresar en {ALL_BRANCHES.find(b => b.id === pendingEquipmentData.branchId)?.name || 'sucursal no seleccionada'}
                   </p>
                 </div>
               </div>
@@ -2835,42 +2874,37 @@ function InventoryModule({
                 </div>
               </div>
 
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-950 font-bold flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <p>
+                  Ningún IMEI viene marcado. Escanea o marca uno por uno los equipos que realmente se van a traspasar. No se elige nada por defecto.
+                </p>
+              </div>
+
               {/* Lector / Escáner de IMEI */}
               <div className="space-y-1">
                 <label className="block text-xs font-extrabold text-slate-700">
                   Escanear código con lector o buscar IMEI:
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Escanee IMEI aquí..."
-                    value={transferImeiScanInput}
-                    onChange={(e) => setTransferImeiScanInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = transferImeiScanInput.trim().toUpperCase();
-                        if (val) {
-                          if (!selectedTransferImeis.includes(val)) {
-                            setSelectedTransferImeis(prev => [...prev, val]);
-                          }
-                          setTransferImeiScanInput('');
+                <input
+                  type="text"
+                  placeholder="Escanee IMEI aquí..."
+                  value={transferImeiScanInput}
+                  onChange={(e) => setTransferImeiScanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = transferImeiScanInput.trim().toUpperCase();
+                      if (val) {
+                        if (!selectedTransferImeis.includes(val)) {
+                          setSelectedTransferImeis(prev => [...prev, val]);
                         }
+                        setTransferImeiScanInput('');
                       }
-                    }}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-600 uppercase"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const avail = imeisAtBranch(pendingTransferData.product, pendingTransferData.fromBranchId);
-                      setSelectedTransferImeis(avail.slice(0, pendingTransferData.qty));
-                    }}
-                    className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-900 font-extrabold text-[11px] rounded-xl border border-blue-300 transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    Auto-seleccionar
-                  </button>
-                </div>
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-600 uppercase"
+                />
               </div>
 
               {/* Lista de IMEIs para marcar/desmarcar */}
@@ -2998,42 +3032,37 @@ function InventoryModule({
                 </div>
               </div>
 
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-950 font-bold flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
+                <p>
+                  Ningún IMEI viene marcado. Escanea o marca uno por uno los equipos que se dan de baja. No se elige nada por defecto.
+                </p>
+              </div>
+
               {/* Escáner de IMEI */}
               <div className="space-y-1">
                 <label className="block text-xs font-extrabold text-slate-700">
                   Escanear IMEI del equipo dañado/retirado:
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Escanee IMEI a eliminar..."
-                    value={ajustarImeiScanInput}
-                    onChange={(e) => setAjustarImeiScanInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = ajustarImeiScanInput.trim().toUpperCase();
-                        if (val) {
-                          if (!selectedAjustarImeis.includes(val)) {
-                            setSelectedAjustarImeis(prev => [...prev, val]);
-                          }
-                          setAjustarImeiScanInput('');
+                <input
+                  type="text"
+                  placeholder="Escanee IMEI a eliminar..."
+                  value={ajustarImeiScanInput}
+                  onChange={(e) => setAjustarImeiScanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = ajustarImeiScanInput.trim().toUpperCase();
+                      if (val) {
+                        if (!selectedAjustarImeis.includes(val)) {
+                          setSelectedAjustarImeis(prev => [...prev, val]);
                         }
+                        setAjustarImeiScanInput('');
                       }
-                    }}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-600 uppercase"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const avail = imeisAtBranch(pendingAjustarData.product, pendingAjustarData.branchId);
-                      setSelectedAjustarImeis(avail.slice(0, pendingAjustarData.qty));
-                    }}
-                    className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-950 font-extrabold text-[11px] rounded-xl border border-amber-300 transition-all cursor-pointer whitespace-nowrap"
-                  >
-                    Auto-seleccionar
-                  </button>
-                </div>
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-600 uppercase"
+                />
               </div>
 
               {/* Lista de IMEIs disponibles para dar de baja */}
