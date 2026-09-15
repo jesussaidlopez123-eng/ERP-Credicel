@@ -1385,7 +1385,7 @@ function InventoryModule({
                     </div>
                   </th>
                   <th className="p-3 text-center w-24">TOTAL STOCK</th>
-                  <th className="p-3 text-center min-w-[220px]">ACCIONES</th>
+                  <th className="p-3 text-center w-[248px]">ACCIONES</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -1533,7 +1533,7 @@ function InventoryModule({
 
                         {/* Acciones por fila: stock, precios, etiquetas, editar e info */}
                         <td className="p-2 text-center">
-                          <div className="flex flex-wrap items-center justify-center gap-1">
+                          <div className="flex items-center justify-center gap-1 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => handleOpenIngresarForProduct(p.id)}
