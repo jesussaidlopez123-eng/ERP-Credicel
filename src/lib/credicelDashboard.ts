@@ -35,7 +35,8 @@ export function emptyDashDoc(partial: Partial<CredicelDashDoc> = {}): CredicelDa
     authorName: partial.authorName || '',
     authorId: partial.authorId,
     color: partial.color || '#ffffff',
-    pinned: Boolean(partial.pinned)
+    pinned: Boolean(partial.pinned),
+    checklist: Boolean(partial.checklist)
   };
 }
 
@@ -73,17 +74,21 @@ export function normalizeDashDoc(raw: unknown): CredicelDashDoc | null {
     authorName: String(row.authorName || ''),
     authorId: row.authorId,
     color: String(row.color || '#ffffff'),
-    pinned: Boolean(row.pinned)
+    pinned: Boolean(row.pinned),
+    checklist: Boolean(row.checklist) || (Array.isArray(row.items) && row.items.length > 0)
   });
 }
 
 export function dashDocSnippet(doc: CredicelDashDoc, max = 90): string {
-  const text = stripDashHtml(doc.bodyHtml).replace(/\s+/g, ' ').trim();
-  if (!text) {
-    const first = doc.items.find((item) => item.text.trim());
-    if (first) return first.text.trim();
-    return '';
+  if (doc.checklist || doc.items.length > 0) {
+    const first = sortCheckedItemsLast(doc.items).find((item) => item.text.trim());
+    if (first) {
+      const text = first.text.trim();
+      return text.length > max ? `${text.slice(0, max)}…` : text;
+    }
   }
+  const text = stripDashHtml(doc.bodyHtml).replace(/\s+/g, ' ').trim();
+  if (!text) return '';
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
@@ -157,12 +162,56 @@ export function fileExtOf(name: string): string {
   return match ? match[1].toUpperCase() : 'ARCHIVO';
 }
 
+export function emptyCheckItem(id: string, text = ''): CredicelDashCheckItem {
+  return { id, text, checked: false, struck: false };
+}
+
+export function sortCheckedItemsLast(items: CredicelDashCheckItem[]): CredicelDashCheckItem[] {
+  const open = items.filter((item) => !item.checked);
+  const done = items.filter((item) => item.checked);
+  return [...open, ...done];
+}
+
+export function bodyHtmlToCheckItems(html: string, makeId: () => string): CredicelDashCheckItem[] {
+  const text = String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\r/g, '');
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return [emptyCheckItem(makeId())];
+  return lines.map((line) => emptyCheckItem(makeId(), line));
+}
+
+export function checkItemsToBodyHtml(items: CredicelDashCheckItem[]): string {
+  return items
+    .filter((item) => item.text.trim())
+    .map((item) => {
+      const text = item.text
+        .trim()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return item.checked || item.struck ? `<div><s>${text}</s></div>` : `<div>${text}</div>`;
+    })
+    .join('');
+}
+
 export function toggleDashItem(
   items: CredicelDashCheckItem[],
   id: string,
   field: 'checked' | 'struck'
 ): CredicelDashCheckItem[] {
-  return items.map((item) => (item.id === id ? { ...item, [field]: !item[field] } : item));
+  const next = items.map((item) => (item.id === id ? { ...item, [field]: !item[field] } : item));
+  if (field === 'checked') return sortCheckedItemsLast(next);
+  return next;
 }
 
 export function applyDashSelection(
@@ -201,6 +250,7 @@ export function dashDocForCloud(doc: CredicelDashDoc): CredicelDashDoc {
     title: doc.title.trim(),
     bodyHtml: sanitizeDashHtml(doc.bodyHtml),
     items: doc.items.filter((item) => item.id),
+    checklist: Boolean(doc.checklist) || doc.items.some((item) => item.id),
     attachments: metadataAttachments(doc.attachments)
   };
 }

@@ -440,6 +440,7 @@ export interface CredicelDashDoc {
   updatedAt: string;
   authorName: string;
   authorId?: string;
-  color?: string;
-  pinned?: boolean;
+    color?: string;
+    pinned?: boolean;
+    checklist?: boolean;
 }

@@ -5,6 +5,7 @@ import {
   Image as ImageIcon,
   LayoutGrid,
   List,
+  ListChecks,
   Loader2,
   Palette,
   Paperclip,
@@ -15,13 +16,14 @@ import {
   Trash2,
   X
 } from 'lucide-react';
-import { Branch, CredicelDashAttachment, CredicelDashDoc, Operator } from '../types';
+import { Branch, CredicelDashAttachment, CredicelDashCheckItem, CredicelDashDoc, Operator } from '../types';
 import { newUniqueId } from '../lib/ids';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import {
   dashDocSnippet,
   dataUrlToBlob,
   deleteDashFile,
+  emptyCheckItem,
   emptyDashDoc,
   fileExtOf,
   fileKindOf,
@@ -36,8 +38,10 @@ import {
   saveCachedDashDocs,
   saveDashView,
   sanitizeDashHtml,
+  sortCheckedItemsLast,
   sortDashDocs,
-  toggleDashItem
+  bodyHtmlToCheckItems,
+  checkItemsToBodyHtml
 } from '../lib/credicelDashboard';
 import {
   deleteCredicelDashDocFromCloud,
@@ -228,6 +232,12 @@ function NoteCard({
   const snippet = dashDocSnippet(doc, 160);
   const listedAtts = doc.attachments.slice(0, 3);
   const extraAtts = Math.max(0, doc.attachments.length - listedAtts.length);
+  const listItems =
+    doc.checklist || doc.items.length > 0
+      ? sortCheckedItemsLast(doc.items)
+          .filter((item) => item.text.trim())
+          .slice(0, 6)
+      : [];
   return (
     <div
       role="button"
@@ -249,7 +259,22 @@ function NoteCard({
           </p>
           <PinToggle pinned={Boolean(doc.pinned)} onClick={(e) => onPin(doc, e)} />
         </div>
-        {snippet ? (
+        {listItems.length > 0 ? (
+          <ul className="mt-1 space-y-0.5">
+            {listItems.map((item) => (
+              <li key={item.id} className="flex items-start gap-2 text-[13px] leading-snug">
+                <span
+                  className={`mt-0.5 w-3.5 h-3.5 rounded-sm border shrink-0 ${
+                    item.checked ? 'bg-slate-400 border-slate-400' : 'border-slate-400'
+                  }`}
+                />
+                <span className={item.checked ? 'line-through text-slate-400' : 'text-slate-700'}>
+                  {item.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : snippet ? (
           <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1 whitespace-pre-wrap leading-relaxed">
             {snippet}
           </p>
@@ -294,6 +319,8 @@ export default function CredicelDashboardModule({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const loadedPreviewIds = useRef(new Set<string>());
+  const itemInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const composerIdRef = useRef(newUniqueId('CHK'));
 
   useEffect(() => {
     const unsub = subscribeToCredicelDashDocs(
@@ -373,25 +400,34 @@ export default function CredicelDashboardModule({
       authorId: currentOperator.id
     });
     setDraft(next);
+    composerIdRef.current = newUniqueId('CHK');
     setColorPickerOpen(false);
     setEditorOpen(true);
   };
 
   const openDoc = (doc: CredicelDashDoc) => {
-    setDraft({ ...doc, items: doc.items.map((item) => ({ ...item })), attachments: [...doc.attachments] });
+    const checklist = Boolean(doc.checklist) || doc.items.length > 0;
+    setDraft({
+      ...doc,
+      checklist,
+      items: sortCheckedItemsLast(doc.items.map((item) => ({ ...item }))),
+      attachments: [...doc.attachments]
+    });
+    composerIdRef.current = newUniqueId('CHK');
     setColorPickerOpen(false);
     setEditorOpen(true);
   };
 
   useEffect(() => {
     if (!editorOpen) return;
+    if (draft.checklist) return;
     const html = draft.bodyHtml || '';
     const frame = window.requestAnimationFrame(() => {
       const node = bodyRef.current;
       if (node) node.innerHTML = html;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [editorOpen, draft.id]);
+  }, [editorOpen, draft.id, draft.checklist]);
 
   const persistDoc = (next: CredicelDashDoc) => {
     const stamped = { ...next, updatedAt: new Date().toISOString() };
@@ -411,12 +447,17 @@ export default function CredicelDashboardModule({
 
   const closeEditor = (discard = false) => {
     if (!discard) {
-      const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+      const usingList = Boolean(draft.checklist);
+      const items = usingList
+        ? sortCheckedItemsLast(draft.items.filter((item) => item.id && item.text.trim()))
+        : [];
+      const bodyHtml = usingList ? '' : sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
       const next: CredicelDashDoc = {
         ...draft,
         title: draft.title.trim() || (draft.attachments[0]?.title || ''),
         bodyHtml,
-        items: draft.items.filter((item) => item.id && item.text.trim())
+        items,
+        checklist: usingList
       };
       if (!isDashDocEmpty(next) || docs.some((row) => row.id === draft.id)) {
         if (!isDashDocEmpty(next)) persistDoc({ ...next, title: next.title || 'Sin título' });
@@ -461,6 +502,77 @@ export default function CredicelDashboardModule({
     document.execCommand('strikeThrough', false);
     const html = bodyRef.current?.innerHTML;
     if (html != null) setDraft((prev) => ({ ...prev, bodyHtml: html }));
+  };
+
+  const toggleChecklist = () => {
+    if (draft.checklist) {
+      const html = checkItemsToBodyHtml(draft.items);
+      setDraft((prev) => ({ ...prev, checklist: false, bodyHtml: html, items: [] }));
+      window.requestAnimationFrame(() => {
+        if (bodyRef.current) bodyRef.current.innerHTML = html;
+      });
+      return;
+    }
+    const html = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+    const fromBody = bodyHtmlToCheckItems(html, () => newUniqueId('CHK')).filter((item) => item.text.trim());
+    const existing = draft.items.filter((item) => item.text.trim());
+    const merged = fromBody.length ? fromBody : existing;
+    composerIdRef.current = newUniqueId('CHK');
+    setDraft((prev) => ({
+      ...prev,
+      checklist: true,
+      bodyHtml: '',
+      items: sortCheckedItemsLast(merged.length ? merged : [emptyCheckItem(newUniqueId('CHK'))])
+    }));
+  };
+
+  const updateChecklistItem = (id: string, patch: Partial<CredicelDashCheckItem>) => {
+    setDraft((prev) => {
+      const exists = prev.items.some((item) => item.id === id);
+      const items = exists
+        ? prev.items.map((item) => (item.id === id ? { ...item, ...patch } : item))
+        : [...prev.items, { ...emptyCheckItem(id), ...patch }];
+      if (id === composerIdRef.current && (patch.text || '').trim()) {
+        composerIdRef.current = newUniqueId('CHK');
+      }
+      return { ...prev, items: sortCheckedItemsLast(items) };
+    });
+  };
+
+  const removeChecklistItem = (id: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      items: prev.items.filter((item) => item.id !== id)
+    }));
+  };
+
+  const handleChecklistKey = (item: CredicelDashCheckItem, index: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const newId = newUniqueId('CHK');
+      setDraft((prev) => {
+        const current = prev.items.some((row) => row.id === item.id)
+          ? prev.items
+          : [...prev.items, { ...item }];
+        const idx = current.findIndex((row) => row.id === item.id);
+        const next = [...current];
+        next.splice(idx + 1, 0, emptyCheckItem(newId));
+        return { ...prev, items: sortCheckedItemsLast(next) };
+      });
+      window.requestAnimationFrame(() => itemInputRefs.current[newId]?.focus());
+      return;
+    }
+    if (event.key === 'Backspace' && !item.text) {
+      const rows = draft.items.filter((row) => row.text.trim() || row.id === item.id);
+      if (rows.length <= 1) return;
+      event.preventDefault();
+      const prevId = draft.items[Math.max(0, index - 1)]?.id;
+      removeChecklistItem(item.id);
+      window.requestAnimationFrame(() => {
+        const target = prevId ? itemInputRefs.current[prevId] : null;
+        target?.focus();
+      });
+    }
   };
 
   const addFiles = async (fileList: FileList | File[]) => {
@@ -557,6 +669,13 @@ export default function CredicelDashboardModule({
     openNew();
     await addFiles(files);
   };
+
+  const openItems = sortCheckedItemsLast(draft.items).filter((item) => !item.checked);
+  const doneItems = sortCheckedItemsLast(draft.items).filter((item) => item.checked);
+  const openWithComposer =
+    draft.checklist && !openItems.some((item) => !item.text.trim())
+      ? [...openItems, emptyCheckItem(composerIdRef.current)]
+      : openItems;
 
   return (
     <>
@@ -797,42 +916,76 @@ export default function CredicelDashboardModule({
                 placeholder="Título"
                 className="w-full bg-transparent text-[17px] font-medium text-slate-900 placeholder:text-slate-400 outline-none py-1"
               />
-              <div className="relative mt-1">
-                {!draft.bodyHtml && (
-                  <span className="absolute left-0 top-1 text-[15px] text-slate-400 pointer-events-none">
-                    Añade una nota…
-                  </span>
-                )}
-                <div
-                  key={draft.id}
-                  ref={bodyRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={(e) => {
-                    const html = e.currentTarget.innerHTML;
-                    setDraft((prev) => ({ ...prev, bodyHtml: html }));
-                  }}
-                  className="min-h-[280px] sm:min-h-[320px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
-                />
-              </div>
-
-              {draft.items.length > 0 && (
-                <div className="mt-1 mb-3 space-y-0.5">
-                  {draft.items.map((item) => (
-                    <label key={item.id} className="flex items-start gap-2 py-0.5 cursor-pointer">
+              {draft.checklist ? (
+                <div className="mt-1 min-h-[280px] sm:min-h-[320px]">
+                  {openWithComposer.map((item, index) => (
+                    <div key={item.id} className="flex items-start gap-2 py-1">
                       <input
                         type="checkbox"
-                        checked={item.checked}
-                        onChange={() =>
-                          setDraft((prev) => ({ ...prev, items: toggleDashItem(prev.items, item.id, 'checked') }))
-                        }
-                        className="mt-1"
+                        checked={false}
+                        onChange={() => {
+                          if (!item.text.trim() && item.id === composerIdRef.current) return;
+                          updateChecklistItem(item.id, { checked: true });
+                        }}
+                        className="mt-2 cursor-pointer"
                       />
-                      <span className={`text-[14px] ${item.struck || item.checked ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                        {item.text}
-                      </span>
-                    </label>
+                      <input
+                        ref={(node) => {
+                          itemInputRefs.current[item.id] = node;
+                        }}
+                        value={item.text}
+                        onChange={(e) => updateChecklistItem(item.id, { text: e.target.value })}
+                        onKeyDown={(e) => handleChecklistKey(item, index, e)}
+                        placeholder="Elemento de la lista"
+                        className="flex-1 bg-transparent text-[15px] text-slate-800 outline-none py-0.5"
+                      />
+                    </div>
                   ))}
+                  {doneItems.length > 0 && (
+                    <div className="mt-3 pt-2 border-t border-black/10">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
+                        Marcado
+                      </p>
+                      {doneItems.map((item, index) => (
+                        <div key={item.id} className="flex items-start gap-2 py-1">
+                          <input
+                            type="checkbox"
+                            checked
+                            onChange={() => updateChecklistItem(item.id, { checked: false })}
+                            className="mt-2 cursor-pointer"
+                          />
+                          <input
+                            ref={(node) => {
+                              itemInputRefs.current[item.id] = node;
+                            }}
+                            value={item.text}
+                            onChange={(e) => updateChecklistItem(item.id, { text: e.target.value })}
+                            onKeyDown={(e) => handleChecklistKey(item, openWithComposer.length + index, e)}
+                            className="flex-1 bg-transparent text-[15px] text-slate-400 line-through outline-none py-0.5"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="relative mt-1">
+                  {!draft.bodyHtml && (
+                    <span className="absolute left-0 top-1 text-[15px] text-slate-400 pointer-events-none">
+                      Añade una nota…
+                    </span>
+                  )}
+                  <div
+                    key={draft.id}
+                    ref={bodyRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={(e) => {
+                      const html = e.currentTarget.innerHTML;
+                      setDraft((prev) => ({ ...prev, bodyHtml: html }));
+                    }}
+                    className="min-h-[280px] sm:min-h-[320px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
+                  />
                 </div>
               )}
 
@@ -864,16 +1017,29 @@ export default function CredicelDashboardModule({
             </div>
 
             <div className="relative flex items-center gap-1 px-2 py-1.5 border-t border-black/5">
+              {!draft.checklist && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    strikeSelectionInBody();
+                  }}
+                  className="p-2 rounded-full text-slate-600 hover:bg-black/5 cursor-pointer"
+                  title="Tachar"
+                >
+                  <Strikethrough className="w-4 h-4" />
+                </button>
+              )}
               <button
                 type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  strikeSelectionInBody();
-                }}
-                className="p-2 rounded-full text-slate-600 hover:bg-black/5 cursor-pointer"
-                title="Tachar"
+                onClick={toggleChecklist}
+                className={`p-2 rounded-full cursor-pointer ${
+                  draft.checklist ? 'text-slate-900 bg-black/10' : 'text-slate-600 hover:bg-black/5'
+                }`}
+                title={draft.checklist ? 'Convertir a texto' : 'Convertir en lista de tareas'}
+                aria-pressed={Boolean(draft.checklist)}
               >
-                <Strikethrough className="w-4 h-4" />
+                <ListChecks className="w-4 h-4" />
               </button>
               <button
                 type="button"
