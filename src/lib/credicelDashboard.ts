@@ -152,6 +152,11 @@ export function fileKindOf(mime: string, name: string): 'image' | 'pdf' | 'file'
   return 'file';
 }
 
+export function fileExtOf(name: string): string {
+  const match = String(name || '').match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toUpperCase() : 'ARCHIVO';
+}
+
 export function toggleDashItem(
   items: CredicelDashCheckItem[],
   id: string,

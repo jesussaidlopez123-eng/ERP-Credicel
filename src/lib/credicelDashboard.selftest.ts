@@ -5,6 +5,8 @@ import {
   dashDocForCloud,
   dashDocSnippet,
   emptyDashDoc,
+  fileExtOf,
+  fileKindOf,
   isDashDocEmpty,
   metadataAttachments,
   sanitizeDashHtml,
@@ -63,6 +65,11 @@ const pinnedFirst = sortDashDocs([
 ]);
 assert.equal(pinnedFirst[0].id, 'fixed');
 assert.equal(pinnedFirst[1].id, 'later');
+assert.equal(fileKindOf('image/png', 'foto.png'), 'image');
+assert.equal(fileKindOf('application/pdf', 'guia.pdf'), 'pdf');
+assert.equal(fileExtOf('poliza.pdf'), 'PDF');
+assert.equal(fileExtOf('foto.jpeg'), 'JPEG');
+assert.equal(fileExtOf('sin-extension'), 'ARCHIVO');
 
 assert.equal(canOpenModule('admin', 'credicelDashboard'), true);
 assert.equal(canOpenModule('manager', 'credicelDashboard'), true);

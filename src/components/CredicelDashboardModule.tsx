@@ -23,6 +23,7 @@ import {
   dataUrlToBlob,
   deleteDashFile,
   emptyDashDoc,
+  fileExtOf,
   fileKindOf,
   formatDashFileSize,
   getDashFile,
@@ -77,10 +78,48 @@ async function resolveAttachmentUrl(att: CredicelDashAttachment): Promise<string
   return null;
 }
 
+function PinToggle({
+  pinned,
+  onClick,
+  withLabel = false,
+  size = 'md'
+}: {
+  pinned: boolean;
+  onClick: (event: React.MouseEvent) => void;
+  withLabel?: boolean;
+  size?: 'sm' | 'md';
+}) {
+  const iconClass = size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded-full cursor-pointer shrink-0 ${
+        withLabel ? 'px-2 py-1' : 'p-1'
+      } ${
+        pinned
+          ? 'text-slate-900 bg-black/10'
+          : 'text-slate-500 hover:text-slate-800 hover:bg-black/5'
+      }`}
+      title={pinned ? 'No fijar' : 'Fijar'}
+      aria-pressed={pinned}
+      aria-label={pinned ? 'No fijar' : 'Fijar'}
+    >
+      <Pin className={`${iconClass} ${pinned ? 'fill-current' : ''}`} />
+      {withLabel && (
+        <span className="text-[11px] font-bold uppercase tracking-wide">
+          {pinned ? 'No fijar' : 'Fijar'}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function AttachmentVisual({
   att,
   url,
   compact = false,
+  extraCount = 0,
   onOpen,
   onRemove,
   onRename
@@ -88,94 +127,83 @@ function AttachmentVisual({
   att: CredicelDashAttachment;
   url?: string;
   compact?: boolean;
+  extraCount?: number;
   onOpen: (att: CredicelDashAttachment) => void;
   onRemove?: (id: string) => void;
   onRename?: (id: string, title: string) => void;
 }) {
   const kind = fileKindOf(att.mimeType, att.fileName);
-  if (kind === 'image' && url) {
-    return (
-      <div className="relative group overflow-hidden bg-slate-200">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(att);
-          }}
-          className="block w-full cursor-pointer"
-        >
-          <img
-            src={url}
-            alt={att.title || att.fileName}
-            className={compact ? 'h-32 w-full object-cover' : 'max-h-64 w-full object-cover'}
-          />
-        </button>
-        {!compact && (
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 flex items-center gap-2">
-            <input
-              value={att.title}
-              onChange={(e) => onRename?.(att.id, e.target.value)}
-              className="flex-1 min-w-0 bg-white/90 rounded px-2 py-1 text-[12px] font-medium text-slate-900 outline-none"
-              placeholder="Título"
-            />
-            {onRemove && (
-              <button type="button" onClick={() => onRemove(att.id)} className="p-1 rounded-full bg-white/90 text-rose-700 cursor-pointer" title="Quitar">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
+  const ext = fileExtOf(att.fileName);
+  const label = att.title || att.fileName;
+  const isImage = kind === 'image';
+  const tileBg =
+    kind === 'pdf' ? 'bg-rose-50' : isImage ? 'bg-emerald-50' : 'bg-sky-50';
 
   return (
-    <div className={`relative flex items-center gap-3 ${compact ? 'px-3 py-2.5' : 'px-3 py-3'} bg-black/[0.04]`}>
+    <div className="relative group overflow-hidden bg-slate-200">
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
           onOpen(att);
         }}
-        className="shrink-0 cursor-pointer"
+        className="block w-full cursor-pointer text-left"
+        title={label}
       >
-        <div className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-lg bg-white shadow-sm border border-black/5 flex items-center justify-center`}>
-          <FileGlyph mime={att.mimeType} name={att.fileName} className={compact ? 'w-5 h-5' : 'w-6 h-6'} />
-        </div>
-      </button>
-      <div className="min-w-0 flex-1">
-        {compact || !onRename ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen(att);
-            }}
-            className="block w-full text-left cursor-pointer"
-          >
-            <p className="text-[13px] font-medium text-slate-900 truncate">{att.title || att.fileName}</p>
-            <p className="text-[11px] text-slate-500 truncate">
-              {kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Imagen' : 'Archivo'} · {formatDashFileSize(att.size)}
-            </p>
-          </button>
+        {isImage && url ? (
+          <img
+            src={url}
+            alt={label}
+            className={compact ? 'h-36 w-full object-cover' : 'h-52 w-full object-cover'}
+          />
         ) : (
-          <>
-            <input
-              value={att.title}
-              onChange={(e) => onRename(att.id, e.target.value)}
-              className="w-full bg-transparent text-[13px] font-medium text-slate-900 outline-none"
-              placeholder="Título del archivo"
-            />
-            <p className="text-[11px] text-slate-500 truncate">
-              {att.fileName} · {formatDashFileSize(att.size)}
+          <div
+            className={`${compact ? 'h-36' : 'h-44'} w-full flex flex-col items-center justify-center gap-2 ${tileBg}`}
+          >
+            <div
+              className={`${compact ? 'w-12 h-12' : 'w-16 h-16'} rounded-2xl bg-white shadow-sm border border-black/5 flex items-center justify-center`}
+            >
+              <FileGlyph mime={att.mimeType} name={att.fileName} className={compact ? 'w-6 h-6' : 'w-8 h-8'} />
+            </div>
+            <p className="text-[11px] font-black tracking-wide text-slate-600">
+              {kind === 'pdf' ? 'PDF' : isImage ? 'IMAGEN' : ext}
             </p>
-          </>
+            <p className="text-[12px] font-medium text-slate-800 truncate max-w-[90%] px-2">{label}</p>
+            {!compact && (
+              <p className="text-[11px] text-slate-500">{formatDashFileSize(att.size)}</p>
+            )}
+          </div>
         )}
-      </div>
-      {onRemove && (
-        <button type="button" onClick={() => onRemove(att.id)} className="p-1 text-slate-400 hover:text-rose-700 cursor-pointer" title="Quitar">
-          <Trash2 className="w-4 h-4" />
-        </button>
+      </button>
+      {compact && isImage && url && (
+        <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-[11px] font-medium text-white truncate">
+          {label}
+        </p>
+      )}
+      {!compact && (
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent p-2 flex items-center gap-2">
+          <input
+            value={att.title}
+            onChange={(e) => onRename?.(att.id, e.target.value)}
+            className="flex-1 min-w-0 bg-white/95 rounded px-2 py-1 text-[12px] font-medium text-slate-900 outline-none"
+            placeholder="Título del archivo"
+          />
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(att.id)}
+              className="p-1 rounded-full bg-white/95 text-rose-700 cursor-pointer"
+              title="Quitar"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+      {extraCount > 0 && (
+        <div className="pointer-events-none absolute inset-0 bg-black/45 flex items-center justify-center">
+          <span className="text-white text-lg font-black">+{extraCount}</span>
+        </div>
       )}
     </div>
   );
@@ -194,6 +222,8 @@ function NoteCard({
   onPin: (doc: CredicelDashDoc, event?: React.MouseEvent) => void;
   onOpenFile: (att: CredicelDashAttachment) => void;
 }) {
+  const snippet = dashDocSnippet(doc, 160);
+  const visibleAtts = doc.attachments.slice(0, 4);
   return (
     <div
       role="button"
@@ -208,14 +238,15 @@ function NoteCard({
       style={{ backgroundColor: doc.color || '#ffffff' }}
       className="text-left rounded-lg border border-black/5 shadow-sm min-h-[148px] hover:shadow-md transition-shadow cursor-pointer flex flex-col overflow-hidden"
     >
-      {doc.attachments.length > 0 && (
-        <div className={doc.attachments.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}>
-          {doc.attachments.slice(0, 4).map((att) => (
+      {visibleAtts.length > 0 && (
+        <div className={visibleAtts.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}>
+          {visibleAtts.map((att, index) => (
             <AttachmentVisual
               key={att.id}
               att={att}
               url={previewMap[att.id]}
               compact
+              extraCount={index === 3 ? Math.max(0, doc.attachments.length - 4) : 0}
               onOpen={(file) => {
                 onOpenFile(file);
               }}
@@ -226,22 +257,15 @@ function NoteCard({
       <div className="p-3 flex-1 flex flex-col">
         <div className="flex items-start gap-2">
           <p className="text-[15px] font-medium text-slate-900 truncate flex-1">
-            {doc.title || 'Sin título'}
+            {doc.title || (doc.attachments[0]?.title || 'Sin título')}
           </p>
-          <button
-            type="button"
-            onClick={(e) => onPin(doc, e)}
-            className={`p-1 rounded-full cursor-pointer shrink-0 ${
-              doc.pinned ? 'text-slate-800 bg-black/5' : 'text-slate-400 hover:text-slate-700 hover:bg-black/5'
-            }`}
-            title={doc.pinned ? 'No fijar' : 'Fijar'}
-          >
-            {doc.pinned ? <Pin className="w-4 h-4 fill-current" /> : <Pin className="w-4 h-4" />}
-          </button>
+          <PinToggle pinned={Boolean(doc.pinned)} onClick={(e) => onPin(doc, e)} />
         </div>
-        <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1 whitespace-pre-wrap leading-relaxed">
-          {dashDocSnippet(doc, 160)}
-        </p>
+        {snippet ? (
+          <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1 whitespace-pre-wrap leading-relaxed">
+            {snippet}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -477,7 +501,17 @@ export default function CredicelDashboardModule({
         .catch((err) => console.error(err));
     }
     if (!added.length) return;
-    setDraft((prev) => ({ ...prev, attachments: [...prev.attachments, ...added] }));
+    setDraft((prev) => {
+      const next = { ...prev, attachments: [...prev.attachments, ...added] };
+      const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || next.bodyHtml);
+      const stamped = {
+        ...next,
+        bodyHtml,
+        title: next.title.trim() || added[0].title || 'Sin título'
+      };
+      persistDoc(stamped);
+      return stamped;
+    });
   };
 
   const renameAttachment = (id: string, title: string) => {
@@ -658,47 +692,67 @@ export default function CredicelDashboardModule({
               </div>
             ) : (
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-                <div className="hidden sm:grid grid-cols-[1fr_140px_120px_110px] gap-2 px-4 py-2 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <div className="hidden sm:grid grid-cols-[1fr_140px_120px_160px] gap-2 px-4 py-2 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   <span>Nombre</span>
                   <span>Actualizado</span>
                   <span>Autor</span>
-                  <span className="text-right">Adjuntos</span>
+                  <span className="text-right">Archivos</span>
                 </div>
                 {filteredDocs.map((doc) => (
                   <div
                     key={doc.id}
-                    className="flex sm:grid sm:grid-cols-[1fr_140px_120px_110px] gap-2 items-center px-4 py-3 border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    className="flex sm:grid sm:grid-cols-[1fr_140px_120px_160px] gap-2 items-center px-4 py-3 border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
                     onClick={() => openDoc(doc)}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      {doc.attachments[0] && previewMap[doc.attachments[0].id] && fileKindOf(doc.attachments[0].mimeType, doc.attachments[0].fileName) === 'image' ? (
-                        <img src={previewMap[doc.attachments[0].id]} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
-                      ) : doc.attachments[0] ? (
-                        <FileGlyph mime={doc.attachments[0].mimeType} name={doc.attachments[0].fileName} className="w-4 h-4 shrink-0" />
-                      ) : (
-                        <FileText className="w-4 h-4 text-[#0047AB] shrink-0" />
-                      )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-900 truncate flex items-center gap-1">
                           {doc.pinned && <Pin className="w-3 h-3 fill-current" />}
-                          {doc.title || 'Sin título'}
+                          {doc.title || (doc.attachments[0]?.title || 'Sin título')}
                         </p>
                         <p className="sm:hidden text-[11px] text-slate-500 truncate">{dashDocSnippet(doc, 60)}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => togglePinned(doc, e)}
-                        className="p-1 text-slate-400 hover:text-slate-800 cursor-pointer"
-                        title={doc.pinned ? 'No fijar' : 'Fijar'}
-                      >
-                        {doc.pinned ? <Pin className="w-4 h-4 fill-current" /> : <Pin className="w-4 h-4" />}
-                      </button>
+                      <PinToggle pinned={Boolean(doc.pinned)} withLabel onClick={(e) => togglePinned(doc, e)} size="sm" />
                     </div>
                     <p className="hidden sm:block text-xs text-slate-600">
                       {safeFormatDate(doc.updatedAt)} {safeFormatTime(doc.updatedAt)}
                     </p>
                     <p className="hidden sm:block text-xs text-slate-600 truncate">{doc.authorName || '—'}</p>
-                    <p className="text-xs font-semibold text-slate-500 text-right">{doc.attachments.length}</p>
+                    <div className="flex items-center justify-end gap-1">
+                      {doc.attachments.length === 0 ? (
+                        <span className="text-xs text-slate-400">—</span>
+                      ) : (
+                        doc.attachments.slice(0, 3).map((att, index) => {
+                          const kind = fileKindOf(att.mimeType, att.fileName);
+                          const extra = index === 2 ? Math.max(0, doc.attachments.length - 3) : 0;
+                          return (
+                            <button
+                              key={att.id}
+                              type="button"
+                              title={att.title || att.fileName}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void openAttachment(att);
+                              }}
+                              className="relative w-10 h-10 rounded-md overflow-hidden border border-black/10 bg-slate-100 shrink-0 cursor-pointer"
+                            >
+                              {kind === 'image' && previewMap[att.id] ? (
+                                <img src={previewMap[att.id]} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="w-full h-full flex items-center justify-center">
+                                  <FileGlyph mime={att.mimeType} name={att.fileName} className="w-4 h-4" />
+                                </span>
+                              )}
+                              {extra > 0 && (
+                                <span className="absolute inset-0 bg-black/50 text-white text-[11px] font-black flex items-center justify-center">
+                                  +{extra}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -715,20 +769,20 @@ export default function CredicelDashboardModule({
             role="dialog"
             aria-label="Nota"
             onClick={(e) => e.stopPropagation()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
+            }}
             style={{ backgroundColor: draft.color || '#ffffff' }}
             className="w-full sm:max-w-[560px] sm:rounded-xl rounded-t-2xl shadow-2xl border border-black/5 max-h-[94vh] overflow-hidden flex flex-col"
           >
             <div className="flex items-center justify-between px-3 pt-2">
-              <button
-                type="button"
-                onClick={() => togglePinned(draft)}
-                className={`p-1.5 rounded-full cursor-pointer ${
-                  draft.pinned ? 'text-slate-800 bg-black/5' : 'text-slate-500 hover:bg-black/5'
-                }`}
-                title={draft.pinned ? 'No fijar' : 'Fijar'}
-              >
-                {draft.pinned ? <Pin className="w-5 h-5 fill-current" /> : <Pin className="w-5 h-5" />}
-              </button>
+              <PinToggle pinned={Boolean(draft.pinned)} withLabel onClick={() => togglePinned(draft)} size="md" />
               <button
                 type="button"
                 onClick={() => closeEditor(false)}
