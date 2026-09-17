@@ -115,11 +115,31 @@ function PinToggle({
   );
 }
 
-function AttachmentVisual({
+function AttachmentThumb({
+  att,
+  url,
+  className = 'w-7 h-7'
+}: {
+  att: CredicelDashAttachment;
+  url?: string;
+  className?: string;
+}) {
+  const kind = fileKindOf(att.mimeType, att.fileName);
+  return (
+    <span className={`relative ${className} rounded overflow-hidden border border-black/10 bg-slate-100 shrink-0 flex items-center justify-center`}>
+      {kind === 'image' && url ? (
+        <img src={url} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <FileGlyph mime={att.mimeType} name={att.fileName} className="w-3.5 h-3.5" />
+      )}
+    </span>
+  );
+}
+
+function AttachmentListRow({
   att,
   url,
   compact = false,
-  extraCount = 0,
   onOpen,
   onRemove,
   onRename
@@ -127,7 +147,6 @@ function AttachmentVisual({
   att: CredicelDashAttachment;
   url?: string;
   compact?: boolean;
-  extraCount?: number;
   onOpen: (att: CredicelDashAttachment) => void;
   onRemove?: (id: string) => void;
   onRename?: (id: string, title: string) => void;
@@ -135,75 +154,59 @@ function AttachmentVisual({
   const kind = fileKindOf(att.mimeType, att.fileName);
   const ext = fileExtOf(att.fileName);
   const label = att.title || att.fileName;
-  const isImage = kind === 'image';
-  const tileBg =
-    kind === 'pdf' ? 'bg-rose-50' : isImage ? 'bg-emerald-50' : 'bg-sky-50';
+  const kindLabel = kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Imagen' : ext;
 
   return (
-    <div className="relative group overflow-hidden bg-slate-200">
+    <div
+      className="flex items-center gap-2 min-w-0 py-1"
+      onClick={(e) => e.stopPropagation()}
+    >
       <button
         type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpen(att);
-        }}
-        className="block w-full cursor-pointer text-left"
+        onClick={() => onOpen(att)}
+        className="cursor-pointer shrink-0"
         title={label}
       >
-        {isImage && url ? (
-          <img
-            src={url}
-            alt={label}
-            className={compact ? 'h-36 w-full object-cover' : 'h-52 w-full object-cover'}
-          />
-        ) : (
-          <div
-            className={`${compact ? 'h-36' : 'h-44'} w-full flex flex-col items-center justify-center gap-2 ${tileBg}`}
-          >
-            <div
-              className={`${compact ? 'w-12 h-12' : 'w-16 h-16'} rounded-2xl bg-white shadow-sm border border-black/5 flex items-center justify-center`}
-            >
-              <FileGlyph mime={att.mimeType} name={att.fileName} className={compact ? 'w-6 h-6' : 'w-8 h-8'} />
-            </div>
-            <p className="text-[11px] font-black tracking-wide text-slate-600">
-              {kind === 'pdf' ? 'PDF' : isImage ? 'IMAGEN' : ext}
-            </p>
-            <p className="text-[12px] font-medium text-slate-800 truncate max-w-[90%] px-2">{label}</p>
-            {!compact && (
-              <p className="text-[11px] text-slate-500">{formatDashFileSize(att.size)}</p>
-            )}
-          </div>
-        )}
+        <AttachmentThumb att={att} url={url} className={compact ? 'w-6 h-6' : 'w-7 h-7'} />
       </button>
-      {compact && isImage && url && (
-        <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 text-[11px] font-medium text-white truncate">
-          {label}
-        </p>
-      )}
-      {!compact && (
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent p-2 flex items-center gap-2">
+      {onRename && !compact ? (
+        <div className="min-w-0 flex-1">
           <input
             value={att.title}
-            onChange={(e) => onRename?.(att.id, e.target.value)}
-            className="flex-1 min-w-0 bg-white/95 rounded px-2 py-1 text-[12px] font-medium text-slate-900 outline-none"
+            onChange={(e) => onRename(att.id, e.target.value)}
+            className="w-full bg-transparent text-[13px] font-medium text-slate-900 outline-none"
             placeholder="Título del archivo"
           />
-          {onRemove && (
-            <button
-              type="button"
-              onClick={() => onRemove(att.id)}
-              className="p-1 rounded-full bg-white/95 text-rose-700 cursor-pointer"
-              title="Quitar"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+          <p className="text-[11px] text-slate-500 truncate">
+            {kindLabel} · {formatDashFileSize(att.size)}
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpen(att)}
+          className="min-w-0 flex-1 text-left cursor-pointer"
+          title={label}
+        >
+          <p className={`${compact ? 'text-[12px]' : 'text-[13px]'} font-medium text-slate-800 truncate`}>
+            {label}
+          </p>
+          {!compact && (
+            <p className="text-[11px] text-slate-500 truncate">
+              {kindLabel} · {formatDashFileSize(att.size)}
+            </p>
           )}
-        </div>
+        </button>
       )}
-      {extraCount > 0 && (
-        <div className="pointer-events-none absolute inset-0 bg-black/45 flex items-center justify-center">
-          <span className="text-white text-lg font-black">+{extraCount}</span>
-        </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => onRemove(att.id)}
+          className="p-1 text-slate-400 hover:text-rose-700 cursor-pointer shrink-0"
+          title="Quitar"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       )}
     </div>
   );
@@ -223,7 +226,8 @@ function NoteCard({
   onOpenFile: (att: CredicelDashAttachment) => void;
 }) {
   const snippet = dashDocSnippet(doc, 160);
-  const visibleAtts = doc.attachments.slice(0, 4);
+  const listedAtts = doc.attachments.slice(0, 3);
+  const extraAtts = Math.max(0, doc.attachments.length - listedAtts.length);
   return (
     <div
       role="button"
@@ -236,24 +240,8 @@ function NoteCard({
         }
       }}
       style={{ backgroundColor: doc.color || '#ffffff' }}
-      className="text-left rounded-lg border border-black/5 shadow-sm min-h-[148px] hover:shadow-md transition-shadow cursor-pointer flex flex-col overflow-hidden"
+      className="text-left rounded-lg border border-black/5 shadow-sm min-h-[120px] hover:shadow-md transition-shadow cursor-pointer flex flex-col overflow-hidden"
     >
-      {visibleAtts.length > 0 && (
-        <div className={visibleAtts.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}>
-          {visibleAtts.map((att, index) => (
-            <AttachmentVisual
-              key={att.id}
-              att={att}
-              url={previewMap[att.id]}
-              compact
-              extraCount={index === 3 ? Math.max(0, doc.attachments.length - 4) : 0}
-              onOpen={(file) => {
-                onOpenFile(file);
-              }}
-            />
-          ))}
-        </div>
-      )}
       <div className="p-3 flex-1 flex flex-col">
         <div className="flex items-start gap-2">
           <p className="text-[15px] font-medium text-slate-900 truncate flex-1">
@@ -266,6 +254,22 @@ function NoteCard({
             {snippet}
           </p>
         ) : null}
+        {listedAtts.length > 0 && (
+          <div className="mt-auto pt-2 border-t border-black/5">
+            {listedAtts.map((att) => (
+              <AttachmentListRow
+                key={att.id}
+                att={att}
+                url={previewMap[att.id]}
+                compact
+                onOpen={onOpenFile}
+              />
+            ))}
+            {extraAtts > 0 && (
+              <p className="text-[11px] text-slate-500 pl-8">+{extraAtts} más</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -718,14 +722,12 @@ export default function CredicelDashboardModule({
                       {safeFormatDate(doc.updatedAt)} {safeFormatTime(doc.updatedAt)}
                     </p>
                     <p className="hidden sm:block text-xs text-slate-600 truncate">{doc.authorName || '—'}</p>
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="min-w-0 text-right">
                       {doc.attachments.length === 0 ? (
                         <span className="text-xs text-slate-400">—</span>
                       ) : (
-                        doc.attachments.slice(0, 3).map((att, index) => {
-                          const kind = fileKindOf(att.mimeType, att.fileName);
-                          const extra = index === 2 ? Math.max(0, doc.attachments.length - 3) : 0;
-                          return (
+                        <div className="space-y-0.5">
+                          {doc.attachments.slice(0, 2).map((att) => (
                             <button
                               key={att.id}
                               type="button"
@@ -734,23 +736,18 @@ export default function CredicelDashboardModule({
                                 e.stopPropagation();
                                 void openAttachment(att);
                               }}
-                              className="relative w-10 h-10 rounded-md overflow-hidden border border-black/10 bg-slate-100 shrink-0 cursor-pointer"
+                              className="w-full flex items-center justify-end gap-1.5 min-w-0 cursor-pointer"
                             >
-                              {kind === 'image' && previewMap[att.id] ? (
-                                <img src={previewMap[att.id]} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="w-full h-full flex items-center justify-center">
-                                  <FileGlyph mime={att.mimeType} name={att.fileName} className="w-4 h-4" />
-                                </span>
-                              )}
-                              {extra > 0 && (
-                                <span className="absolute inset-0 bg-black/50 text-white text-[11px] font-black flex items-center justify-center">
-                                  +{extra}
-                                </span>
-                              )}
+                              <span className="text-[11px] font-medium text-slate-700 truncate max-w-[90px]">
+                                {att.title || att.fileName}
+                              </span>
+                              <AttachmentThumb att={att} url={previewMap[att.id]} className="w-6 h-6" />
                             </button>
-                          );
-                        })
+                          ))}
+                          {doc.attachments.length > 2 && (
+                            <p className="text-[10px] text-slate-500">+{doc.attachments.length - 2} más</p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -794,20 +791,6 @@ export default function CredicelDashboardModule({
             </div>
 
             <div className="px-5 pb-2 flex-1 overflow-y-auto min-h-0">
-              {draft.attachments.length > 0 && (
-                <div className={`-mx-5 mb-3 ${draft.attachments.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}`}>
-                  {draft.attachments.map((att) => (
-                    <AttachmentVisual
-                      key={att.id}
-                      att={att}
-                      url={previewMap[att.id]}
-                      onOpen={(file) => void openAttachment(file)}
-                      onRemove={(id) => void removeAttachment(id)}
-                      onRename={renameAttachment}
-                    />
-                  ))}
-                </div>
-              )}
               <input
                 value={draft.title}
                 onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
@@ -829,7 +812,7 @@ export default function CredicelDashboardModule({
                     const html = e.currentTarget.innerHTML;
                     setDraft((prev) => ({ ...prev, bodyHtml: html }));
                   }}
-                  className="min-h-[320px] sm:min-h-[380px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
+                  className="min-h-[280px] sm:min-h-[320px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
                 />
               </div>
 
@@ -849,6 +832,22 @@ export default function CredicelDashboardModule({
                         {item.text}
                       </span>
                     </label>
+                  ))}
+                </div>
+              )}
+
+              {draft.attachments.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-black/10">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Archivos</p>
+                  {draft.attachments.map((att) => (
+                    <AttachmentListRow
+                      key={att.id}
+                      att={att}
+                      url={previewMap[att.id]}
+                      onOpen={(file) => void openAttachment(file)}
+                      onRemove={(id) => void removeAttachment(id)}
+                      onRename={renameAttachment}
+                    />
                   ))}
                 </div>
               )}
