@@ -158,11 +158,16 @@ export default function CredicelDashboardModule({
   };
 
   useEffect(() => {
-    if (!editorOpen || !bodyRef.current) return;
-    bodyRef.current.innerHTML = draft.bodyHtml || '';
+    if (!editorOpen) return;
+    const html = draft.bodyHtml || '';
+    const frame = window.requestAnimationFrame(() => {
+      const node = bodyRef.current;
+      if (node) node.innerHTML = html;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [editorOpen, draft.id]);
 
-  const persistDoc = async (next: CredicelDashDoc) => {
+  const persistDoc = (next: CredicelDashDoc) => {
     const stamped = { ...next, updatedAt: new Date().toISOString() };
     setDocs((prev) => {
       const others = prev.filter((row) => row.id !== stamped.id);
@@ -170,16 +175,15 @@ export default function CredicelDashboardModule({
       saveCachedDashDocs(merged);
       return merged;
     });
-    try {
-      await saveCredicelDashDocToCloud(stamped);
-      setCloudError(null);
-    } catch (err) {
-      console.error(err);
-      setCloudError('Se guardó en este equipo. Al volver la nube se intentará subir.');
-    }
+    saveCredicelDashDocToCloud(stamped)
+      .then(() => setCloudError(null))
+      .catch((err) => {
+        console.error(err);
+        setCloudError('Se guardó en este equipo. Al volver la nube se intentará subir.');
+      });
   };
 
-  const handleSaveEditor = async () => {
+  const handleSaveEditor = () => {
     const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
     const next: CredicelDashDoc = {
       ...draft,
@@ -192,12 +196,9 @@ export default function CredicelDashboardModule({
       return;
     }
     setSaving(true);
-    try {
-      await persistDoc(next);
-      setEditorOpen(false);
-    } finally {
-      setSaving(false);
-    }
+    persistDoc(next);
+    setSaving(false);
+    setEditorOpen(false);
   };
 
   const handleDeleteDoc = async (doc: CredicelDashDoc) => {
@@ -245,7 +246,8 @@ export default function CredicelDashboardModule({
   const strikeSelectionInBody = () => {
     bodyRef.current?.focus();
     document.execCommand('strikeThrough', false);
-    setDraft((prev) => ({ ...prev, bodyHtml: bodyRef.current?.innerHTML || prev.bodyHtml }));
+    const html = bodyRef.current?.innerHTML;
+    if (html != null) setDraft((prev) => ({ ...prev, bodyHtml: html }));
   };
 
   const addFiles = async (fileList: FileList | File[]) => {
@@ -537,7 +539,10 @@ export default function CredicelDashboardModule({
                     ref={bodyRef}
                     contentEditable
                     suppressContentEditableWarning
-                    onInput={(e) => setDraft((prev) => ({ ...prev, bodyHtml: e.currentTarget.innerHTML }))}
+                    onInput={(e) => {
+                      const html = e.currentTarget.innerHTML;
+                      setDraft((prev) => ({ ...prev, bodyHtml: html }));
+                    }}
                     className="min-h-[110px] w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#0047AB]"
                   />
                 </div>
@@ -705,7 +710,7 @@ export default function CredicelDashboardModule({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleSaveEditor()}
+                  onClick={() => handleSaveEditor()}
                   disabled={saving}
                   className="px-4 py-2 rounded-xl bg-[#0047AB] text-white text-xs font-extrabold cursor-pointer disabled:opacity-60"
                 >
