@@ -117,6 +117,7 @@ const SalesModule = lazy(() => import('./SalesModule'));
 const RepairsModule = lazy(() => import('./RepairsModule'));
 const ExecutiveModule = lazy(() => import('./ExecutiveModule'));
 const SettingsModule = lazy(() => import('./SettingsModule'));
+const CredicelDashboardModule = lazy(() => import('./CredicelDashboardModule'));
 
 interface DashboardProps {
   currentBranch: Branch;
@@ -1725,6 +1726,13 @@ export default function Dashboard({
             historyBusy={historyBusy}
           />
         );
+      case 'credicelDashboard':
+        return (
+          <CredicelDashboardModule
+            currentOperator={currentOperator}
+            currentBranch={currentBranch}
+          />
+        );
       case 'settings':
         return (
           <SettingsModule 
@@ -1777,7 +1785,8 @@ export default function Dashboard({
                  activeModule === 'purchases' ? 'Compras' :
                  activeModule === 'sales' ? 'Ventas y cortes' :
                  activeModule === 'repairs' ? 'Reparaciones' :
-                 activeModule === 'executive' ? 'Dirección' : 'Usuarios'}
+                 activeModule === 'executive' ? 'Dirección' :
+                 activeModule === 'credicelDashboard' ? 'CREDICEL Dashboard' : 'Usuarios'}
               </h2>
             </div>
             <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">

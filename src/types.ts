@@ -14,7 +14,7 @@ export interface Operator {
   createdAt?: string;
 }
 
-export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'repairs' | 'executive' | 'settings';
+export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'repairs' | 'executive' | 'credicelDashboard' | 'settings';
 
 export type NoticeUrgency = 'normal' | 'urgente';
 
@@ -409,4 +409,35 @@ export interface InventoryMovement {
   newPrice?: number;
   oldCostPrice?: number;
   newCostPrice?: number;
+}
+
+export interface CredicelDashCheckItem {
+  id: string;
+  text: string;
+  checked: boolean;
+  struck: boolean;
+}
+
+export interface CredicelDashAttachment {
+  id: string;
+  title: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath?: string;
+  downloadUrl?: string;
+  hasLocal?: boolean;
+  hasCloudBlob?: boolean;
+}
+
+export interface CredicelDashDoc {
+  id: string;
+  title: string;
+  bodyHtml: string;
+  items: CredicelDashCheckItem[];
+  attachments: CredicelDashAttachment[];
+  createdAt: string;
+  updatedAt: string;
+  authorName: string;
+  authorId?: string;
 }
