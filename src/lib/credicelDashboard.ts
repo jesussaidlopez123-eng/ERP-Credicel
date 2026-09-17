@@ -1,5 +1,19 @@
 import { CredicelDashAttachment, CredicelDashCheckItem, CredicelDashDoc } from '../types';
 
+export const KEEP_NOTE_COLORS = [
+  '#ffffff',
+  '#f28b82',
+  '#fbbc04',
+  '#fff475',
+  '#ccff90',
+  '#a7ffeb',
+  '#cbf0f8',
+  '#aecbfa',
+  '#d7aefb',
+  '#fdcfe8',
+  '#e6c9a8',
+  '#e8eaed'
+];
 export const DASH_VIEW_KEY = 'erp_credicel_dash_view';
 export const DASH_CACHE_KEY = 'erp_credicel_dash_docs_v1';
 export const MAX_DASH_FILE_BYTES = 12 * 1024 * 1024;
@@ -19,7 +33,8 @@ export function emptyDashDoc(partial: Partial<CredicelDashDoc> = {}): CredicelDa
     createdAt: partial.createdAt || now,
     updatedAt: partial.updatedAt || now,
     authorName: partial.authorName || '',
-    authorId: partial.authorId
+    authorId: partial.authorId,
+    color: partial.color || '#ffffff'
   };
 }
 
@@ -55,7 +70,8 @@ export function normalizeDashDoc(raw: unknown): CredicelDashDoc | null {
     createdAt: String(row.createdAt || ''),
     updatedAt: String(row.updatedAt || ''),
     authorName: String(row.authorName || ''),
-    authorId: row.authorId
+    authorId: row.authorId,
+    color: String(row.color || '#ffffff')
   });
 }
 
