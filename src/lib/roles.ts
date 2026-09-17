@@ -32,5 +32,7 @@ export function canOpenModule(role: string | undefined, moduleId: ModuleId): boo
 }
 
 export function defaultModuleForRole(role?: string): ModuleId {
-  return normalizeRole(role) === 'admin' ? 'executive' : 'pos';
+  const normalized = normalizeRole(role);
+  if (normalized === 'cashier') return 'pos';
+  return 'credicelDashboard';
 }

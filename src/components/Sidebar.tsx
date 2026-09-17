@@ -9,7 +9,7 @@ import {
   ShoppingBag,
   Building2,
   Wrench,
-  LayoutDashboard,
+  StickyNote,
   X
 } from 'lucide-react';
 import { ModuleId, Branch, Operator } from '../types';
@@ -38,8 +38,8 @@ export default function Sidebar({
   repairPendingCount = 0
 }: SidebarProps) {
   const allMenuItems: { id: ModuleId; label: string; icon: React.ReactNode }[] = [
+    { id: 'credicelDashboard', label: 'Notas', icon: <StickyNote className="w-4 h-4" /> },
     { id: 'executive', label: 'Dirección', icon: <Building2 className="w-4 h-4" /> },
-    { id: 'credicelDashboard', label: 'CREDICEL Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'sales', label: 'Ventas y cortes', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'repairs', label: 'Reparaciones', icon: <Wrench className="w-4 h-4" /> },
     { id: 'inventory', label: 'Inventario', icon: <Package className="w-4 h-4" /> },

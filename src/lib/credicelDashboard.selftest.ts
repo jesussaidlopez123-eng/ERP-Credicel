@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { canOpenModule } from './roles.ts';
+import { canOpenModule, defaultModuleForRole } from './roles.ts';
 import {
   applyDashSelection,
   bodyHtmlToCheckItems,
@@ -80,6 +80,9 @@ assert.equal(fileExtOf('sin-extension'), 'ARCHIVO');
 assert.equal(canOpenModule('admin', 'credicelDashboard'), true);
 assert.equal(canOpenModule('manager', 'credicelDashboard'), true);
 assert.equal(canOpenModule('cashier', 'credicelDashboard'), false);
+assert.equal(defaultModuleForRole('admin'), 'credicelDashboard');
+assert.equal(defaultModuleForRole('manager'), 'credicelDashboard');
+assert.equal(defaultModuleForRole('cashier'), 'pos');
 
 let checkId = 0;
 const fromHtml = bodyHtmlToCheckItems('<div>Cortar</div><div>Cobrar</div>', () => `id-${checkId++}`);

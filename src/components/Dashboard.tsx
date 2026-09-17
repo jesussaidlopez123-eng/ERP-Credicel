@@ -1786,7 +1786,7 @@ export default function Dashboard({
                  activeModule === 'sales' ? 'Ventas y cortes' :
                  activeModule === 'repairs' ? 'Reparaciones' :
                  activeModule === 'executive' ? 'Dirección' :
-                 activeModule === 'credicelDashboard' ? 'CREDICEL Dashboard' : 'Usuarios'}
+                 activeModule === 'credicelDashboard' ? 'Notas' : 'Usuarios'}
               </h2>
             </div>
             <span className="hidden sm:inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">

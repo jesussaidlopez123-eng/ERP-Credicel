@@ -682,8 +682,7 @@ export default function CredicelDashboardModule({
         <div className="max-w-6xl mx-auto space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Mi unidad</p>
-              <h3 className="text-xl font-black text-slate-900">CREDICEL Dashboard</h3>
+              <h3 className="text-xl font-black text-slate-900">Notas</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Notas, listas para marcar y archivos de {currentBranch.name}.
               </p>
@@ -694,7 +693,7 @@ export default function CredicelDashboardModule({
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar documentos…"
+                  placeholder="Buscar notas…"
                   className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm font-medium bg-white"
                 />
               </div>
@@ -760,13 +759,13 @@ export default function CredicelDashboardModule({
             {loading && docs.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-2">
                 <Loader2 className="w-6 h-6 animate-spin" />
-                <p className="text-xs font-semibold">Cargando documentos…</p>
+                <p className="text-xs font-semibold">Cargando notas…</p>
               </div>
             ) : filteredDocs.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-center px-4">
                 <FolderOpen className="w-12 h-12 text-slate-300 mb-3" />
                 <p className="text-sm font-black text-slate-800">
-                  {searchQuery.trim() ? 'No hay coincidencias' : 'Aún no hay documentos'}
+                  {searchQuery.trim() ? 'No hay coincidencias' : 'Aún no hay notas'}
                 </p>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm">
                   {searchQuery.trim()
