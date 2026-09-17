@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check,
   FileText,
   FolderOpen,
   Image as ImageIcon,
@@ -9,6 +8,7 @@ import {
   Loader2,
   Palette,
   Paperclip,
+  Pin,
   Plus,
   Search,
   Strikethrough,
@@ -23,6 +23,7 @@ import {
   dataUrlToBlob,
   deleteDashFile,
   emptyDashDoc,
+  fileKindOf,
   formatDashFileSize,
   getDashFile,
   isDashDocEmpty,
@@ -34,6 +35,7 @@ import {
   saveCachedDashDocs,
   saveDashView,
   sanitizeDashHtml,
+  sortDashDocs,
   toggleDashItem
 } from '../lib/credicelDashboard';
 import {
@@ -51,17 +53,198 @@ interface CredicelDashboardModuleProps {
 
 type DashView = 'grid' | 'list';
 
-function fileKind(mime: string, name: string): 'image' | 'pdf' | 'file' {
-  if (mime.startsWith('image/')) return 'image';
-  if (mime === 'application/pdf' || name.toLowerCase().endsWith('.pdf')) return 'pdf';
-  return 'file';
-}
-
 function FileGlyph({ mime, name, className = 'w-5 h-5' }: { mime: string; name: string; className?: string }) {
-  const kind = fileKind(mime, name);
+  const kind = fileKindOf(mime, name);
   if (kind === 'image') return <ImageIcon className={`${className} text-emerald-600`} />;
   if (kind === 'pdf') return <FileText className={`${className} text-rose-600`} />;
   return <Paperclip className={`${className} text-blue-700`} />;
+}
+
+async function resolveAttachmentUrl(att: CredicelDashAttachment): Promise<string | null> {
+  if (att.downloadUrl) return att.downloadUrl;
+  const local = await getDashFile(att.id);
+  if (local) return URL.createObjectURL(local);
+  if (att.hasCloudBlob) {
+    const dataUrl = await fetchDashBlobDataUrl(att.id);
+    if (!dataUrl) return null;
+    const blob = dataUrlToBlob(dataUrl);
+    if (blob) {
+      await putDashFile(att.id, blob);
+      return URL.createObjectURL(blob);
+    }
+    return dataUrl;
+  }
+  return null;
+}
+
+function AttachmentVisual({
+  att,
+  url,
+  compact = false,
+  onOpen,
+  onRemove,
+  onRename
+}: {
+  att: CredicelDashAttachment;
+  url?: string;
+  compact?: boolean;
+  onOpen: (att: CredicelDashAttachment) => void;
+  onRemove?: (id: string) => void;
+  onRename?: (id: string, title: string) => void;
+}) {
+  const kind = fileKindOf(att.mimeType, att.fileName);
+  if (kind === 'image' && url) {
+    return (
+      <div className="relative group overflow-hidden bg-slate-200">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(att);
+          }}
+          className="block w-full cursor-pointer"
+        >
+          <img
+            src={url}
+            alt={att.title || att.fileName}
+            className={compact ? 'h-32 w-full object-cover' : 'max-h-64 w-full object-cover'}
+          />
+        </button>
+        {!compact && (
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-2 flex items-center gap-2">
+            <input
+              value={att.title}
+              onChange={(e) => onRename?.(att.id, e.target.value)}
+              className="flex-1 min-w-0 bg-white/90 rounded px-2 py-1 text-[12px] font-medium text-slate-900 outline-none"
+              placeholder="Título"
+            />
+            {onRemove && (
+              <button type="button" onClick={() => onRemove(att.id)} className="p-1 rounded-full bg-white/90 text-rose-700 cursor-pointer" title="Quitar">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative flex items-center gap-3 ${compact ? 'px-3 py-2.5' : 'px-3 py-3'} bg-black/[0.04]`}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(att);
+        }}
+        className="shrink-0 cursor-pointer"
+      >
+        <div className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-lg bg-white shadow-sm border border-black/5 flex items-center justify-center`}>
+          <FileGlyph mime={att.mimeType} name={att.fileName} className={compact ? 'w-5 h-5' : 'w-6 h-6'} />
+        </div>
+      </button>
+      <div className="min-w-0 flex-1">
+        {compact || !onRename ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(att);
+            }}
+            className="block w-full text-left cursor-pointer"
+          >
+            <p className="text-[13px] font-medium text-slate-900 truncate">{att.title || att.fileName}</p>
+            <p className="text-[11px] text-slate-500 truncate">
+              {kind === 'pdf' ? 'PDF' : kind === 'image' ? 'Imagen' : 'Archivo'} · {formatDashFileSize(att.size)}
+            </p>
+          </button>
+        ) : (
+          <>
+            <input
+              value={att.title}
+              onChange={(e) => onRename(att.id, e.target.value)}
+              className="w-full bg-transparent text-[13px] font-medium text-slate-900 outline-none"
+              placeholder="Título del archivo"
+            />
+            <p className="text-[11px] text-slate-500 truncate">
+              {att.fileName} · {formatDashFileSize(att.size)}
+            </p>
+          </>
+        )}
+      </div>
+      {onRemove && (
+        <button type="button" onClick={() => onRemove(att.id)} className="p-1 text-slate-400 hover:text-rose-700 cursor-pointer" title="Quitar">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NoteCard({
+  doc,
+  previewMap,
+  onOpen,
+  onPin,
+  onOpenFile
+}: {
+  doc: CredicelDashDoc;
+  previewMap: Record<string, string>;
+  onOpen: (doc: CredicelDashDoc) => void;
+  onPin: (doc: CredicelDashDoc, event?: React.MouseEvent) => void;
+  onOpenFile: (att: CredicelDashAttachment) => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(doc)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(doc);
+        }
+      }}
+      style={{ backgroundColor: doc.color || '#ffffff' }}
+      className="text-left rounded-lg border border-black/5 shadow-sm min-h-[148px] hover:shadow-md transition-shadow cursor-pointer flex flex-col overflow-hidden"
+    >
+      {doc.attachments.length > 0 && (
+        <div className={doc.attachments.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}>
+          {doc.attachments.slice(0, 4).map((att) => (
+            <AttachmentVisual
+              key={att.id}
+              att={att}
+              url={previewMap[att.id]}
+              compact
+              onOpen={(file) => {
+                onOpenFile(file);
+              }}
+            />
+          ))}
+        </div>
+      )}
+      <div className="p-3 flex-1 flex flex-col">
+        <div className="flex items-start gap-2">
+          <p className="text-[15px] font-medium text-slate-900 truncate flex-1">
+            {doc.title || 'Sin título'}
+          </p>
+          <button
+            type="button"
+            onClick={(e) => onPin(doc, e)}
+            className={`p-1 rounded-full cursor-pointer shrink-0 ${
+              doc.pinned ? 'text-slate-800 bg-black/5' : 'text-slate-400 hover:text-slate-700 hover:bg-black/5'
+            }`}
+            title={doc.pinned ? 'No fijar' : 'Fijar'}
+          >
+            {doc.pinned ? <Pin className="w-4 h-4 fill-current" /> : <Pin className="w-4 h-4" />}
+          </button>
+        </div>
+        <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1 whitespace-pre-wrap leading-relaxed">
+          {dashDocSnippet(doc, 160)}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function CredicelDashboardModule({
@@ -79,8 +262,10 @@ export default function CredicelDashboardModule({
   const [previewName, setPreviewName] = useState('');
   const [dropActive, setDropActive] = useState(false);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [previewMap, setPreviewMap] = useState<Record<string, string>>({});
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadedPreviewIds = useRef(new Set<string>());
 
   useEffect(() => {
     const unsub = subscribeToCredicelDashDocs(
@@ -92,9 +277,7 @@ export default function CredicelDashboardModule({
             const ts = Date.parse(local.updatedAt || local.createdAt || '');
             return Number.isFinite(ts) && Date.now() - ts < 5 * 60 * 1000;
           });
-          const merged = [...cloudDocs, ...pending].sort((a, b) =>
-            (b.updatedAt || '').localeCompare(a.updatedAt || '')
-          );
+          const merged = sortDashDocs([...cloudDocs, ...pending]);
           saveCachedDashDocs(merged);
           return merged;
         });
@@ -113,22 +296,42 @@ export default function CredicelDashboardModule({
     };
   }, []);
 
+  useEffect(() => {
+    const atts = [...docs.flatMap((d) => d.attachments), ...draft.attachments];
+    atts.forEach((att) => {
+      if (loadedPreviewIds.current.has(att.id)) return;
+      loadedPreviewIds.current.add(att.id);
+      void resolveAttachmentUrl(att).then((url) => {
+        if (!url) {
+          loadedPreviewIds.current.delete(att.id);
+          return;
+        }
+        setPreviewMap((prev) => (prev[att.id] ? prev : { ...prev, [att.id]: url }));
+      });
+    });
+  }, [docs, draft.attachments]);
+
   const filteredDocs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return docs;
-    return docs.filter((doc) => {
-      const hay = [
-        doc.title,
-        dashDocSnippet(doc, 200),
-        doc.authorName,
-        ...doc.attachments.map((att) => `${att.title} ${att.fileName}`),
-        ...doc.items.map((item) => item.text)
-      ]
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(q);
-    });
+    const list = !q
+      ? docs
+      : docs.filter((doc) => {
+          const hay = [
+            doc.title,
+            dashDocSnippet(doc, 200),
+            doc.authorName,
+            ...doc.attachments.map((att) => `${att.title} ${att.fileName}`),
+            ...doc.items.map((item) => item.text)
+          ]
+            .join(' ')
+            .toLowerCase();
+          return hay.includes(q);
+        });
+    return sortDashDocs(list);
   }, [docs, searchQuery]);
+
+  const pinnedDocs = useMemo(() => filteredDocs.filter((d) => d.pinned), [filteredDocs]);
+  const otherDocs = useMemo(() => filteredDocs.filter((d) => !d.pinned), [filteredDocs]);
 
   const changeView = (next: DashView) => {
     setView(next);
@@ -166,7 +369,7 @@ export default function CredicelDashboardModule({
     const stamped = { ...next, updatedAt: new Date().toISOString() };
     setDocs((prev) => {
       const others = prev.filter((row) => row.id !== stamped.id);
-      const merged = [stamped, ...others].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      const merged = sortDashDocs([stamped, ...others]);
       saveCachedDashDocs(merged);
       return merged;
     });
@@ -193,6 +396,20 @@ export default function CredicelDashboardModule({
     }
     setColorPickerOpen(false);
     setEditorOpen(false);
+  };
+
+  const togglePinned = (doc: CredicelDashDoc, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (editorOpen && draft.id === doc.id) {
+      const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+      const next = { ...draft, bodyHtml, pinned: !draft.pinned };
+      setDraft(next);
+      if (!isDashDocEmpty(next) || docs.some((row) => row.id === next.id)) {
+        persistDoc({ ...next, title: next.title.trim() || 'Sin título' });
+      }
+      return;
+    }
+    persistDoc({ ...doc, pinned: !doc.pinned });
   };
 
   const handleDeleteDoc = async (doc: CredicelDashDoc) => {
@@ -227,22 +444,37 @@ export default function CredicelDashboardModule({
         alert(`“${file.name}” pesa más de 12 MB. Elige un archivo más ligero.`);
         continue;
       }
+      const lower = file.name.toLowerCase();
+      const mime =
+        file.type ||
+        (lower.endsWith('.png')
+          ? 'image/png'
+          : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+            ? 'image/jpeg'
+            : lower.endsWith('.pdf')
+              ? 'application/pdf'
+              : 'application/octet-stream');
       const att: CredicelDashAttachment = {
         id: newUniqueId('FILE'),
         title: file.name.replace(/\.[^.]+$/, ''),
         fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
+        mimeType: mime,
         size: file.size,
         hasLocal: true
       };
-      try {
-        const stored = await persistDashAttachmentFile(att, file);
-        added.push(stored);
-      } catch (err) {
-        console.error(err);
-        await putDashFile(att.id, file);
-        added.push(att);
-      }
+      await putDashFile(att.id, file);
+      const preview = URL.createObjectURL(file);
+      loadedPreviewIds.current.add(att.id);
+      setPreviewMap((prev) => ({ ...prev, [att.id]: preview }));
+      added.push(att);
+      persistDashAttachmentFile(att, file)
+        .then((stored) => {
+          setDraft((prev) => ({
+            ...prev,
+            attachments: prev.attachments.map((row) => (row.id === stored.id ? stored : row))
+          }));
+        })
+        .catch((err) => console.error(err));
     }
     if (!added.length) return;
     setDraft((prev) => ({ ...prev, attachments: [...prev.attachments, ...added] }));
@@ -265,28 +497,13 @@ export default function CredicelDashboardModule({
   };
 
   const openAttachment = async (att: CredicelDashAttachment) => {
-    let url = att.downloadUrl || null;
-    if (!url) {
-      const local = await getDashFile(att.id);
-      if (local) url = URL.createObjectURL(local);
-    }
-    if (!url && att.hasCloudBlob) {
-      const dataUrl = await fetchDashBlobDataUrl(att.id);
-      if (dataUrl) {
-        const blob = dataUrlToBlob(dataUrl);
-        if (blob) {
-          await putDashFile(att.id, blob);
-          url = URL.createObjectURL(blob);
-        } else {
-          url = dataUrl;
-        }
-      }
-    }
+    let url = previewMap[att.id] || att.downloadUrl || null;
+    if (!url) url = await resolveAttachmentUrl(att);
     if (!url) {
       alert('Este archivo está en otro equipo o aún no sube a la nube.');
       return;
     }
-    if (fileKind(att.mimeType, att.fileName) === 'image') {
+    if (fileKindOf(att.mimeType, att.fileName) === 'image') {
       setPreviewUrl(url);
       setPreviewName(att.title || att.fileName);
       return;
@@ -397,33 +614,47 @@ export default function CredicelDashboardModule({
                 <p className="text-xs text-slate-500 mt-1 max-w-sm">
                   {searchQuery.trim()
                     ? 'Prueba con otro título o nombre de archivo.'
-                    : 'Pulsa + para escribir una nota, marcar recuadros o adjuntar archivos. También puedes soltar archivos aquí.'}
+                    : 'Pulsa + para escribir una nota o adjuntar archivos. También puedes soltar archivos aquí.'}
                 </p>
               </div>
             ) : view === 'grid' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {filteredDocs.map((doc) => (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => openDoc(doc)}
-                    style={{ backgroundColor: doc.color || '#ffffff' }}
-                    className="text-left rounded-lg border border-black/5 shadow-sm p-4 min-h-[148px] hover:shadow-md transition-shadow cursor-pointer flex flex-col"
-                  >
-                    <p className="text-[15px] font-medium text-slate-900 truncate">
-                      {doc.title || 'Sin título'}
-                    </p>
-                    <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1.5 whitespace-pre-wrap leading-relaxed">
-                      {dashDocSnippet(doc, 160)}
-                    </p>
-                    {doc.attachments.length > 0 && (
-                      <p className="mt-auto pt-3 text-[11px] text-slate-500 flex items-center gap-1">
-                        <Paperclip className="w-3 h-3" />
-                        {doc.attachments.length} archivo{doc.attachments.length === 1 ? '' : 's'}
-                      </p>
+              <div className="space-y-6">
+                {pinnedDocs.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2 px-0.5">Fijadas</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {pinnedDocs.map((doc) => (
+                        <NoteCard
+                          key={doc.id}
+                          doc={doc}
+                          previewMap={previewMap}
+                          onOpen={openDoc}
+                          onPin={togglePinned}
+                          onOpenFile={(att) => void openAttachment(att)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {otherDocs.length > 0 && (
+                  <div>
+                    {pinnedDocs.length > 0 && (
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-2 px-0.5">Otras</p>
                     )}
-                  </button>
-                ))}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {otherDocs.map((doc) => (
+                        <NoteCard
+                          key={doc.id}
+                          doc={doc}
+                          previewMap={previewMap}
+                          onOpen={openDoc}
+                          onPin={togglePinned}
+                          onOpenFile={(att) => void openAttachment(att)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -440,11 +671,28 @@ export default function CredicelDashboardModule({
                     onClick={() => openDoc(doc)}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <FileText className="w-4 h-4 text-[#0047AB] shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900 truncate">{doc.title || 'Sin título'}</p>
+                      {doc.attachments[0] && previewMap[doc.attachments[0].id] && fileKindOf(doc.attachments[0].mimeType, doc.attachments[0].fileName) === 'image' ? (
+                        <img src={previewMap[doc.attachments[0].id]} alt="" className="w-9 h-9 rounded object-cover shrink-0" />
+                      ) : doc.attachments[0] ? (
+                        <FileGlyph mime={doc.attachments[0].mimeType} name={doc.attachments[0].fileName} className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-[#0047AB] shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-slate-900 truncate flex items-center gap-1">
+                          {doc.pinned && <Pin className="w-3 h-3 fill-current" />}
+                          {doc.title || 'Sin título'}
+                        </p>
                         <p className="sm:hidden text-[11px] text-slate-500 truncate">{dashDocSnippet(doc, 60)}</p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => togglePinned(doc, e)}
+                        className="p-1 text-slate-400 hover:text-slate-800 cursor-pointer"
+                        title={doc.pinned ? 'No fijar' : 'Fijar'}
+                      >
+                        {doc.pinned ? <Pin className="w-4 h-4 fill-current" /> : <Pin className="w-4 h-4" />}
+                      </button>
                     </div>
                     <p className="hidden sm:block text-xs text-slate-600">
                       {safeFormatDate(doc.updatedAt)} {safeFormatTime(doc.updatedAt)}
@@ -470,7 +718,17 @@ export default function CredicelDashboardModule({
             style={{ backgroundColor: draft.color || '#ffffff' }}
             className="w-full sm:max-w-[560px] sm:rounded-xl rounded-t-2xl shadow-2xl border border-black/5 max-h-[94vh] overflow-hidden flex flex-col"
           >
-            <div className="flex justify-end px-3 pt-2">
+            <div className="flex items-center justify-between px-3 pt-2">
+              <button
+                type="button"
+                onClick={() => togglePinned(draft)}
+                className={`p-1.5 rounded-full cursor-pointer ${
+                  draft.pinned ? 'text-slate-800 bg-black/5' : 'text-slate-500 hover:bg-black/5'
+                }`}
+                title={draft.pinned ? 'No fijar' : 'Fijar'}
+              >
+                {draft.pinned ? <Pin className="w-5 h-5 fill-current" /> : <Pin className="w-5 h-5" />}
+              </button>
               <button
                 type="button"
                 onClick={() => closeEditor(false)}
@@ -482,6 +740,20 @@ export default function CredicelDashboardModule({
             </div>
 
             <div className="px-5 pb-2 flex-1 overflow-y-auto min-h-0">
+              {draft.attachments.length > 0 && (
+                <div className={`-mx-5 mb-3 ${draft.attachments.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}`}>
+                  {draft.attachments.map((att) => (
+                    <AttachmentVisual
+                      key={att.id}
+                      att={att}
+                      url={previewMap[att.id]}
+                      onOpen={(file) => void openAttachment(file)}
+                      onRemove={(id) => void removeAttachment(id)}
+                      onRename={renameAttachment}
+                    />
+                  ))}
+                </div>
+              )}
               <input
                 value={draft.title}
                 onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
@@ -524,38 +796,6 @@ export default function CredicelDashboardModule({
                       </span>
                     </label>
                   ))}
-                </div>
-              )}
-
-              {draft.attachments.length > 0 && (
-                <div className="border-t border-black/10 pt-3 mt-2 pb-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-medium text-slate-500">Archivos adjuntos</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    {draft.attachments.map((att) => (
-                      <div key={att.id} className="flex items-center gap-2 rounded-lg bg-black/5 px-2 py-1.5">
-                        <button type="button" onClick={() => void openAttachment(att)} className="shrink-0 cursor-pointer">
-                          <FileGlyph mime={att.mimeType} name={att.fileName} className="w-4 h-4" />
-                        </button>
-                        <input
-                          value={att.title}
-                          onChange={(e) => renameAttachment(att.id, e.target.value)}
-                          className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-slate-800 outline-none"
-                          placeholder="Título del archivo"
-                        />
-                        <span className="text-[10px] text-slate-400 shrink-0">{formatDashFileSize(att.size)}</span>
-                        <button
-                          type="button"
-                          onClick={() => void removeAttachment(att.id)}
-                          className="p-1 text-slate-400 hover:text-rose-700 cursor-pointer"
-                          title="Quitar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
               <input

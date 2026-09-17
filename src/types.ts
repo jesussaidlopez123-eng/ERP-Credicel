@@ -441,4 +441,5 @@ export interface CredicelDashDoc {
   authorName: string;
   authorId?: string;
   color?: string;
+  pinned?: boolean;
 }

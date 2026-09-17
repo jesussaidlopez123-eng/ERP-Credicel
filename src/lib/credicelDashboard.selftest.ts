@@ -8,6 +8,7 @@ import {
   isDashDocEmpty,
   metadataAttachments,
   sanitizeDashHtml,
+  sortDashDocs,
   stripDashHtml,
   toggleDashItem
 } from './credicelDashboard.ts';
@@ -55,6 +56,13 @@ const cloud = dashDocForCloud(
 assert.equal(cloud.title, 'Guía');
 assert.equal(metadataAttachments(cloud.attachments)[0].fileName, 'poliza.pdf');
 assert.equal(dashDocSnippet(cloud).startsWith('Texto'), true);
+
+const pinnedFirst = sortDashDocs([
+  emptyDashDoc({ id: 'later', pinned: false, updatedAt: '2026-09-02T00:00:00.000Z' }),
+  emptyDashDoc({ id: 'fixed', pinned: true, updatedAt: '2026-09-01T00:00:00.000Z' })
+]);
+assert.equal(pinnedFirst[0].id, 'fixed');
+assert.equal(pinnedFirst[1].id, 'later');
 
 assert.equal(canOpenModule('admin', 'credicelDashboard'), true);
 assert.equal(canOpenModule('manager', 'credicelDashboard'), true);

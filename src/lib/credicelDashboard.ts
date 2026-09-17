@@ -34,7 +34,8 @@ export function emptyDashDoc(partial: Partial<CredicelDashDoc> = {}): CredicelDa
     updatedAt: partial.updatedAt || now,
     authorName: partial.authorName || '',
     authorId: partial.authorId,
-    color: partial.color || '#ffffff'
+    color: partial.color || '#ffffff',
+    pinned: Boolean(partial.pinned)
   };
 }
 
@@ -71,7 +72,8 @@ export function normalizeDashDoc(raw: unknown): CredicelDashDoc | null {
     updatedAt: String(row.updatedAt || ''),
     authorName: String(row.authorName || ''),
     authorId: row.authorId,
-    color: String(row.color || '#ffffff')
+    color: String(row.color || '#ffffff'),
+    pinned: Boolean(row.pinned)
   });
 }
 
@@ -80,8 +82,7 @@ export function dashDocSnippet(doc: CredicelDashDoc, max = 90): string {
   if (!text) {
     const first = doc.items.find((item) => item.text.trim());
     if (first) return first.text.trim();
-    if (doc.attachments.length) return `${doc.attachments.length} archivo(s)`;
-    return 'Sin contenido';
+    return '';
   }
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
@@ -134,6 +135,21 @@ export function isDashDocEmpty(doc: Pick<CredicelDashDoc, 'title' | 'bodyHtml' |
   if (doc.items.some((item) => item.text.trim())) return false;
   if (doc.attachments.length > 0) return false;
   return true;
+}
+
+export function sortDashDocs(docs: CredicelDashDoc[]): CredicelDashDoc[] {
+  return [...docs].sort((a, b) => {
+    const pinA = a.pinned ? 1 : 0;
+    const pinB = b.pinned ? 1 : 0;
+    if (pinA !== pinB) return pinB - pinA;
+    return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+  });
+}
+
+export function fileKindOf(mime: string, name: string): 'image' | 'pdf' | 'file' {
+  if ((mime || '').startsWith('image/')) return 'image';
+  if (mime === 'application/pdf' || (name || '').toLowerCase().endsWith('.pdf')) return 'pdf';
+  return 'file';
 }
 
 export function toggleDashItem(
