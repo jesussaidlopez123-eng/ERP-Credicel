@@ -121,13 +121,13 @@ export default function InventoryLabelsModal({
     }
     setPrintError(null);
 
-    if (labelSize === 'in35x25') {
+    if (labelSize === 'cm35x25') {
       try {
-        printPdfDocument(createInventoryLabelPdf(wideLabelRows()), 'Etiquetas-CREDI-CEL-3.5x2.5');
+        printPdfDocument(createInventoryLabelPdf(wideLabelRows()), 'Etiquetas-CREDI-CEL-3.5x2.5cm');
       } catch (err) {
         console.error(err);
         setPrintError(
-          'No se pudo abrir la impresión. Usa Descargar PDF y en el driver pon 90 × 64 mm, horizontal, escala 100%.'
+          'No se pudo abrir la impresión. Usa Descargar PDF y en el driver pon 35 × 25 mm, horizontal, escala 100%.'
         );
       }
       return;
@@ -160,7 +160,7 @@ export default function InventoryLabelsModal({
     saveLabelSize(id);
   };
 
-  const widePreview = labelSize === 'in35x25';
+  const widePreview = labelSize === 'cm35x25';
 
   if (!isOpen) return null;
 
@@ -177,7 +177,7 @@ export default function InventoryLabelsModal({
                 {initialProduct ? `Etiquetas · ${initialProduct.name}` : 'Etiquetas de inventario'}
               </h3>
               <p className="text-[11px] text-slate-500">
-                Código, nombre, código de barras y precio. Elige la medida: 3.5 × 2.5 in o rollo 58 mm.
+                Código, nombre, código de barras y precio. Elige la medida: 3.5 × 2.5 cm o rollo 58 mm.
               </p>
             </div>
           </div>
@@ -273,11 +273,17 @@ export default function InventoryLabelsModal({
                 <p className="text-[11px] font-mono font-bold">{preview.code}</p>
                 <p className="text-xs font-semibold leading-tight">{preview.name}</p>
                 {previewBarcode && (
-                  <img src={previewBarcode} alt={preview.code} className="mx-auto my-1 h-12 object-contain" />
+                  <img
+                    src={previewBarcode}
+                    alt={preview.code}
+                    className={`mx-auto my-1 object-contain ${widePreview ? 'h-8' : 'h-12'}`}
+                  />
                 )}
-                <p className="text-lg font-bold">${Number(preview.price || 0).toFixed(2)}</p>
+                <p className={`font-bold ${widePreview ? 'text-sm' : 'text-lg'}`}>
+                  ${Number(preview.price || 0).toFixed(2)}
+                </p>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  {labelSize === 'in35x25' ? '3.5 × 2.5 in' : '58 mm'}
+                  {labelSize === 'cm35x25' ? '3.5 × 2.5 cm' : '58 mm'}
                 </p>
               </div>
             )}
@@ -309,8 +315,8 @@ export default function InventoryLabelsModal({
               ))}
             </div>
             <p className="text-[10px] text-slate-600 mt-1 max-w-md leading-snug">
-              {labelSize === 'in35x25'
-                ? 'Ribetec RT420BE: el programa manda 3.5 × 2.5 in horizontal, una etiqueta por avance. Si sale vertical o gasta cinta cada 4, el driver está en Carta o 4 × 6. Pon 90 × 64 mm, Horizontal y escala 100%.'
+              {labelSize === 'cm35x25'
+                ? 'Ribetec RT420BE: 3.5 × 2.5 cm (35 × 25 mm) horizontal, una etiqueta por avance. En el driver pon 35 × 25 mm, Horizontal y escala 100%. Carta o 4 × 6 las voltea y gasta cinta.'
                 : 'Se imprimen seguidas, sin saltar a una hoja 4 × 6.'}
             </p>
           </div>
@@ -318,7 +324,7 @@ export default function InventoryLabelsModal({
             <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl">
               Cerrar
             </button>
-            {labelSize === 'in35x25' && (
+            {labelSize === 'cm35x25' && (
               <button
                 type="button"
                 onClick={() => {
@@ -330,7 +336,7 @@ export default function InventoryLabelsModal({
                   try {
                     downloadPdfDocument(
                       createInventoryLabelPdf(wideLabelRows()),
-                      'Etiquetas-CREDI-CEL-3.5x2.5.pdf'
+                      'Etiquetas-CREDI-CEL-3.5x2.5cm.pdf'
                     );
                   } catch (err) {
                     console.error(err);

@@ -4,20 +4,25 @@ import {
   createInventoryLabelPdf,
   isLabelSizeId,
   LABEL_SIZES,
-  labelPageInches,
+  labelPageMm,
   labelPrintCss,
-  pdfMediaBoxPoints
+  pdfMediaBoxPoints,
+  STICKER_HEIGHT_MM,
+  STICKER_WIDTH_MM
 } from './inventoryLabels.ts';
 
-assert.equal(isLabelSizeId('in35x25'), true);
+assert.equal(isLabelSizeId('cm35x25'), true);
+assert.equal(isLabelSizeId('in35x25'), false);
 assert.equal(isLabelSizeId('4x6'), false);
-assert.equal(LABEL_SIZES.in35x25.page, '3.5in 2.5in');
-assert.equal(labelPageInches('in35x25').widthIn, 3.5);
-assert.equal(labelPageInches('in35x25').heightIn, 2.5);
-assert.ok(labelPageInches('in35x25').widthIn > labelPageInches('in35x25').heightIn);
+assert.equal(LABEL_SIZES.cm35x25.page, '35mm 25mm');
+assert.equal(LABEL_SIZES.cm35x25.title, '3.5 × 2.5 cm');
+assert.equal(labelPageMm('cm35x25').widthMm, 35);
+assert.equal(labelPageMm('cm35x25').heightMm, 25);
+assert.ok(labelPageMm('cm35x25').widthMm > labelPageMm('cm35x25').heightMm);
 
-const sheet = labelPrintCss('in35x25');
-assert.equal(sheet.includes('3.5in 2.5in'), true);
+const sheet = labelPrintCss('cm35x25');
+assert.equal(sheet.includes('35mm 25mm'), true);
+assert.equal(sheet.includes('3.5in'), false);
 assert.equal(sheet.includes('landscape'), false);
 assert.equal(sheet.includes('4in 6in'), false);
 
@@ -33,18 +38,21 @@ const pdf = createInventoryLabelPdf([
 ]);
 assert.ok(pdf.byteLength > 500);
 const box = pdfMediaBoxPoints(pdf);
-assert.ok(Math.abs(box.widthPt - 252) < 1, `ancho ${box.widthPt}`);
-assert.ok(Math.abs(box.heightPt - 180) < 1, `alto ${box.heightPt}`);
-assert.ok(box.widthPt > box.heightPt, 'la página debe ser horizontal 3.5×2.5, no vertical 2.5×3.5');
+const expectedW = (STICKER_WIDTH_MM * 72) / 25.4;
+const expectedH = (STICKER_HEIGHT_MM * 72) / 25.4;
+assert.ok(Math.abs(box.widthPt - expectedW) < 1.5, `ancho ${box.widthPt}`);
+assert.ok(Math.abs(box.heightPt - expectedH) < 1.5, `alto ${box.heightPt}`);
+assert.ok(box.widthPt > box.heightPt, 'la página debe ser 35×25 mm, no 25×35 mm vertical');
 const pdfText = new TextDecoder('latin1').decode(pdf);
 assert.equal(pdfText.includes('PrintScaling'), true);
 assert.equal(pdfText.includes('None'), true);
+assert.equal(pdfText.includes('3.5x2.5 cm'), true);
 
-const probe = new jsPDF({ unit: 'in', format: [3.5, 2.5], orientation: 'landscape' });
-assert.equal(probe.internal.pageSize.getWidth(), 3.5);
-assert.equal(probe.internal.pageSize.getHeight(), 2.5);
-const vertical = new jsPDF({ unit: 'in', format: [3.5, 2.5], orientation: 'portrait' });
-assert.equal(vertical.internal.pageSize.getWidth(), 2.5);
-assert.equal(vertical.internal.pageSize.getHeight(), 3.5);
+const probe = new jsPDF({ unit: 'mm', format: [35, 25], orientation: 'landscape' });
+assert.ok(Math.abs(probe.internal.pageSize.getWidth() - 35) < 0.02);
+assert.ok(Math.abs(probe.internal.pageSize.getHeight() - 25) < 0.02);
+const vertical = new jsPDF({ unit: 'mm', format: [35, 25], orientation: 'portrait' });
+assert.ok(Math.abs(vertical.internal.pageSize.getWidth() - 25) < 0.02);
+assert.ok(Math.abs(vertical.internal.pageSize.getHeight() - 35) < 0.02);
 
 console.log('inventoryLabels self-test ok');

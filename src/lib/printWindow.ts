@@ -118,8 +118,8 @@ export function printPdfDocument(data: ArrayBuffer | Blob, title: string): void 
   iframe.style.position = 'fixed';
   iframe.style.right = '12px';
   iframe.style.bottom = '12px';
-  iframe.style.width = '3.5in';
-  iframe.style.height = '2.5in';
+  iframe.style.width = '35mm';
+  iframe.style.height = '25mm';
   iframe.style.opacity = '0';
   iframe.style.pointerEvents = 'none';
   iframe.style.border = '0';
