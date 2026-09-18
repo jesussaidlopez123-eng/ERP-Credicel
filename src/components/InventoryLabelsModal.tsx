@@ -8,7 +8,8 @@ import {
   Printer,
   Tag,
   Package,
-  Download
+  Download,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Product } from '../types';
 import { isVirtualPosProduct } from '../lib/inventoryRules';
@@ -20,7 +21,8 @@ import {
   loadLabelSize,
   saveLabelSize,
   labelPrintCss,
-  createInventoryLabelPdf
+  createInventoryLabelPdf,
+  RT420BE_PRINT_SETTINGS
 } from '../lib/inventoryLabels';
 
 interface QueueItem {
@@ -314,11 +316,26 @@ export default function InventoryLabelsModal({
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-slate-600 mt-1 max-w-md leading-snug">
-              {labelSize === 'cm35x25'
-                ? 'Ribetec RT420BE: 3.5 × 2.5 cm (35 × 25 mm) horizontal, una etiqueta por avance. En el driver pon 35 × 25 mm, Horizontal y escala 100%. Carta o 4 × 6 las voltea y gasta cinta.'
-                : 'Se imprimen seguidas, sin saltar a una hoja 4 × 6.'}
-            </p>
+            {labelSize === 'cm35x25' ? (
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 max-w-lg">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1 mb-1.5">
+                  <SlidersHorizontal className="w-3 h-3" />
+                  Ajustes de impresión RT420BE
+                </p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                  {RT420BE_PRINT_SETTINGS.map((row) => (
+                    <div key={row.label} className="flex items-baseline justify-between gap-2 min-w-0">
+                      <dt className="text-[10px] text-slate-500 shrink-0">{row.label}</dt>
+                      <dd className="text-[10px] font-bold text-slate-800 text-right truncate">{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-600 mt-1 max-w-md leading-snug">
+                Se imprimen seguidas, sin saltar a una hoja 4 × 6.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl">

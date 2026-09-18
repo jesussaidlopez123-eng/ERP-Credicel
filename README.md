@@ -2,7 +2,7 @@
 
 Sistema de punto de venta y ERP para sucursales (Matriz, Navojoa y Huatabampo): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
-Las etiquetas de producto se imprimen desde **Inventario → Etiquetas**. En una **Ribetec RT420BE** el programa manda un PDF **3.5 × 2.5 cm** (35 × 25 mm, horizontal), una etiqueta por avance. No uses pulgadas ni papel 4 × 6: eso las imprime de lado y gasta cinta. En el driver pon **35 × 25 mm**, **Horizontal** y escala **100%**. Puedes **Descargar PDF** y imprimirlo igual. El rollo **58 mm** sigue disponible para ticket térmico.
+Las etiquetas de producto se imprimen desde **Inventario → Etiquetas**. En una **Ribetec RT420BE** el programa manda un PDF **3.5 × 2.5 cm** (35 × 25 mm, horizontal), una etiqueta por avance. En **ajustes de impresión** debe quedar: impresora RT420BE, papel **35 × 25 mm**, orientación **Horizontal**, escala **100%** (no ajustar), márgenes **Ninguno**, 1 página por hoja. No uses Carta ni 4 × 6. Puedes **Descargar PDF** y imprimirlo igual. El rollo **58 mm** sigue disponible para ticket térmico.
 
 Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
 

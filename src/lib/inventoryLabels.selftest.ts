@@ -8,7 +8,8 @@ import {
   labelPrintCss,
   pdfMediaBoxPoints,
   STICKER_HEIGHT_MM,
-  STICKER_WIDTH_MM
+  STICKER_WIDTH_MM,
+  RT420BE_PRINT_SETTINGS
 } from './inventoryLabels.ts';
 
 assert.equal(isLabelSizeId('cm35x25'), true);
@@ -16,6 +17,9 @@ assert.equal(isLabelSizeId('in35x25'), false);
 assert.equal(isLabelSizeId('4x6'), false);
 assert.equal(LABEL_SIZES.cm35x25.page, '35mm 25mm');
 assert.equal(LABEL_SIZES.cm35x25.title, '3.5 × 2.5 cm');
+assert.equal(RT420BE_PRINT_SETTINGS.find((r) => r.label === 'Tamaño de papel')?.value, '35 × 25 mm');
+assert.equal(RT420BE_PRINT_SETTINGS.find((r) => r.label === 'Orientación')?.value, 'Horizontal');
+assert.equal(RT420BE_PRINT_SETTINGS.find((r) => r.label === 'Escala')?.value, '100% (no ajustar)');
 assert.equal(labelPageMm('cm35x25').widthMm, 35);
 assert.equal(labelPageMm('cm35x25').heightMm, 25);
 assert.ok(labelPageMm('cm35x25').widthMm > labelPageMm('cm35x25').heightMm);
