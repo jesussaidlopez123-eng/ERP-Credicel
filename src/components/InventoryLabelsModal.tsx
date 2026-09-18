@@ -7,18 +7,20 @@ import {
   Trash2,
   Printer,
   Tag,
-  Package
+  Package,
+  Download
 } from 'lucide-react';
 import { Product } from '../types';
 import { isVirtualPosProduct } from '../lib/inventoryRules';
 import { barcodePngDataUrl } from '../lib/barcode';
-import { escapeHtml, printHtmlDocument } from '../lib/printWindow';
+import { escapeHtml, printHtmlDocument, printPdfDocument, downloadPdfDocument } from '../lib/printWindow';
 import {
   LABEL_SIZE_OPTIONS,
   LabelSizeId,
   loadLabelSize,
   saveLabelSize,
-  labelPrintCss
+  labelPrintCss,
+  createInventoryLabelPdf
 } from '../lib/inventoryLabels';
 
 interface QueueItem {
@@ -100,12 +102,36 @@ export default function InventoryLabelsModal({
   const preview = queue[0]?.product || catalog[0] || null;
   const previewBarcode = preview ? barcodePngDataUrl(preview.code) : '';
 
+  const wideLabelRows = () =>
+    queue.flatMap((item) => {
+      const barcode = barcodePngDataUrl(item.product.code);
+      const row = {
+        code: item.product.code,
+        name: item.product.name,
+        price: Number(item.product.price || 0).toFixed(2),
+        barcodeDataUrl: barcode
+      };
+      return Array.from({ length: item.quantity }, () => row);
+    });
+
   const handlePrint = () => {
     if (totalLabels === 0) {
       setPrintError('Elige al menos un producto de inventario.');
       return;
     }
     setPrintError(null);
+
+    if (labelSize === 'in35x25') {
+      try {
+        printPdfDocument(createInventoryLabelPdf(wideLabelRows()), 'Etiquetas-CREDI-CEL-3.5x2.5');
+      } catch (err) {
+        console.error(err);
+        setPrintError(
+          'No se pudo abrir la impresión. Usa Descargar PDF y en el driver pon 90 × 64 mm, horizontal, escala 100%.'
+        );
+      }
+      return;
+    }
 
     const stickers: string[] = [];
     queue.forEach((item) => {
@@ -282,16 +308,42 @@ export default function InventoryLabelsModal({
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-slate-500 mt-1 max-w-xs">
+            <p className="text-[10px] text-slate-600 mt-1 max-w-md leading-snug">
               {labelSize === 'in35x25'
-                ? 'En el cuadro de impresión elige papel 3.5 × 2.5 in. El 4 × 6 deja un hueco enorme entre etiquetas.'
+                ? 'Ribetec RT420BE: el programa manda 3.5 × 2.5 in horizontal, una etiqueta por avance. Si sale vertical o gasta cinta cada 4, el driver está en Carta o 4 × 6. Pon 90 × 64 mm, Horizontal y escala 100%.'
                 : 'Se imprimen seguidas, sin saltar a una hoja 4 × 6.'}
             </p>
           </div>
-          <div className="flex items-center gap-2 sm:ml-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl">
               Cerrar
             </button>
+            {labelSize === 'in35x25' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (totalLabels === 0) {
+                    setPrintError('Elige al menos un producto de inventario.');
+                    return;
+                  }
+                  setPrintError(null);
+                  try {
+                    downloadPdfDocument(
+                      createInventoryLabelPdf(wideLabelRows()),
+                      'Etiquetas-CREDI-CEL-3.5x2.5.pdf'
+                    );
+                  } catch (err) {
+                    console.error(err);
+                    setPrintError('No se pudo armar el PDF.');
+                  }
+                }}
+                disabled={totalLabels === 0}
+                className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl disabled:opacity-40 flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Descargar PDF
+              </button>
+            )}
             <button
               type="button"
               onClick={handlePrint}

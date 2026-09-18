@@ -91,6 +91,64 @@ const THERMAL_PAGE_CSS = `
   .sheet .h-5, .sheet .h-8, .sheet .no-screen { height: 6px !important; }
 `;
 
+function pdfBlob(data: ArrayBuffer | Blob): Blob {
+  if (data instanceof Blob) return data;
+  return new Blob([new Uint8Array(data)], { type: 'application/pdf' });
+}
+
+export function downloadPdfDocument(data: ArrayBuffer | Blob, filename: string): void {
+  const blob = pdfBlob(data);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.toLowerCase().endsWith('.pdf') ? filename : `${filename}.pdf`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+export function printPdfDocument(data: ArrayBuffer | Blob, title: string): void {
+  const blob = pdfBlob(data);
+  const url = URL.createObjectURL(blob);
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.setAttribute('title', title);
+  iframe.style.position = 'fixed';
+  iframe.style.right = '12px';
+  iframe.style.bottom = '12px';
+  iframe.style.width = '3.5in';
+  iframe.style.height = '2.5in';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      iframe.remove();
+      URL.revokeObjectURL(url);
+    }, 1600);
+  };
+
+  iframe.onload = () => {
+    const win = iframe.contentWindow;
+    win?.addEventListener('afterprint', cleanup);
+    window.setTimeout(() => {
+      try {
+        win?.focus();
+        win?.print();
+      } catch (err) {
+        console.error('Error al imprimir PDF:', err);
+        downloadPdfDocument(blob, title);
+        cleanup();
+      }
+    }, 450);
+  };
+  iframe.src = url;
+}
+
 export function printHtmlDocument(innerBody: string, title: string, extraCss = ''): void {
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');

@@ -2,7 +2,7 @@
 
 Sistema de punto de venta y ERP para sucursales (Matriz, Navojoa y Huatabampo): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
-Las etiquetas de producto (código, nombre, código de barras y precio) se imprimen desde **Inventario → Etiquetas**. Hay medida **3.5 × 2.5 in** (una etiqueta por página; no uses papel 4 × 6, eso las deja muy separadas) y rollo **58 mm**. Los tickets de venta, gasto y corte salen en 58 mm.
+Las etiquetas de producto se imprimen desde **Inventario → Etiquetas**. En una **Ribetec RT420BE** el programa manda un PDF **3.5 × 2.5 in horizontal** (90 × 64 mm), una etiqueta por avance, sin escalar a Carta ni a 4 × 6. Si salen **verticales** o se gasta cinta **cada ~4 etiquetas**, el driver de Windows está en Carta/4×6: pon tamaño **90 × 64 mm**, orientación **Horizontal** y escala **100%** (no “ajustar a la página”). Puedes **Descargar PDF** y imprimirlo igual. El rollo **58 mm** sigue disponible para ticket térmico.
 
 Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
 
