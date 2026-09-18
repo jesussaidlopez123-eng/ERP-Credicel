@@ -48,15 +48,15 @@ export const LABEL_SIZES: Record<LabelSizeId, LabelSize> = {
 
 export const LABEL_SIZE_OPTIONS: LabelSize[] = [LABEL_SIZES.roll58, LABEL_SIZES.cm35x25];
 
-/** Preferencias de la impresora (Dispositivos e impresoras), no el menú de Chrome. */
+/** Cómo debe quedar el cuadro de impresión / driver de la RT420BE. */
 export const RT420BE_PRINT_SETTINGS: { label: string; value: string }[] = [
-  { label: 'Dónde escribirlo', value: 'Driver RT420BE, no Chrome' },
-  { label: 'Ancho (escribe)', value: '35 mm' },
-  { label: 'Alto (escribe)', value: '25 mm' },
-  { label: 'Espacio / hueco', value: '2 mm' },
-  { label: 'Sensor', value: 'Gap / hueco' },
-  { label: 'Cinta', value: 'Transferencia térmica' },
-  { label: 'No uses', value: 'Carta ni 4 × 6' }
+  { label: 'Impresora', value: 'Ribetec RT420BE' },
+  { label: 'Tamaño de papel', value: '35 × 25 mm' },
+  { label: 'Orientación', value: 'Horizontal' },
+  { label: 'Escala', value: '100% (no ajustar)' },
+  { label: 'Márgenes', value: 'Ninguno' },
+  { label: 'Páginas por hoja', value: '1' },
+  { label: 'No usar', value: 'Carta ni 4 × 6' }
 ];
 
 export function isLabelSizeId(value: string): value is LabelSizeId {

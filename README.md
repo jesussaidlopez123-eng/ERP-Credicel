@@ -2,7 +2,7 @@
 
 Sistema de punto de venta y ERP para sucursales (Matriz, Navojoa y Huatabampo): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
-Las etiquetas de producto se imprimen desde **Inventario → Etiquetas**. En la **Ribetec RT420BE** Chrome **no lista** 35 × 25 mm; si imprimes desde ahí salen verticales y con huecos. Usa **Enviar a RT420BE**: descarga `CREDI-CEL-RT420BE.bat` y ábrelo. Eso manda TSPL 35 × 25 mm, una etiqueta tras otra. En el driver (Dispositivos e impresoras → Preferencias → Stock) **escribe** ancho 35 mm, alto 25 mm y hueco 2 mm; no busques una opción con ese nombre. El rollo **58 mm** sigue para ticket térmico.
+Las etiquetas de producto se imprimen desde **Inventario → Etiquetas**. En una **Ribetec RT420BE** el programa manda un PDF **3.5 × 2.5 cm** (35 × 25 mm, horizontal), una etiqueta por avance. En **ajustes de impresión** debe quedar: impresora RT420BE, papel **35 × 25 mm**, orientación **Horizontal**, escala **100%** (no ajustar), márgenes **Ninguno**, 1 página por hoja. No uses Carta ni 4 × 6. Puedes **Descargar PDF** y imprimirlo igual. El rollo **58 mm** sigue disponible para ticket térmico.
 
 Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
 

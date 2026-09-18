@@ -96,19 +96,6 @@ function pdfBlob(data: ArrayBuffer | Blob): Blob {
   return new Blob([new Uint8Array(data)], { type: 'application/pdf' });
 }
 
-export function downloadTextFile(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-
 export function downloadPdfDocument(data: ArrayBuffer | Blob, filename: string): void {
   const blob = pdfBlob(data);
   const url = URL.createObjectURL(blob);

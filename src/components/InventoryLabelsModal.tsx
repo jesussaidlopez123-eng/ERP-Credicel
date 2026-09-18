@@ -14,7 +14,7 @@ import {
 import { Product } from '../types';
 import { isVirtualPosProduct } from '../lib/inventoryRules';
 import { barcodePngDataUrl } from '../lib/barcode';
-import { escapeHtml, printHtmlDocument, downloadPdfDocument, downloadTextFile } from '../lib/printWindow';
+import { escapeHtml, printHtmlDocument, printPdfDocument, downloadPdfDocument } from '../lib/printWindow';
 import {
   LABEL_SIZE_OPTIONS,
   LabelSizeId,
@@ -24,7 +24,6 @@ import {
   createInventoryLabelPdf,
   RT420BE_PRINT_SETTINGS
 } from '../lib/inventoryLabels';
-import { createRt420PrintBat } from '../lib/labelTspl';
 
 interface QueueItem {
   product: Product;
@@ -55,14 +54,12 @@ export default function InventoryLabelsModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [printError, setPrintError] = useState<string | null>(null);
-  const [printNote, setPrintNote] = useState<string | null>(null);
   const [labelSize, setLabelSize] = useState<LabelSizeId>(() => loadLabelSize());
 
   useEffect(() => {
     if (!isOpen) return;
     setSearchQuery('');
     setPrintError(null);
-    setPrintNote(null);
     setQueue(initialProduct && isLabelProduct(initialProduct) ? [{ product: initialProduct, quantity: 1 }] : []);
   }, [isOpen, inventoryTab, initialProduct]);
 
@@ -125,17 +122,15 @@ export default function InventoryLabelsModal({
       return;
     }
     setPrintError(null);
-    setPrintNote(null);
 
     if (labelSize === 'cm35x25') {
       try {
-        downloadTextFile(createRt420PrintBat(wideLabelRows()), 'CREDI-CEL-RT420BE.bat');
-        setPrintNote(
-          'Se descargó CREDI-CEL-RT420BE.bat. Ábrelo (si Windows avisa, Más información → Ejecutar). Manda 35 × 25 mm una tras otra. Chrome no trae esa medida: no uses su cuadro de impresión.'
-        );
+        printPdfDocument(createInventoryLabelPdf(wideLabelRows()), 'Etiquetas-CREDI-CEL-3.5x2.5cm');
       } catch (err) {
         console.error(err);
-        setPrintError('No se pudo armar el archivo de la RT420BE.');
+        setPrintError(
+          'No se pudo abrir la impresión. Usa Descargar PDF y en el driver pon 35 × 25 mm, horizontal, escala 100%.'
+        );
       }
       return;
     }
@@ -297,9 +292,6 @@ export default function InventoryLabelsModal({
           </div>
         </div>
 
-        {printNote && (
-          <div className="px-4 py-2 text-xs text-emerald-900 bg-emerald-50 border-t border-emerald-200">{printNote}</div>
-        )}
         {printError && (
           <div className="px-4 py-2 text-xs text-amber-900 bg-amber-50 border-t border-amber-200">{printError}</div>
         )}
@@ -325,19 +317,16 @@ export default function InventoryLabelsModal({
               ))}
             </div>
             {labelSize === 'cm35x25' ? (
-              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 max-w-lg">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 flex items-center gap-1 mb-1.5">
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 max-w-lg">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 flex items-center gap-1 mb-1.5">
                   <SlidersHorizontal className="w-3 h-3" />
-                  Ajustes: no salen en Chrome
-                </p>
-                <p className="text-[10px] text-amber-950 mb-1.5 leading-snug">
-                  El menú de impresión de Chrome no lista 35 × 25 mm. No lo uses: pone Carta o 4 × 6, sale vertical y con huecos. En Windows: Dispositivos e impresoras → RT420BE → Preferencias de impresión → Stock / Etiqueta, y <span className="font-bold">escribe</span> 35 y 25. El botón Enviar manda esa medida directo.
+                  Ajustes de impresión RT420BE
                 </p>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                   {RT420BE_PRINT_SETTINGS.map((row) => (
                     <div key={row.label} className="flex items-baseline justify-between gap-2 min-w-0">
-                      <dt className="text-[10px] text-amber-800/80 shrink-0">{row.label}</dt>
-                      <dd className="text-[10px] font-bold text-slate-900 text-right truncate">{row.value}</dd>
+                      <dt className="text-[10px] text-slate-500 shrink-0">{row.label}</dt>
+                      <dd className="text-[10px] font-bold text-slate-800 text-right truncate">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
@@ -361,13 +350,11 @@ export default function InventoryLabelsModal({
                     return;
                   }
                   setPrintError(null);
-                  setPrintNote(null);
                   try {
                     downloadPdfDocument(
                       createInventoryLabelPdf(wideLabelRows()),
                       'Etiquetas-CREDI-CEL-3.5x2.5cm.pdf'
                     );
-                    setPrintNote('PDF de 35 × 25 mm. Solo funciona si ya creaste ese papel en el driver; si no, usa Enviar a RT420BE.');
                   } catch (err) {
                     console.error(err);
                     setPrintError('No se pudo armar el PDF.');
@@ -388,7 +375,6 @@ export default function InventoryLabelsModal({
             >
               <Printer className="w-4 h-4" />
               Imprimir {totalLabels > 0 ? `${totalLabels} etiqueta${totalLabels === 1 ? '' : 's'}` : 'etiquetas'}
-              {labelSize === 'cm35x25' ? ' · RT420BE' : ''}
             </button>
           </div>
         </div>
