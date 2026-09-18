@@ -13,6 +13,13 @@ import { Product } from '../types';
 import { isVirtualPosProduct } from '../lib/inventoryRules';
 import { barcodePngDataUrl } from '../lib/barcode';
 import { escapeHtml, printHtmlDocument } from '../lib/printWindow';
+import {
+  LABEL_SIZE_OPTIONS,
+  LabelSizeId,
+  loadLabelSize,
+  saveLabelSize,
+  labelPrintCss
+} from '../lib/inventoryLabels';
 
 interface QueueItem {
   product: Product;
@@ -43,6 +50,7 @@ export default function InventoryLabelsModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [labelSize, setLabelSize] = useState<LabelSizeId>(() => loadLabelSize());
 
   useEffect(() => {
     if (!isOpen) return;
@@ -118,29 +126,15 @@ export default function InventoryLabelsModal({
       }
     });
 
-    const css = `
-      @page { size: 58mm auto; margin: 0; }
-      * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      html, body { margin: 0; padding: 0; width: 58mm; background: #fff; color: #000; }
-      .sticker {
-        width: 54mm;
-        margin: 0 auto;
-        padding: 2.2mm 1.5mm 6mm 1.5mm;
-        text-align: center;
-        font-family: Arial, Helvetica, sans-serif;
-        page-break-after: always;
-        border-bottom: 1px dashed #000;
-      }
-      .sticker:last-child { page-break-after: auto; border-bottom: none; }
-      .store { font-size: 8px; font-weight: 800; letter-spacing: 0.12em; }
-      .code { font-size: 10px; font-family: 'Courier New', monospace; font-weight: 700; margin-top: 1mm; }
-      .name { font-size: 11px; font-weight: 700; line-height: 1.2; margin: 1mm 0; }
-      .barcode { width: 50mm; height: 16mm; object-fit: contain; }
-      .price { font-size: 16px; font-weight: 800; margin-top: 1mm; }
-    `;
-
-    printHtmlDocument(stickers.join(''), 'Etiquetas de inventario', css);
+    printHtmlDocument(stickers.join(''), 'Etiquetas de inventario', labelPrintCss(labelSize));
   };
+
+  const changeSize = (id: LabelSizeId) => {
+    setLabelSize(id);
+    saveLabelSize(id);
+  };
+
+  const widePreview = labelSize === 'in35x25';
 
   if (!isOpen) return null;
 
@@ -157,7 +151,7 @@ export default function InventoryLabelsModal({
                 {initialProduct ? `Etiquetas · ${initialProduct.name}` : 'Etiquetas de inventario'}
               </h3>
               <p className="text-[11px] text-slate-500">
-                Código, nombre, código de barras y precio. Indica cuántas imprimir.
+                Código, nombre, código de barras y precio. Elige la medida: 3.5 × 2.5 in o rollo 58 mm.
               </p>
             </div>
           </div>
@@ -244,7 +238,11 @@ export default function InventoryLabelsModal({
             </div>
 
             {preview && (
-              <div className="mx-3 mb-2 border border-dashed border-slate-300 rounded-xl p-3 text-center bg-slate-50">
+              <div
+                className={`mx-3 mb-2 border border-dashed border-slate-300 rounded-xl p-3 text-center bg-white ${
+                  widePreview ? 'aspect-[35/25] max-h-40 flex flex-col items-center justify-center' : ''
+                }`}
+              >
                 <p className="text-[9px] font-bold tracking-[0.18em] text-slate-500">CREDI CEL</p>
                 <p className="text-[11px] font-mono font-bold">{preview.code}</p>
                 <p className="text-xs font-semibold leading-tight">{preview.name}</p>
@@ -252,6 +250,9 @@ export default function InventoryLabelsModal({
                   <img src={previewBarcode} alt={preview.code} className="mx-auto my-1 h-12 object-contain" />
                 )}
                 <p className="text-lg font-bold">${Number(preview.price || 0).toFixed(2)}</p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {labelSize === 'in35x25' ? '3.5 × 2.5 in' : '58 mm'}
+                </p>
               </div>
             )}
           </div>
@@ -261,19 +262,46 @@ export default function InventoryLabelsModal({
           <div className="px-4 py-2 text-xs text-amber-900 bg-amber-50 border-t border-amber-200">{printError}</div>
         )}
 
-        <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between gap-2 bg-white">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl">
-            Cerrar
-          </button>
-          <button
-            type="button"
-            onClick={handlePrint}
-            disabled={totalLabels === 0}
-            className="px-4 py-2 text-xs font-semibold text-white bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-40 rounded-xl flex items-center gap-2"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir {totalLabels > 0 ? `${totalLabels} etiqueta${totalLabels === 1 ? '' : 's'}` : 'etiquetas'}
-          </button>
+        <div className="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Medida</p>
+            <div className="flex flex-wrap gap-1.5">
+              {LABEL_SIZE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => changeSize(opt.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer ${
+                    labelSize === opt.id
+                      ? 'bg-[#0047AB] text-white border-[#0047AB]'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title={opt.hint}
+                >
+                  {opt.title}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1 max-w-xs">
+              {labelSize === 'in35x25'
+                ? 'En el cuadro de impresión elige papel 3.5 × 2.5 in. El 4 × 6 deja un hueco enorme entre etiquetas.'
+                : 'Se imprimen seguidas, sin saltar a una hoja 4 × 6.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 sm:ml-auto">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold border border-slate-300 rounded-xl">
+              Cerrar
+            </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={totalLabels === 0}
+              className="px-4 py-2 text-xs font-semibold text-white bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-40 rounded-xl flex items-center gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimir {totalLabels > 0 ? `${totalLabels} etiqueta${totalLabels === 1 ? '' : 's'}` : 'etiquetas'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

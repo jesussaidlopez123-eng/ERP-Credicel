@@ -2,7 +2,7 @@
 
 Sistema de punto de venta y ERP para sucursales (Matriz, Navojoa y Huatabampo): cobro, inventario con IMEI, cortes de caja, gastos, créditos, reparaciones y reportes.
 
-Las etiquetas de producto (código, nombre, código de barras y precio) se imprimen desde **Inventario → Etiquetas**, no como un menú aparte. Los tickets de venta, gasto y corte salen en 58 mm.
+Las etiquetas de producto (código, nombre, código de barras y precio) se imprimen desde **Inventario → Etiquetas**. Hay medida **3.5 × 2.5 in** (una etiqueta por página; no uses papel 4 × 6, eso las deja muy separadas) y rollo **58 mm**. Los tickets de venta, gasto y corte salen en 58 mm.
 
 Este repositorio adopta el código de trabajo actual para continuar el desarrollo.
 
