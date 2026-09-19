@@ -8,6 +8,7 @@ import {
   findSoldImeiTicket,
   imeisAtBranch,
   locateImeiOnProduct,
+  imeisEqual,
   moveImeisOnProduct,
   normalizeImei,
   removeImeisFromProduct,
@@ -28,6 +29,8 @@ const phone = (over: Partial<Product> = {}): Product => ({
 });
 
 assert.equal(normalizeImei('  3512 99  '), '351299');
+assert.equal(imeisEqual('351299123456789', ']351299123456789'), true);
+assert.equal(imeisEqual('351299123456789', '3512991234567890'), true);
 assert.equal(toInventoryBranchId('all'), 'b-matriz');
 assert.equal(toInventoryBranchId('Administracion'), 'b-matriz');
 assert.equal(toInventoryBranchId('sucursal-rara'), 'b-matriz');

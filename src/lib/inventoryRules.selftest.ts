@@ -22,6 +22,29 @@ const atNavojoa = findImeiInInventory([phone], 'AAA', 'b-navojoa');
 assert.equal(atNavojoa.status, 'found');
 assert.equal(atNavojoa.status === 'found' ? atNavojoa.branchId : '', 'b-navojoa');
 
+const navojoaAlias = findImeiInInventory([phone], 'AAA', 'Navojoa');
+assert.equal(navojoaAlias.status, 'found');
+
+const looseOnly: Product = {
+  ...phone,
+  imeiList: ['351299123456789'],
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+};
+const looseAtNav = findImeiInInventory([looseOnly], '351299123456789', 'b-navojoa');
+assert.equal(looseAtNav.status, 'found');
+assert.equal(looseAtNav.status === 'found' ? looseAtNav.branchId : '', 'b-navojoa');
+
+const scanned = findImeiInInventory([looseOnly], ']351299123456789', 'b-navojoa');
+assert.equal(scanned.status, 'found');
+
+const mislabeled: Product = {
+  ...phone,
+  inventoryType: 'accesorio',
+  category: 'accesorio'
+};
+const stillFound = findImeiInInventory([mislabeled], 'AAA', 'b-navojoa');
+assert.equal(stillFound.status, 'found');
+
 const other = findImeiInInventory([phone], 'BBB', 'b-navojoa');
 assert.equal(other.status, 'other_branch');
 

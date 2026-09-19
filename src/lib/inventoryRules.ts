@@ -73,15 +73,15 @@ export function findImeiInInventory(
 
   let otherBranchHit: { product: Product; branchId: string } | null = null;
   const adminView = isAdminWorkspace(currentBranchId) || currentBranchId === 'all';
+  const want = adminView ? '' : toInventoryBranchId(currentBranchId);
 
   for (const p of products) {
-    if (!isEquipmentProduct(p)) continue;
-    const loc = locateImeiOnProduct(p, needle);
+    const loc = locateImeiOnProduct(p, rawImei);
     if (!loc) continue;
-    if (adminView || loc.branchId === currentBranchId) {
-      return { status: 'found', product: p, branchId: loc.branchId };
+    if (adminView || loc.unassigned || loc.branchId === want) {
+      return { status: 'found', product: p, branchId: loc.unassigned ? want || loc.branchId : loc.branchId };
     }
-    otherBranchHit = { product: p, branchId: loc.branchId };
+    if (loc.branchId) otherBranchHit = { product: p, branchId: loc.branchId };
   }
 
   if (otherBranchHit) {

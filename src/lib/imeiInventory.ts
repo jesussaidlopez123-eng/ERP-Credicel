@@ -18,6 +18,27 @@ export function normalizeImei(raw?: string | null): string {
     .toUpperCase();
 }
 
+export function imeiDigits(raw?: string | null): string {
+  return String(raw || '').replace(/\D/g, '');
+}
+
+/** El lector a veces manda letras, 14 o 17 dígitos; el inventario guarda 15. */
+export function imeisEqual(a?: string | null, b?: string | null): boolean {
+  const na = normalizeImei(a);
+  const nb = normalizeImei(b);
+  if (na && nb && na === nb) return true;
+  const da = imeiDigits(a);
+  const db = imeiDigits(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  if (da.length >= 14 && db.length >= 14 && da.length !== db.length) {
+    const longer = da.length > db.length ? da : db;
+    const shorter = da.length > db.length ? db : da;
+    return longer.startsWith(shorter) || longer.endsWith(shorter);
+  }
+  return false;
+}
+
 export function isEquipmentProduct(product?: Product | null): boolean {
   if (!product) return false;
   return (
@@ -57,21 +78,23 @@ export function collectProductImeis(product: Product): string[] {
   return found;
 }
 
-export function locateImeiOnProduct(product: Product, rawImei: string): { branchId: string; hidden: boolean } | null {
+export function locateImeiOnProduct(
+  product: Product,
+  rawImei: string
+): { branchId: string; hidden: boolean; unassigned?: boolean } | null {
   const needle = normalizeImei(rawImei);
-  if (!needle) return null;
+  if (!needle && !imeiDigits(rawImei)) return null;
   const grouped = canonicalBranchImeiMap(product);
   for (const branch of ['b-navojoa', 'b-huatabampo', 'b-matriz'] as const) {
-    if ((grouped[branch] || []).includes(needle)) {
-      const rawHasCanonical = ((product.branchImeiMap || {})[branch] || []).some(
-        (im) => normalizeImei(im) === needle
-      );
+    if ((grouped[branch] || []).some((im) => imeisEqual(im, rawImei))) {
+      const rawHasCanonical = ((product.branchImeiMap || {})[branch] || []).some((im) => imeisEqual(im, rawImei));
       return { branchId: branch, hidden: !rawHasCanonical };
     }
   }
   const loose = [...(product.imeiList || []), ...(product.imeis || []), product.imei || ''];
-  if (loose.some((im) => normalizeImei(im) === needle)) {
-    return { branchId: 'b-matriz', hidden: true };
+  if (loose.some((im) => imeisEqual(im, rawImei))) {
+    // Lista plana sin sucursal: no es Matriz. El PDV de Navojoa debe poder venderlo.
+    return { branchId: '', hidden: true, unassigned: true };
   }
   return null;
 }
@@ -241,9 +264,9 @@ export function findImeiOnCatalog(
   if (!needle) return null;
   for (const product of products || []) {
     const loc = locateImeiOnProduct(product, needle);
-    if (loc) return { product, branchId: loc.branchId };
-    if (collectProductImeis(product).some((im) => normalizeImei(im) === needle)) {
-      return { product, branchId: 'b-matriz' };
+    if (loc) return { product, branchId: loc.unassigned ? '' : loc.branchId };
+    if (collectProductImeis(product).some((im) => imeisEqual(im, rawImei))) {
+      return { product, branchId: '' };
     }
   }
   return null;
@@ -329,7 +352,7 @@ export function traceImei(
 
   const events: ImeiTraceEvent[] = [];
   let product: Product | undefined;
-  let loc: { branchId: string; hidden: boolean } | null = null;
+  let loc: { branchId: string; hidden: boolean; unassigned?: boolean } | null = null;
 
   for (const p of ctx.products || []) {
     const hit = locateImeiOnProduct(p, imei);
@@ -383,7 +406,9 @@ export function traceImei(
       product,
       branchId: loc?.branchId || ticket.branchId,
       branchName: loc
-        ? ALL_BRANCHES.find((b) => b.id === loc.branchId)?.name || getBranchDisplayName(loc.branchId)
+        ? loc.unassigned
+          ? 'Sin sucursal asignada'
+          : ALL_BRANCHES.find((b) => b.id === loc.branchId)?.name || getBranchDisplayName(loc.branchId)
         : getBranchDisplayName(ticket.branchId),
       wasHidden: Boolean(loc?.hidden),
       ticket,
@@ -399,7 +424,9 @@ export function traceImei(
       status: baja && collectProductImeis(product).every((im) => im !== imei) ? 'baja' : 'disponible',
       product,
       branchId: loc.branchId,
-      branchName: ALL_BRANCHES.find((b) => b.id === loc.branchId)?.name || getBranchDisplayName(loc.branchId),
+      branchName: loc.unassigned
+        ? 'Sin sucursal asignada'
+        : ALL_BRANCHES.find((b) => b.id === loc.branchId)?.name || getBranchDisplayName(loc.branchId),
       wasHidden: loc.hidden,
       ticket,
       credit,
