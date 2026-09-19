@@ -60,6 +60,17 @@ assert.deepEqual(soldStay.branchImeiMap?.['b-matriz'], ['AAA']);
 assert.deepEqual(soldStay.branchImeiMap?.['b-navojoa'], []);
 assert.equal(soldStay.stock, 1);
 
+const scannedOff = removeImeisFromProduct(
+  phone({
+    branchImeiMap: { 'b-navojoa': ['351299123456789'] },
+    imeiList: ['351299123456789'],
+    stock: 1
+  }),
+  [']351299123456789']
+);
+assert.deepEqual(scannedOff.branchImeiMap?.['b-navojoa'], []);
+assert.equal(scannedOff.stock, 0);
+
 const moved = moveImeisOnProduct(
   phone({
     branchImeiMap: { 'b-matriz': ['CCC'], 'b-navojoa': [], 'b-huatabampo': [] },

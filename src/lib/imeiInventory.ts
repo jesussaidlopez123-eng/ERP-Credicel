@@ -205,13 +205,14 @@ export function addImeisToProduct(product: Product, branchId: string, rawImeis: 
 }
 
 export function removeImeisFromProduct(product: Product, rawImeis: string[]): Product {
-  const needles = new Set(rawImeis.map(normalizeImei).filter(Boolean));
-  if (needles.size === 0) return sanitizeEquipmentProduct(product);
+  const needles = rawImeis.map(normalizeImei).filter(Boolean);
+  if (needles.length === 0) return sanitizeEquipmentProduct(product);
+  const matchesSold = (im: string) => needles.some((n) => imeisEqual(im, n));
   const map = canonicalBranchImeiMap(product);
   for (const key of INVENTORY_BRANCH_IDS) {
-    map[key] = map[key].filter((im) => !needles.has(im));
+    map[key] = map[key].filter((im) => !matchesSold(im));
   }
-  const extras = unmappedImeis(product).filter((im) => !needles.has(im));
+  const extras = unmappedImeis(product).filter((im) => !matchesSold(im));
   return rebuildEquipmentFromMap(product, map, extras);
 }
 
@@ -277,7 +278,7 @@ export function findSoldImeiTicket(tickets: SaleTicket[] | undefined, rawImei: s
   if (!needle) return undefined;
   for (const ticket of tickets || []) {
     for (const item of ticket.items || []) {
-      if (normalizeImei(item.metadata?.imei) !== needle) continue;
+      if (!imeisEqual(item.metadata?.imei, needle)) continue;
       if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
       if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {
         return ticket;
@@ -299,7 +300,9 @@ export function applyEquipmentIntegrity(
       continue;
     }
     let updated = sanitizeEquipmentProduct(product);
-    const stillListed = collectProductImeis(updated).filter((im) => soldImeis.has(im));
+    const stillListed = collectProductImeis(updated).filter((im) =>
+      [...soldImeis].some((sold) => imeisEqual(im, sold))
+    );
     if (stillListed.length > 0) {
       updated = removeImeisFromProduct(updated, stillListed);
     }

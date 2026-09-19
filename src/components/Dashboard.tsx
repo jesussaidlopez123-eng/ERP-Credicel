@@ -45,7 +45,15 @@ import {
   fetchOlderRepairRecords
 } from '../lib/firebase';
 import { isNonInventorySaleItem, restoreBranchForSaleItem } from '../lib/inventoryRules';
-import { findImeiOnCatalog, isEquipmentProduct, normalizeImei, removeImeisFromProduct } from '../lib/imeiInventory';
+import {
+  addImeisToProduct,
+  collectProductImeis,
+  findImeiOnCatalog,
+  imeisEqual,
+  isEquipmentProduct,
+  normalizeImei,
+  removeImeisFromProduct
+} from '../lib/imeiInventory';
 import { addAccessoryStock, applyCatalogIntegrity, removeAccessoryStock } from '../lib/accessoryInventory';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
@@ -990,7 +998,10 @@ export default function Dashboard({
     const productWrites: Array<{ product: Product; base: Product }> = [];
     const nextCatalog = catalogNow.map((p) => {
       const qty = qtyByProduct.get(p.id) || 0;
-      const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => normalizeImei(im));
+      const soldImeis = (imeisByProduct.get(p.id) || []).map((im) => {
+        const listed = collectProductImeis(p).find((stored) => imeisEqual(stored, im));
+        return listed || normalizeImei(im);
+      });
       if (qty <= 0 && soldImeis.length === 0) return p;
 
       soldImeis.forEach((im) => recentlySoldImeisRef.current.add(im));
@@ -1268,9 +1279,20 @@ export default function Dashboard({
     const existing = productsRef.current.find(
       (p) => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase()
     );
+    if (existing && isEquipmentProduct(existing)) {
+      const dest =
+        (['b-navojoa', 'b-huatabampo', 'b-matriz'] as const).find(
+          (id) => (newProd.branchImeiMap?.[id] || []).length > 0
+        ) || 'b-matriz';
+      const merged = addImeisToProduct(existing, dest, collectProductImeis(newProd));
+      setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
+      commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+      return;
+    }
     setProducts((prev) => {
-      // Check if product with this ID or Code already exists
-      const existingIdx = prev.findIndex(p => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase());
+      const existingIdx = prev.findIndex(
+        (p) => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase()
+      );
       if (existingIdx !== -1) {
         const updatedList = [...prev];
         updatedList[existingIdx] = { ...prev[existingIdx], ...newProd };

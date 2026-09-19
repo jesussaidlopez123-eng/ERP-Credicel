@@ -2413,10 +2413,7 @@ export async function commitDocWrites(writes: QueuedDocWrite[]): Promise<void> {
   const productWrites = writes.filter((w) => w.collection === PRODUCTS_COLLECTION);
   const otherWrites = writes.filter((w) => w.collection !== PRODUCTS_COLLECTION);
 
-  for (const w of productWrites) {
-    await saveProductToFirestore({ id: w.id, ...w.data } as Product, w.inventoryBase);
-  }
-
+  // Primero el ticket/kardex. Si se baja el IMEI y luego falla la venta, el equipo desaparece.
   const CHUNK_SIZE = 400;
   for (let i = 0; i < otherWrites.length; i += CHUNK_SIZE) {
     const chunk = otherWrites.slice(i, i + CHUNK_SIZE);
@@ -2427,6 +2424,10 @@ export async function commitDocWrites(writes: QueuedDocWrite[]): Promise<void> {
       else batch.set(ref, w.data, { merge: true });
     });
     await batch.commit();
+  }
+
+  for (const w of productWrites) {
+    await saveProductToFirestore({ id: w.id, ...w.data } as Product, w.inventoryBase);
   }
 }
 

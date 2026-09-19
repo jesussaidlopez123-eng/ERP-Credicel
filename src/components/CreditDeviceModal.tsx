@@ -20,6 +20,7 @@ import {
 import { Product, CartItemMetadata, Branch } from '../types';
 import { isAdminWorkspace } from '../data/initialBranches';
 import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
+import { collectProductImeis, imeisEqual } from '../lib/imeiInventory';
 
 interface CreditDeviceModalProps {
   isOpen: boolean;
@@ -209,7 +210,8 @@ export default function CreditDeviceModal({
         clientName: clientName.trim(),
         clientPhone: clientPhone.trim(),
         deviceModel: deviceModel.trim(),
-        imei: cleanImei,
+        imei:
+          collectProductImeis(foundValidProduct).find((stored) => imeisEqual(stored, cleanImei)) || cleanImei,
         stockBranchId: check.stockBranchId,
         downPayment: engancheAmount,
         fullPrice: totalEquipmentPrice,
