@@ -1,16 +1,22 @@
-import type { Product } from '../types';
+import type { Product, SaleTicket } from '../types';
 import {
+  applyCatalogIntegrity,
   emptyBranchStock,
   sanitizeAccessoryProduct,
   visibleAccessoryStock
 } from './accessoryInventory';
 import {
   collectProductImeis,
+  collectSoldImeis,
   emptyBranchImeiMap,
   canonicalBranchImeiMap,
+  canonicalImei,
+  imeisEqual,
   isEquipmentProduct,
+  listHasImei,
   normalizeImei,
   sanitizeEquipmentProduct,
+  storedImeiInList,
   unmappedImeis,
   INVENTORY_BRANCH_IDS
 } from './imeiInventory';
@@ -77,10 +83,49 @@ function locationsFromMap(map: Record<string, string[]>): Map<string, (typeof IN
   const loc = new Map<string, (typeof INVENTORY_BRANCH_IDS)[number]>();
   for (const branch of INVENTORY_BRANCH_IDS) {
     for (const imei of map[branch] || []) {
-      if (!loc.has(imei)) loc.set(imei, branch);
+      if (!storedImeiInList([...loc.keys()], imei)) loc.set(imei, branch);
     }
   }
   return loc;
+}
+
+function locationOf(
+  loc: Map<string, (typeof INVENTORY_BRANCH_IDS)[number]> | null | undefined,
+  imei: string
+): (typeof INVENTORY_BRANCH_IDS)[number] | undefined {
+  if (!loc) return undefined;
+  const exact = loc.get(imei);
+  if (exact) return exact;
+  for (const [stored, branch] of loc) {
+    if (imeisEqual(stored, imei)) return branch;
+  }
+  return undefined;
+}
+
+function setHasImei(set: Set<string>, imei: string): boolean {
+  if (set.has(imei)) return true;
+  for (const value of set) {
+    if (imeisEqual(value, imei)) return true;
+  }
+  return false;
+}
+
+function foldImeis(imeis: Iterable<string>): string[] {
+  const out: string[] = [];
+  for (const raw of imeis) {
+    const n = canonicalImei(raw) || normalizeImei(raw);
+    if (!n) continue;
+    const existing = storedImeiInList(out, n);
+    if (!existing) {
+      out.push(n);
+      continue;
+    }
+    const digits = canonicalImei(existing);
+    if (existing !== digits && n === digits) {
+      out[out.indexOf(existing)] = n;
+    }
+  }
+  return out;
 }
 
 function applyEquipmentWrite(server: Product, incoming: Product, base?: InventorySnapshot | null): Product {
@@ -88,8 +133,8 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
   const keep = sanitizeEquipmentProduct(server);
   const serverMap = canonicalBranchImeiMap(keep);
   const incomingMap = canonicalBranchImeiMap(incoming);
-  const incomingAll = new Set(collectProductImeis(incoming).map(normalizeImei).filter(Boolean));
-  const serverAll = new Set(collectProductImeis(keep).map(normalizeImei).filter(Boolean));
+  const incomingAll = new Set(collectProductImeis(incoming).map((im) => canonicalImei(im) || normalizeImei(im)).filter(Boolean));
+  const serverAll = new Set(collectProductImeis(keep).map((im) => canonicalImei(im) || normalizeImei(im)).filter(Boolean));
   const serverLoc = locationsFromMap(serverMap);
   const incomingLoc = locationsFromMap(incomingMap);
 
@@ -98,24 +143,29 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
   if (base) {
     const baseProd = asProductForStock(incoming, base);
     baseLoc = locationsFromMap(canonicalBranchImeiMap(baseProd));
-    baseAll = new Set(collectProductImeis(baseProd).map(normalizeImei).filter(Boolean));
+    baseAll = new Set(
+      collectProductImeis(baseProd)
+        .map((im) => canonicalImei(im) || normalizeImei(im))
+        .filter(Boolean)
+    );
   }
 
   const result = emptyBranchImeiMap();
-  const placed = new Set<string>();
+  const placed: string[] = [];
   const place = (imei: string, branch: (typeof INVENTORY_BRANCH_IDS)[number]) => {
-    if (!imei || placed.has(imei)) return;
-    placed.add(imei);
-    result[branch].push(imei);
+    const form = storedImeiInList([...serverLoc.keys()], imei) || canonicalImei(imei) || imei;
+    if (!form || listHasImei(placed, form)) return;
+    placed.push(form);
+    result[branch].push(form);
   };
 
-  const removed = (imei: string) => Boolean(baseLoc && baseAll.has(imei) && !incomingAll.has(imei));
+  const removed = (imei: string) => Boolean(baseLoc && setHasImei(baseAll, imei) && !setHasImei(incomingAll, imei));
 
-  for (const imei of new Set([...serverAll, ...incomingAll])) {
+  for (const imei of foldImeis([...serverAll, ...incomingAll])) {
     if (removed(imei)) continue;
-    const onServer = serverLoc.get(imei);
-    const onIncoming = incomingLoc.get(imei);
-    const onBase = baseLoc?.get(imei);
+    const onServer = locationOf(serverLoc, imei);
+    const onIncoming = locationOf(incomingLoc, imei);
+    const onBase = locationOf(baseLoc, imei);
 
     if (!baseLoc) {
       if (onServer) place(imei, onServer);
@@ -142,8 +192,8 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
   }
 
   const extras = [
-    ...unmappedImeis(keep).filter((im) => !placed.has(im) && !removed(im)),
-    ...unmappedImeis(incoming).filter((im) => !placed.has(im) && !removed(im))
+    ...unmappedImeis(keep).filter((im) => !listHasImei(placed, im) && !removed(im)),
+    ...unmappedImeis(incoming).filter((im) => !listHasImei(placed, im) && !removed(im))
   ];
 
   return sanitizeEquipmentProduct({
@@ -168,5 +218,71 @@ export function applyInventoryWrite(
     return applyEquipmentWrite(server, incoming, base);
   }
   return applyAccessoryWrite(server, incoming, base);
+}
+
+export type PendingInventoryWrite = {
+  incoming: Product;
+  base?: InventorySnapshot | null;
+};
+
+/** Aplica las bajas/altas que este equipo todavía no confirma en la nube. */
+export function applyPendingInventoryWrites(
+  catalog: Product[],
+  writes: PendingInventoryWrite[]
+): Product[] {
+  if (!writes.length) return catalog;
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  const order = catalog.map((p) => p.id);
+  for (const write of writes) {
+    const incoming = write.incoming;
+    if (!incoming?.id) continue;
+    const server = byId.get(incoming.id);
+    const merged = applyInventoryWrite(server, incoming, write.base);
+    if (!byId.has(incoming.id)) order.push(incoming.id);
+    byId.set(incoming.id, merged);
+  }
+  return order.map((id) => byId.get(id)).filter((p): p is Product => Boolean(p));
+}
+
+export function pendingProductWritesFromOutboxPayload(payload: unknown): PendingInventoryWrite[] {
+  const writes = (
+    payload as {
+      writes?: Array<{
+        collection?: string;
+        id?: string;
+        data?: Record<string, unknown>;
+        inventoryBase?: InventorySnapshot;
+      }>;
+    }
+  )?.writes;
+  if (!Array.isArray(writes)) return [];
+  const out: PendingInventoryWrite[] = [];
+  for (const write of writes) {
+    if (write.collection !== 'products' || !write.id) continue;
+    out.push({
+      incoming: { id: write.id, ...(write.data || {}) } as Product,
+      base: write.inventoryBase || null
+    });
+  }
+  return out;
+}
+
+/**
+ * Catálogo que ve el mostrador: nube + cola pendiente + IMEI ya vendidos en tickets.
+ * Evita que un snapshot viejo vuelva a poner en venta lo que esta caja ya cobró.
+ */
+export function applyLiveCatalog(params: {
+  cloud: Product[];
+  pendingWrites?: PendingInventoryWrite[];
+  tickets?: SaleTicket[];
+  extraSoldImeis?: Iterable<string>;
+}): Product[] {
+  const overlaid = applyPendingInventoryWrites(params.cloud, params.pendingWrites || []);
+  const sold = collectSoldImeis(params.tickets || []);
+  for (const raw of params.extraSoldImeis || []) {
+    const imei = canonicalImei(raw) || normalizeImei(raw);
+    if (imei) sold.add(imei);
+  }
+  return applyCatalogIntegrity(overlaid, sold).next;
 }
 

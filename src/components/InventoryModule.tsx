@@ -32,8 +32,11 @@ import {
   findImeiOnCatalog,
   findSoldImeiTicket,
   imeisAtBranch,
+  imeisEqual,
   imeisGroupedByBranch,
   isEquipmentProduct,
+  canonicalImei,
+  imeiDigits,
   moveImeisOnProduct,
   normalizeImei,
   removeImeisFromProduct,
@@ -360,8 +363,9 @@ function InventoryModule({
 
   // 2. Validación estricta de formato y longitud de IMEI (Exactamente 15 dígitos numéricos)
   const validateImeiDigits = (imeiStr: string) => {
-    const clean = (imeiStr || '').trim();
-    if (!clean) {
+    const digits = imeiDigits(imeiStr);
+    const clean = canonicalImei(imeiStr) || (imeiStr || '').trim();
+    if (!clean && !digits) {
       return {
         isValid: false,
         length: 0,
@@ -371,8 +375,8 @@ function InventoryModule({
       };
     }
 
-    const isNumeric = /^\d+$/.test(clean);
-    const length = clean.length;
+    const isNumeric = digits.length > 0;
+    const length = digits.length || clean.length;
 
     if (!isNumeric) {
       return {
@@ -394,13 +398,13 @@ function InventoryModule({
       };
     }
 
-    if (length > 15) {
+    if (digits.length > 17) {
       return {
         isValid: false,
-        length,
+        length: digits.length,
         isNumeric: true,
         errorType: 'long' as const,
-        message: `Longitud mayor a 15 dígitos (${length}/15). Sobran ${length - 15} dígitos (debe tener exactamente 15 dígitos).`
+        message: `Longitud mayor a 15 dígitos (${digits.length}/15). Sobran ${digits.length - 15} dígitos (debe tener exactamente 15 dígitos).`
       };
     }
 
@@ -435,7 +439,7 @@ function InventoryModule({
     }
 
     const batchDuplicateIndex = batch.findIndex(
-      (otherImei, idx) => idx !== currentIndex && normalizeImei(otherImei) === clean
+      (otherImei, idx) => idx !== currentIndex && imeisEqual(otherImei, clean)
     );
     const isDuplicateInBatch = batchDuplicateIndex !== -1;
 
@@ -687,7 +691,7 @@ function InventoryModule({
 
     if (!pendingEquipmentData) return;
 
-    const finalImeis = imeiInputs.map((s) => normalizeImei(s)).filter(Boolean);
+    const finalImeis = imeiInputs.map((s) => canonicalImei(s) || normalizeImei(s)).filter(Boolean);
 
     const { isExisting, selectedProdId, branchId, qty, name, code, costPrice, price, supplier } = pendingEquipmentData;
 

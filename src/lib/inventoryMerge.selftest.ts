@@ -179,4 +179,18 @@ const stillTransfer = applyInventoryWrite(
 assert.deepEqual(imeisAtBranch(stillTransfer, 'b-huatabampo'), ['AAA']);
 assert.deepEqual(imeisAtBranch(stillTransfer, 'b-navojoa'), ['BBB']);
 
+const serverCleanImei = phone({
+  stock: 1,
+  imeiList: ['351299123456789'],
+  branchImeiMap: { 'b-navojoa': ['351299123456789'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const incomingDirtyImei = phone({
+  stock: 1,
+  imeiList: [']351299123456789'],
+  branchImeiMap: { 'b-navojoa': [']351299123456789'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const noDupFormat = applyInventoryWrite(serverCleanImei, incomingDirtyImei, null);
+assert.equal(noDupFormat.stock, 1);
+assert.equal(imeisAtBranch(noDupFormat, 'b-navojoa').length, 1);
+
 console.log('inventoryMerge self-test ok');

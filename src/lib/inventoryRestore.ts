@@ -6,6 +6,7 @@ import {
   collectProductImeis,
   collectSoldImeis,
   imeisAtBranch,
+  imeisEqual,
   isEquipmentProduct,
   locateImeiOnProduct,
   normalizeImei,
@@ -269,7 +270,7 @@ export function applyRestoreActionsToProducts(products: Product[], actions: Rest
     if (action.kind === 'equipo' && action.imeis.length > 0) {
       for (const product of next.values()) {
         const listed = collectProductImeis(product).filter((im) =>
-          action.imeis.includes(normalizeImei(im))
+          action.imeis.some((needle) => imeisEqual(im, needle) || normalizeImei(im) === normalizeImei(needle))
         );
         if (listed.length === 0) continue;
         if (product.id === action.productId) continue;

@@ -29,14 +29,38 @@ export function imeisEqual(a?: string | null, b?: string | null): boolean {
   if (na && nb && na === nb) return true;
   const da = imeiDigits(a);
   const db = imeiDigits(b);
-  if (!da || !db) return false;
+  if (!da || !db || da.length < 14 || db.length < 14) return false;
   if (da === db) return true;
-  if (da.length >= 14 && db.length >= 14 && da.length !== db.length) {
+  if (da.length !== db.length) {
     const longer = da.length > db.length ? da : db;
     const shorter = da.length > db.length ? db : da;
     return longer.startsWith(shorter) || longer.endsWith(shorter);
   }
   return false;
+}
+
+/** Forma estable para guardar: 15 dígitos si el lector trajo basura o dígitos de más. */
+export function canonicalImei(raw?: string | null): string {
+  const digits = imeiDigits(raw);
+  if (digits.length >= 15) return digits.slice(0, 15);
+  if (digits.length >= 14) return digits;
+  return normalizeImei(raw);
+}
+
+export function listHasImei(list: Iterable<string> | undefined, raw?: string | null): boolean {
+  if (!raw) return false;
+  for (const im of list || []) {
+    if (imeisEqual(im, raw)) return true;
+  }
+  return false;
+}
+
+export function storedImeiInList(list: Iterable<string> | undefined, raw?: string | null): string | undefined {
+  if (!raw) return undefined;
+  for (const im of list || []) {
+    if (imeisEqual(im, raw)) return im;
+  }
+  return undefined;
 }
 
 export function isEquipmentProduct(product?: Product | null): boolean {
@@ -61,7 +85,7 @@ export function emptyBranchImeiMap(): Record<InventoryBranchId, string[]> {
 }
 
 function uniquePush(list: string[], imei: string): void {
-  if (!list.includes(imei)) list.push(imei);
+  if (!listHasImei(list, imei)) list.push(imei);
 }
 
 /** Todos los IMEI que el producto tiene, en cualquier campo o sucursal (incluso oculta). */
@@ -102,7 +126,7 @@ export function locateImeiOnProduct(
 /** IMEIs por sucursal canónica. No mete a Matriz los que solo viven en imeiList. */
 export function canonicalBranchImeiMap(product: Product): Record<InventoryBranchId, string[]> {
   const clean = emptyBranchImeiMap();
-  const seen = new Set<string>();
+  const seen: string[] = [];
   const order: InventoryBranchId[] = ['b-navojoa', 'b-huatabampo', 'b-matriz'];
   const map = product.branchImeiMap || {};
 
@@ -110,8 +134,8 @@ export function canonicalBranchImeiMap(product: Product): Record<InventoryBranch
     const dest = toInventoryBranchId(rawKey);
     for (const raw of list || []) {
       const n = normalizeImei(raw);
-      if (!n || seen.has(n)) continue;
-      seen.add(n);
+      if (!n || listHasImei(seen, n)) continue;
+      seen.push(n);
       clean[dest].push(n);
     }
   };
@@ -131,12 +155,12 @@ export function staleInventoryMapKeys(map?: Record<string, unknown> | null): str
 }
 
 export function unmappedImeis(product: Product): string[] {
-  const mapped = new Set<string>();
+  const mapped: string[] = [];
   const grouped = canonicalBranchImeiMap(product);
   for (const branch of INVENTORY_BRANCH_IDS) {
-    for (const im of grouped[branch]) mapped.add(im);
+    for (const im of grouped[branch]) mapped.push(im);
   }
-  return collectProductImeis(product).filter((im) => !mapped.has(im));
+  return collectProductImeis(product).filter((im) => !listHasImei(mapped, im));
 }
 
 function rebuildEquipmentFromMap(
@@ -152,7 +176,7 @@ function rebuildEquipmentFromMap(
   const extraClean: string[] = [];
   for (const raw of extras) {
     const n = normalizeImei(raw);
-    if (!n || seen.has(n)) continue;
+    if (!n || seen.has(n) || listHasImei(seen, n) || listHasImei(extraClean, n)) continue;
     seen.add(n);
     extraClean.push(n);
   }
@@ -190,18 +214,21 @@ export function sanitizeEquipmentProduct(product: Product): Product {
 export function addImeisToProduct(product: Product, branchId: string, rawImeis: string[]): Product {
   const dest = toInventoryBranchId(branchId);
   const map = canonicalBranchImeiMap(product);
-  const extras = unmappedImeis(product);
-  const added = new Set<string>();
+  let extras = unmappedImeis(product);
+  const added: string[] = [];
   for (const raw of rawImeis) {
-    const n = normalizeImei(raw);
+    const n = canonicalImei(raw) || normalizeImei(raw);
     if (!n) continue;
-    added.add(n);
     for (const key of INVENTORY_BRANCH_IDS) {
-      map[key] = map[key].filter((im) => im !== n);
+      map[key] = map[key].filter((im) => !imeisEqual(im, n));
     }
-    map[dest].push(n);
+    extras = extras.filter((im) => !imeisEqual(im, n));
+    if (!listHasImei(added, n) && !listHasImei(map[dest], n)) {
+      added.push(n);
+      map[dest].push(n);
+    }
   }
-  return rebuildEquipmentFromMap(product, map, extras.filter((im) => !added.has(im)));
+  return rebuildEquipmentFromMap(product, map, extras);
 }
 
 export function removeImeisFromProduct(product: Product, rawImeis: string[]): Product {
@@ -218,13 +245,27 @@ export function removeImeisFromProduct(product: Product, rawImeis: string[]): Pr
 
 export function moveImeisOnProduct(product: Product, fromBranchId: string, toBranchId: string, rawImeis: string[]): Product {
   const dest = toInventoryBranchId(toBranchId);
-  const needles = new Set(rawImeis.map(normalizeImei).filter(Boolean));
+  void fromBranchId;
   const map = canonicalBranchImeiMap(product);
-  for (const key of INVENTORY_BRANCH_IDS) {
-    map[key] = map[key].filter((im) => !needles.has(im));
+  let extras = unmappedImeis(product);
+  const moved: string[] = [];
+  for (const raw of rawImeis) {
+    const n = canonicalImei(raw) || normalizeImei(raw);
+    if (!n) continue;
+    const stored =
+      storedImeiInList(
+        INVENTORY_BRANCH_IDS.flatMap((key) => map[key]),
+        n
+      ) || storedImeiInList(extras, n) || n;
+    for (const key of INVENTORY_BRANCH_IDS) {
+      map[key] = map[key].filter((im) => !imeisEqual(im, n));
+    }
+    extras = extras.filter((im) => !imeisEqual(im, n));
+    if (!listHasImei(moved, stored) && !listHasImei(map[dest], stored)) {
+      moved.push(stored);
+      map[dest].push(stored);
+    }
   }
-  map[dest] = [...map[dest], ...Array.from(needles)];
-  const extras = unmappedImeis(product).filter((im) => !needles.has(im));
   return rebuildEquipmentFromMap(product, map, extras);
 }
 
@@ -246,7 +287,7 @@ export function collectSoldImeis(tickets: SaleTicket[]): Set<string> {
   const sold = new Set<string>();
   for (const ticket of tickets || []) {
     for (const item of ticket.items || []) {
-      const imei = normalizeImei(item.metadata?.imei);
+      const imei = canonicalImei(item.metadata?.imei) || normalizeImei(item.metadata?.imei);
       if (!imei) continue;
       if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
       if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {

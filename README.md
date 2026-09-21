@@ -76,7 +76,7 @@ Roles: **Administrador** (todo el menú), **Encargado** (notas, punto de venta, 
 - `npm run build` — build de producción
 - `npm run preview` — previsualizar el build
 - `npm run lint` — chequeo de TypeScript
-- `npm test` — pruebas del día de caja, del modo híbrido y la simulación completa
+- `npm test` — pruebas del día de caja, cotidianidad de inventario, modo híbrido y la simulación completa
 - `npm run simulate` — simula un día de operación con la nube cayéndose a media tarde
 - `npx tsx scripts/restore-branch-inventory.ts` — compara existencias vs kardex (añade `--apply` para devolver faltantes)
 

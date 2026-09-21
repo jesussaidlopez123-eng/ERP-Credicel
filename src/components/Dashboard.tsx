@@ -52,9 +52,15 @@ import {
   imeisEqual,
   isEquipmentProduct,
   normalizeImei,
-  removeImeisFromProduct
+  removeImeisFromProduct,
+  toInventoryBranchId
 } from '../lib/imeiInventory';
-import { addAccessoryStock, applyCatalogIntegrity, removeAccessoryStock } from '../lib/accessoryInventory';
+import { accessoryStockAt, addAccessoryStock, removeAccessoryStock } from '../lib/accessoryInventory';
+import {
+  applyLiveCatalog,
+  pendingProductWritesFromOutboxPayload,
+  type PendingInventoryWrite
+} from '../lib/inventoryMerge';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
 import {
@@ -77,7 +83,7 @@ import {
   saveCachedList,
   scheduleSaveCachedList
 } from '../lib/localCloudCache';
-import { enqueue, startOutboxWorker } from '../lib/outbox';
+import { enqueue, listPendingOutbox, startOutboxWorker, subscribeOutboxStatus } from '../lib/outbox';
 import {
   commitCorte,
   commitCorteSnapshot,
@@ -201,6 +207,8 @@ export default function Dashboard({
   const cloudRepairIdsRef = useRef<Set<string> | null>(null);
   const rescuedRepairIdsRef = useRef(new Set<string>());
   const recentlySoldImeisRef = useRef(new Set<string>());
+  const cloudProductsRef = useRef<Product[]>([]);
+  const pendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
@@ -214,6 +222,21 @@ export default function Dashboard({
     );
   };
 
+  const publishCatalogFromCloud = (cloud: Product[]) => {
+    const byId = new Map(cloud.map((p) => [p.id, p]));
+    INITIAL_PRODUCTS.forEach((p) => {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    });
+    const next = applyLiveCatalog({
+      cloud: Array.from(byId.values()),
+      pendingWrites: pendingInventoryRef.current,
+      tickets: [...salesTicketsRef.current, ...localOnlyRef.current.sales],
+      extraSoldImeis: recentlySoldImeisRef.current
+    });
+    setProducts(next);
+    scheduleSaveCachedList('products', next);
+  };
+
   // -----------------------------------------------------------
   // Real-time Firestore Subscriptions
   // -----------------------------------------------------------
@@ -221,15 +244,8 @@ export default function Dashboard({
     const unsubProducts = subscribeToProducts(
       (prods) => {
         if (prods && prods.length > 0) {
-          const byId = new Map(prods.map((p) => [p.id, p]));
-          INITIAL_PRODUCTS.forEach((p) => {
-            if (!byId.has(p.id)) byId.set(p.id, p);
-          });
-          const sold = new Set<string>();
-          recentlySoldImeisRef.current.forEach((im) => sold.add(im));
-          const next = applyCatalogIntegrity(Array.from(byId.values()), sold).next;
-          setProducts(next);
-          scheduleSaveCachedList('products', next);
+          cloudProductsRef.current = prods;
+          publishCatalogFromCloud(prods);
           setCloudSynced(true);
         }
       },
@@ -243,10 +259,14 @@ export default function Dashboard({
           const next = sortByTimestampDesc(
             mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.sales)
           );
+          salesTicketsRef.current = next;
           scheduleSaveCachedList('sales', next);
           return next;
         });
         if (sales.length < LIVE_LIMIT.sales) setSalesHasMore(false);
+        if (cloudProductsRef.current.length > 0) {
+          publishCatalogFromCloud(cloudProductsRef.current);
+        }
       },
       () => markCloudDown()
     );
@@ -473,6 +493,24 @@ export default function Dashboard({
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);
+
+  useEffect(() => {
+    const refreshPendingInventory = () => {
+      void listPendingOutbox()
+        .then((rows) => {
+          pendingInventoryRef.current = rows.flatMap((row) =>
+            pendingProductWritesFromOutboxPayload(row.payload)
+          );
+          if (cloudProductsRef.current.length > 0) {
+            publishCatalogFromCloud(cloudProductsRef.current);
+          }
+        })
+        .catch((err) => console.warn('[Inventario] No se pudo leer la cola pendiente:', err));
+    };
+    const unsub = subscribeOutboxStatus(() => refreshPendingInventory());
+    refreshPendingInventory();
+    return unsub;
+  }, []);
 
   // Folios apartados por adelantado: sin esto, una caja que pierde la red
   // tendría que emitir folios provisionales.
@@ -960,9 +998,7 @@ export default function Dashboard({
       if (isNonInventorySaleItem(item)) return;
       const catalog = catalogNow.find((p) => p.id === item.product.id)
         || catalogNow.find((p) => item.metadata?.imei && (
-          p.imeiList?.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase())
-          || p.imei?.toUpperCase() === item.metadata!.imei!.toUpperCase()
-          || Object.values(p.branchImeiMap || {}).some((list) => list.some((im) => im.toUpperCase() === item.metadata!.imei!.toUpperCase()))
+          collectProductImeis(p).some((im) => imeisEqual(im, item.metadata!.imei))
         ));
       const prod = catalog || item.product;
       const prodId = prod.id;
@@ -1285,6 +1321,27 @@ export default function Dashboard({
           (id) => (newProd.branchImeiMap?.[id] || []).length > 0
         ) || 'b-matriz';
       const merged = addImeisToProduct(existing, dest, collectProductImeis(newProd));
+      setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
+      commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+      return;
+    }
+    if (existing && !isEquipmentProduct(existing) && !isEquipmentProduct(newProd)) {
+      const dest =
+        (['b-navojoa', 'b-huatabampo', 'b-matriz'] as const).find(
+          (id) => accessoryStockAt(newProd, id) > 0
+        ) || toInventoryBranchId(currentBranch.id);
+      const qty = accessoryStockAt(newProd, dest) || Math.max(0, Number(newProd.stock) || 0);
+      const merged = addAccessoryStock(
+        {
+          ...existing,
+          name: newProd.name || existing.name,
+          price: newProd.price ?? existing.price,
+          costPrice: newProd.costPrice ?? existing.costPrice,
+          supplier: newProd.supplier ?? existing.supplier
+        },
+        dest,
+        qty
+      );
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
       commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
       return;
