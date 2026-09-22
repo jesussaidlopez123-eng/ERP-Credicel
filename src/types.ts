@@ -416,6 +416,7 @@ export interface CredicelDashCheckItem {
   text: string;
   checked: boolean;
   struck: boolean;
+  createdAt?: string;
 }
 
 export interface CredicelDashAttachment {

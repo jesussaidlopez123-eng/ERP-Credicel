@@ -1,4 +1,6 @@
 import { CredicelDashAttachment, CredicelDashCheckItem, CredicelDashDoc } from '../types';
+import { safeDateIsoKey, todayCashDateKey, tryParseDate } from './dateUtils';
+import { CASH_TIME_ZONE } from './shiftHours';
 
 export const KEEP_NOTE_COLORS = [
   '#ffffff',
@@ -53,7 +55,8 @@ export function normalizeDashDoc(raw: unknown): CredicelDashDoc | null {
           id: String(item.id || ''),
           text: String(item.text || ''),
           checked: Boolean(item.checked),
-          struck: Boolean(item.struck)
+          struck: Boolean(item.struck),
+          createdAt: item.createdAt ? String(item.createdAt) : undefined
         }))
       : [],
     attachments: Array.isArray(row.attachments)
@@ -126,7 +129,14 @@ export function sanitizeDashHtml(html: string): string {
         parent.removeChild(el);
         continue;
       }
-      [...el.attributes].forEach((attr) => el.removeAttribute(attr.name));
+      [...el.attributes].forEach((attr) => {
+        if (attr.name === 'data-at' || attr.name === 'data-date') return;
+        if (attr.name === 'class' && /\bdash-note-line\b/.test(attr.value)) {
+          el.className = 'dash-note-line';
+          return;
+        }
+        el.removeAttribute(attr.name);
+      });
       walk(el);
     }
   };
@@ -162,8 +172,139 @@ export function fileExtOf(name: string): string {
   return match ? match[1].toUpperCase() : 'ARCHIVO';
 }
 
-export function emptyCheckItem(id: string, text = ''): CredicelDashCheckItem {
-  return { id, text, checked: false, struck: false };
+/** Fecha corta por renglón: "22 sep". Incluye año si no es el actual. */
+export function formatNoteLineDate(iso?: string | null): string {
+  const d = tryParseDate(iso);
+  if (!d) return '';
+  const key = safeDateIsoKey(iso);
+  const includeYear = Boolean(key) && key.slice(0, 4) !== todayCashDateKey().slice(0, 4);
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    day: 'numeric',
+    month: 'short',
+    ...(includeYear ? { year: '2-digit' } : {})
+  })
+    .format(d)
+    .replace(/\./g, '');
+}
+
+function attrFromTag(attrs: string, name: string): string {
+  const match = attrs.match(new RegExp(`${name}="([^"]*)"`, 'i'));
+  return match ? match[1] : '';
+}
+
+export function dashHtmlLines(
+  html: string,
+  fallbackIso?: string
+): Array<{ text: string; at: string }> {
+  const raw = String(html || '');
+  if (!raw.trim()) return [];
+  const blocks = [...raw.matchAll(/<(div|p)([^>]*)>([\s\S]*?)<\/\1>/gi)];
+  const fallback = fallbackIso || '';
+  if (blocks.length) {
+    return blocks
+      .map((block) => {
+        const text = stripDashHtml(block[3] || '');
+        const at = attrFromTag(block[2] || '', 'data-at') || fallback;
+        return { text, at };
+      })
+      .filter((row) => row.text);
+  }
+  const text = stripDashHtml(raw);
+  return text ? [{ text, at: fallback }] : [];
+}
+
+export function stampDashHtmlLines(html: string, fallbackIso?: string): string {
+  const raw = String(html || '');
+  if (!raw.trim()) return '';
+  const fallback = fallbackIso || new Date().toISOString();
+  if (typeof DOMParser !== 'undefined') {
+    const parsed = new DOMParser().parseFromString(raw, 'text/html');
+    const children = [...parsed.body.childNodes];
+    for (const node of children) {
+      if (node.nodeType === 3 && (node.textContent || '').trim()) {
+        const wrap = parsed.createElement('div');
+        node.parentNode?.insertBefore(wrap, node);
+        wrap.appendChild(node);
+      }
+    }
+    const blocks = [...parsed.body.children].filter(
+      (el) => el.tagName === 'DIV' || el.tagName === 'P'
+    ) as HTMLElement[];
+    if (!blocks.length && parsed.body.textContent?.trim()) {
+      const wrap = parsed.createElement('div');
+      wrap.innerHTML = parsed.body.innerHTML;
+      parsed.body.innerHTML = '';
+      parsed.body.appendChild(wrap);
+      blocks.push(wrap);
+    }
+    for (const el of [...parsed.body.children] as HTMLElement[]) {
+      if (el.tagName !== 'DIV' && el.tagName !== 'P') continue;
+      const hasText = (el.textContent || '').replace(/\u00a0/g, ' ').trim().length > 0;
+      if (!el.getAttribute('data-at')) {
+        el.setAttribute('data-at', hasText ? fallback : new Date().toISOString());
+      }
+      const at = el.getAttribute('data-at') || fallback;
+      el.setAttribute('data-date', formatNoteLineDate(at));
+      el.classList.add('dash-note-line');
+    }
+    return parsed.body.innerHTML;
+  }
+  if (/<(div|p)\b/i.test(raw)) {
+    return raw.replace(/<(div|p)(\b[^>]*)>/gi, (full, tag: string, attrs: string) => {
+      if (/data-at=/i.test(attrs)) {
+        const at = attrFromTag(attrs, 'data-at') || fallback;
+        const withDate = /data-date=/i.test(attrs)
+          ? attrs
+          : `${attrs} data-date="${formatNoteLineDate(at)}"`;
+        const withClass = /\bclass=/i.test(withDate)
+          ? withDate.replace(/class="([^"]*)"/i, (_m, cls) =>
+              cls.includes('dash-note-line') ? `class="${cls}"` : `class="${cls} dash-note-line"`
+            )
+          : `${withDate} class="dash-note-line"`;
+        return `<${tag}${withClass}>`;
+      }
+      return `<${tag}${attrs} data-at="${fallback}" data-date="${formatNoteLineDate(fallback)}" class="dash-note-line">`;
+    });
+  }
+  const text = stripDashHtml(raw);
+  if (!text) return '';
+  return `<div data-at="${fallback}" data-date="${formatNoteLineDate(fallback)}" class="dash-note-line">${text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')}</div>`;
+}
+
+export function stampLiveNoteBody(root: HTMLElement, fallbackIso?: string): void {
+  const fallback = fallbackIso || new Date().toISOString();
+  const nodes = [...root.childNodes];
+  for (const node of nodes) {
+    if (node.nodeType === 3 && (node.textContent || '').trim()) {
+      const wrap = root.ownerDocument.createElement('div');
+      root.insertBefore(wrap, node);
+      wrap.appendChild(node);
+    }
+  }
+  for (const el of [...root.children] as HTMLElement[]) {
+    if (el.tagName !== 'DIV' && el.tagName !== 'P') continue;
+    const hasText = (el.textContent || '').replace(/\u00a0/g, ' ').trim().length > 0;
+    if (!el.getAttribute('data-at')) {
+      el.setAttribute('data-at', hasText ? fallback : new Date().toISOString());
+    }
+    const at = el.getAttribute('data-at') || fallback;
+    el.setAttribute('data-date', formatNoteLineDate(at));
+    el.classList.add('dash-note-line');
+  }
+}
+
+export function emptyCheckItem(id: string, text = '', createdAt?: string): CredicelDashCheckItem {
+  return {
+    id,
+    text,
+    checked: false,
+    struck: false,
+    createdAt: createdAt || (text.trim() ? new Date().toISOString() : undefined)
+  };
 }
 
 export function sortCheckedItemsLast(items: CredicelDashCheckItem[]): CredicelDashCheckItem[] {
@@ -173,6 +314,10 @@ export function sortCheckedItemsLast(items: CredicelDashCheckItem[]): CredicelDa
 }
 
 export function bodyHtmlToCheckItems(html: string, makeId: () => string): CredicelDashCheckItem[] {
+  const structured = dashHtmlLines(html);
+  if (structured.length) {
+    return structured.map((row) => emptyCheckItem(makeId(), row.text, row.at || undefined));
+  }
   const text = String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li)>/gi, '\n')
@@ -199,7 +344,13 @@ export function checkItemsToBodyHtml(items: CredicelDashCheckItem[]): string {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      return item.checked || item.struck ? `<div><s>${text}</s></div>` : `<div>${text}</div>`;
+      const at = item.createdAt || '';
+      const stamp = at
+        ? ` data-at="${at}" data-date="${formatNoteLineDate(at)}" class="dash-note-line"`
+        : '';
+      return item.checked || item.struck
+        ? `<div${stamp}><s>${text}</s></div>`
+        : `<div${stamp}>${text}</div>`;
     })
     .join('');
 }

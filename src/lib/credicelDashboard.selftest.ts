@@ -6,15 +6,18 @@ import {
   checkItemsToBodyHtml,
   dashDocForCloud,
   dashDocSnippet,
+  dashHtmlLines,
   emptyCheckItem,
   emptyDashDoc,
   fileExtOf,
   fileKindOf,
+  formatNoteLineDate,
   isDashDocEmpty,
   metadataAttachments,
   sanitizeDashHtml,
   sortCheckedItemsLast,
   sortDashDocs,
+  stampDashHtmlLines,
   stripDashHtml,
   toggleDashItem
 } from './credicelDashboard.ts';
@@ -97,5 +100,21 @@ assert.equal(sortCheckedItemsLast([
   { id: 'done', text: 'Ya', checked: true, struck: false },
   { id: 'open', text: 'Pendiente', checked: false, struck: false }
 ])[0].id, 'open');
+
+const stampedAt = '2026-09-22T10:15:00-07:00';
+const stamped = stampDashHtmlLines('<div>Pedir refacción</div><div>Avisar a Navojoa</div>', stampedAt);
+assert.match(stamped, /data-at="2026-09-22T10:15:00-07:00"/);
+assert.match(stamped, /dash-note-line/);
+const kept = sanitizeDashHtml(stamped);
+assert.match(kept, /data-at="2026-09-22T10:15:00-07:00"/);
+const lines = dashHtmlLines(stamped, stampedAt);
+assert.equal(lines.length, 2);
+assert.equal(lines[0].text, 'Pedir refacción');
+assert.equal(lines[0].at, stampedAt);
+assert.match(formatNoteLineDate(stampedAt), /22/);
+const datedItems = bodyHtmlToCheckItems(stamped, () => `id-${checkId++}`);
+assert.equal(datedItems[0].createdAt, stampedAt);
+const backDated = checkItemsToBodyHtml(datedItems);
+assert.match(backDated, /data-at="2026-09-22T10:15:00-07:00"/);
 
 console.log('credicelDashboard self-test ok');

@@ -41,7 +41,11 @@ import {
   sortCheckedItemsLast,
   sortDashDocs,
   bodyHtmlToCheckItems,
-  checkItemsToBodyHtml
+  checkItemsToBodyHtml,
+  dashHtmlLines,
+  formatNoteLineDate,
+  stampDashHtmlLines,
+  stampLiveNoteBody
 } from '../lib/credicelDashboard';
 import {
   deleteCredicelDashDocFromCloud,
@@ -238,6 +242,7 @@ function NoteCard({
           .filter((item) => item.text.trim())
           .slice(0, 6)
       : [];
+  const textLines = listItems.length ? [] : dashHtmlLines(doc.bodyHtml, doc.createdAt).slice(0, 6);
   return (
     <div
       role="button"
@@ -268,11 +273,25 @@ function NoteCard({
                     item.checked ? 'bg-slate-400 border-slate-400' : 'border-slate-400'
                   }`}
                 />
-                <span className={item.checked ? 'line-through text-slate-400' : 'text-slate-700'}>
+                <span className={`min-w-0 flex-1 ${item.checked ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                   {item.text}
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400 shrink-0 mt-0.5">
+                  {formatNoteLineDate(item.createdAt || doc.createdAt)}
                 </span>
               </li>
             ))}
+          </ul>
+        ) : textLines.length > 0 ? (
+          <ul className="mt-1 space-y-0.5">
+            {textLines.map((line, index) => (
+                <li key={`${doc.id}-line-${index}`} className="flex items-start gap-2 text-[13px] leading-snug">
+                  <span className="min-w-0 flex-1 text-slate-700/80">{line.text}</span>
+                  <span className="text-[10px] font-semibold text-slate-400 shrink-0 mt-0.5">
+                    {formatNoteLineDate(line.at || doc.createdAt)}
+                  </span>
+                </li>
+              ))}
           </ul>
         ) : snippet ? (
           <p className="text-[13px] text-slate-700/80 line-clamp-4 mt-1 whitespace-pre-wrap leading-relaxed">
@@ -424,7 +443,9 @@ export default function CredicelDashboardModule({
     const html = draft.bodyHtml || '';
     const frame = window.requestAnimationFrame(() => {
       const node = bodyRef.current;
-      if (node) node.innerHTML = html;
+      if (!node) return;
+      node.innerHTML = html;
+      stampLiveNoteBody(node, draft.createdAt);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [editorOpen, draft.id, draft.checklist]);
@@ -451,7 +472,9 @@ export default function CredicelDashboardModule({
       const items = usingList
         ? sortCheckedItemsLast(draft.items.filter((item) => item.id && item.text.trim()))
         : [];
-      const bodyHtml = usingList ? '' : sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+      const bodyHtml = usingList
+        ? ''
+        : stampDashHtmlLines(sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml), draft.createdAt);
       const next: CredicelDashDoc = {
         ...draft,
         title: draft.title.trim() || (draft.attachments[0]?.title || ''),
@@ -470,7 +493,10 @@ export default function CredicelDashboardModule({
   const togglePinned = (doc: CredicelDashDoc, event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (editorOpen && draft.id === doc.id) {
-      const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+      const bodyHtml = stampDashHtmlLines(
+        sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml),
+        draft.createdAt
+      );
       const next = { ...draft, bodyHtml, pinned: !draft.pinned };
       setDraft(next);
       if (!isDashDocEmpty(next) || docs.some((row) => row.id === next.id)) {
@@ -513,7 +539,10 @@ export default function CredicelDashboardModule({
       });
       return;
     }
-    const html = sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml);
+    const html = stampDashHtmlLines(
+      sanitizeDashHtml(bodyRef.current?.innerHTML || draft.bodyHtml),
+      draft.createdAt
+    );
     const fromBody = bodyHtmlToCheckItems(html, () => newUniqueId('CHK')).filter((item) => item.text.trim());
     const existing = draft.items.filter((item) => item.text.trim());
     const merged = fromBody.length ? fromBody : existing;
@@ -529,9 +558,16 @@ export default function CredicelDashboardModule({
   const updateChecklistItem = (id: string, patch: Partial<CredicelDashCheckItem>) => {
     setDraft((prev) => {
       const exists = prev.items.some((item) => item.id === id);
+      const stampIfNeeded = (item: CredicelDashCheckItem): CredicelDashCheckItem => {
+        const next = { ...item, ...patch };
+        if (!next.createdAt && (next.text || '').trim()) {
+          next.createdAt = new Date().toISOString();
+        }
+        return next;
+      };
       const items = exists
-        ? prev.items.map((item) => (item.id === id ? { ...item, ...patch } : item))
-        : [...prev.items, { ...emptyCheckItem(id), ...patch }];
+        ? prev.items.map((item) => (item.id === id ? stampIfNeeded(item) : item))
+        : [...prev.items, stampIfNeeded(emptyCheckItem(id))];
       if (id === composerIdRef.current && (patch.text || '').trim()) {
         composerIdRef.current = newUniqueId('CHK');
       }
@@ -619,7 +655,10 @@ export default function CredicelDashboardModule({
     if (!added.length) return;
     setDraft((prev) => {
       const next = { ...prev, attachments: [...prev.attachments, ...added] };
-      const bodyHtml = sanitizeDashHtml(bodyRef.current?.innerHTML || next.bodyHtml);
+      const bodyHtml = stampDashHtmlLines(
+        sanitizeDashHtml(bodyRef.current?.innerHTML || next.bodyHtml),
+        next.createdAt
+      );
       const stamped = {
         ...next,
         bodyHtml,
@@ -938,6 +977,9 @@ export default function CredicelDashboardModule({
                         placeholder="Elemento de la lista"
                         className="flex-1 bg-transparent text-[15px] text-slate-800 outline-none py-0.5"
                       />
+                      <span className="text-[10px] font-semibold text-slate-400 mt-1.5 shrink-0 min-w-[2.6rem] text-right">
+                        {item.text.trim() ? formatNoteLineDate(item.createdAt || draft.createdAt) : ''}
+                      </span>
                     </div>
                   ))}
                   {doneItems.length > 0 && (
@@ -962,6 +1004,9 @@ export default function CredicelDashboardModule({
                             onKeyDown={(e) => handleChecklistKey(item, openWithComposer.length + index, e)}
                             className="flex-1 bg-transparent text-[15px] text-slate-400 line-through outline-none py-0.5"
                           />
+                          <span className="text-[10px] font-semibold text-slate-400 mt-1.5 shrink-0 min-w-[2.6rem] text-right">
+                            {formatNoteLineDate(item.createdAt || draft.createdAt)}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -980,10 +1025,11 @@ export default function CredicelDashboardModule({
                     contentEditable
                     suppressContentEditableWarning
                     onInput={(e) => {
+                      stampLiveNoteBody(e.currentTarget, draft.createdAt);
                       const html = e.currentTarget.innerHTML;
                       setDraft((prev) => ({ ...prev, bodyHtml: html }));
                     }}
-                    className="min-h-[280px] sm:min-h-[320px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
+                    className="dash-note-body min-h-[280px] sm:min-h-[320px] w-full text-[15px] leading-relaxed text-slate-800 outline-none py-1"
                   />
                 </div>
               )}

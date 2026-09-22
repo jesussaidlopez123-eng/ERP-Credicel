@@ -413,3 +413,23 @@ html, body, #root {
     display: inline-block !important;
   }
 }
+
+.dash-note-body .dash-note-line {
+  position: relative;
+  padding-right: 3.4rem;
+  min-height: 1.35em;
+}
+
+.dash-note-body .dash-note-line[data-date]::after {
+  content: attr(data-date);
+  position: absolute;
+  right: 0;
+  top: 0.35em;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  color: #94a3b8;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
