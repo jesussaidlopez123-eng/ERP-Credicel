@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import type { Product } from '../types';
 import { accessoryStockAt } from './accessoryInventory.ts';
-import { imeisAtBranch } from './imeiInventory.ts';
+import { imeisAtBranch, unmappedImeis } from './imeiInventory.ts';
 import { applyInventoryWrite, snapshotInventory } from './inventoryMerge.ts';
 
 const mica = (over: Partial<Product> = {}): Product => ({
@@ -192,5 +192,73 @@ const incomingDirtyImei = phone({
 const noDupFormat = applyInventoryWrite(serverCleanImei, incomingDirtyImei, null);
 assert.equal(noDupFormat.stock, 1);
 assert.equal(imeisAtBranch(noDupFormat, 'b-navojoa').length, 1);
+
+const serverWithOrphan = phone({
+  stock: 2,
+  imeiList: ['AAA', 'LEGACY'],
+  branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const keepLegacy = applyInventoryWrite(
+  serverWithOrphan,
+  phone({
+    stock: 2,
+    imeiList: ['AAA', 'LEGACY'],
+    branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': [], 'b-matriz': [] }
+  }),
+  snapshotInventory(serverWithOrphan)
+);
+assert.deepEqual(imeisAtBranch(keepLegacy, 'b-navojoa'), ['AAA']);
+assert.ok(unmappedImeis(keepLegacy).includes('LEGACY'));
+
+const injectOrphan = applyInventoryWrite(
+  serverPhone,
+  phone({
+    stock: 3,
+    imeiList: ['AAA', 'BBB', 'NEWORPHAN'],
+    branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-matriz': [] }
+  }),
+  snapshotInventory(serverPhone)
+);
+assert.deepEqual(imeisAtBranch(injectOrphan, 'b-navojoa'), ['AAA']);
+assert.deepEqual(imeisAtBranch(injectOrphan, 'b-huatabampo'), ['BBB']);
+assert.equal(unmappedImeis(injectOrphan).includes('NEWORPHAN'), false);
+
+const ingresoWithLoose = applyInventoryWrite(
+  phone({
+    stock: 0,
+    imeiList: [],
+    branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+  }),
+  phone({
+    stock: 2,
+    imeiList: ['NAV1', 'NAV2'],
+    branchImeiMap: { 'b-navojoa': ['NAV1'], 'b-huatabampo': [], 'b-matriz': [] }
+  }),
+  snapshotInventory(
+    phone({
+      stock: 0,
+      imeiList: [],
+      branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+    })
+  )
+);
+assert.deepEqual(imeisAtBranch(ingresoWithLoose, 'b-navojoa').sort(), ['NAV1', 'NAV2']);
+assert.deepEqual(unmappedImeis(ingresoWithLoose), []);
+
+const newOnlyLoose = applyInventoryWrite(null, phone({
+  stock: 1,
+  imeiList: ['SOLO'],
+  branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
+}));
+assert.deepEqual(unmappedImeis(newOnlyLoose), ['SOLO']);
+assert.deepEqual(imeisAtBranch(newOnlyLoose, 'b-matriz'), []);
+
+const newWithDest = applyInventoryWrite(null, phone({
+  stock: 2,
+  imeiList: ['H1', 'H2'],
+  branchImeiMap: { 'b-huatabampo': ['H1'], 'b-navojoa': [], 'b-matriz': [] }
+}));
+assert.deepEqual(imeisAtBranch(newWithDest, 'b-huatabampo').sort(), ['H1', 'H2']);
+assert.deepEqual(unmappedImeis(newWithDest), []);
 
 console.log('inventoryMerge self-test ok');

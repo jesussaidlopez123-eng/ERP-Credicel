@@ -7,14 +7,17 @@ import {
   findImeiOnCatalog,
   findSoldImeiTicket,
   imeisAtBranch,
+  inferEquipmentDest,
   locateImeiOnProduct,
   imeisEqual,
   moveImeisOnProduct,
   normalizeImei,
   removeImeisFromProduct,
   sanitizeEquipmentProduct,
+  sealEquipmentWrite,
   toInventoryBranchId,
-  traceImei
+  traceImei,
+  unmappedImeis
 } from './imeiInventory.ts';
 
 const phone = (over: Partial<Product> = {}): Product => ({
@@ -144,6 +147,38 @@ assert.deepEqual(dangling.imeiList?.includes('BBB'), true);
 assert.equal(dangling.stock, 2);
 assert.equal(locateImeiOnProduct(dangling, 'BBB')?.unassigned, true);
 assert.equal(locateImeiOnProduct(dangling, 'AAA')?.branchId, 'b-navojoa');
+
+const sealedToNav = sealEquipmentWrite(
+  phone({
+    stock: 1,
+    imeiList: ['351299123456789'],
+    branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] }
+  }),
+  'b-navojoa'
+);
+assert.deepEqual(imeisAtBranch(sealedToNav, 'b-navojoa'), ['351299123456789']);
+assert.deepEqual(unmappedImeis(sealedToNav), []);
+
+const sealedByMap = sealEquipmentWrite(
+  phone({
+    stock: 2,
+    imeiList: ['AAA', 'BBB'],
+    branchImeiMap: { 'b-huatabampo': ['AAA'], 'b-navojoa': [], 'b-matriz': [] }
+  })
+);
+assert.equal(inferEquipmentDest(sealedByMap), 'b-huatabampo');
+assert.deepEqual(imeisAtBranch(sealedByMap, 'b-huatabampo').sort(), ['AAA', 'BBB']);
+assert.deepEqual(unmappedImeis(sealedByMap), []);
+
+const noGuess = sealEquipmentWrite(
+  phone({
+    stock: 1,
+    imeiList: ['CCC'],
+    branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] }
+  })
+);
+assert.deepEqual(unmappedImeis(noGuess), ['CCC']);
+assert.equal(inferEquipmentDest(noGuess), undefined);
 
 const ticket = {
   id: 't1',

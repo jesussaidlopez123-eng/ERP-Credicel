@@ -801,35 +801,24 @@ function InventoryModule({
 
       onUpdateProduct(updated);
     } else {
-      // New equipment model
+      // New equipment model: siempre con sucursal, nunca lista plana suelta.
       const destBranch = toInventoryBranchId(branchId);
-      const destStock = {
-        'b-matriz': destBranch === 'b-matriz' ? qty : 0,
-        'b-navojoa': destBranch === 'b-navojoa' ? qty : 0,
-        'b-huatabampo': destBranch === 'b-huatabampo' ? qty : 0
-      };
-      const destImeis = {
-        'b-matriz': destBranch === 'b-matriz' ? finalImeis : [],
-        'b-navojoa': destBranch === 'b-navojoa' ? finalImeis : [],
-        'b-huatabampo': destBranch === 'b-huatabampo' ? finalImeis : []
-      };
-
-      const newProd: Product = {
-        id: `prod-${Date.now()}`,
-        code: code || `EQ-${Date.now()}`,
-        name: name || 'Equipo Celular',
-        category: 'equipo_credito',
-        inventoryType: 'equipo',
-        imei: finalImeis[0] || '',
-        imeiList: finalImeis,
-        branchImeiMap: destImeis,
-        supplier: supplier || '',
-        costPrice: costPrice || 0,
-        price: price || 0,
-        stock: qty,
-        branchStock: destStock,
-        color: 'bg-blue-800 text-white'
-      };
+      const newProd = addImeisToProduct(
+        {
+          id: `prod-${Date.now()}`,
+          code: code || `EQ-${Date.now()}`,
+          name: name || 'Equipo Celular',
+          category: 'equipo_credito',
+          inventoryType: 'equipo',
+          supplier: supplier || '',
+          costPrice: costPrice || 0,
+          price: price || 0,
+          stock: 0,
+          color: 'bg-blue-800 text-white'
+        },
+        destBranch,
+        finalImeis
+      );
 
       const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
       onRecordMovement?.({

@@ -211,6 +211,28 @@ export function sanitizeEquipmentProduct(product: Product): Product {
   return rebuildEquipmentFromMap(product, product.branchImeiMap || {}, unmappedImeis(product));
 }
 
+/** Si el equipo ya vive en una sola sucursal, esa es la destino. No adivina Matriz. */
+export function inferEquipmentDest(product: Product): InventoryBranchId | undefined {
+  const grouped = canonicalBranchImeiMap(product);
+  const filled = INVENTORY_BRANCH_IDS.filter((id) => (grouped[id] || []).length > 0);
+  if (filled.length === 1) return filled[0];
+  return undefined;
+}
+
+/**
+ * Cierra altas nuevas: si hay IMEI sueltos y se sabe la sucursal, los asigna.
+ * Sin destino no los manda a Matriz (eso era el desperfecto).
+ */
+export function sealEquipmentWrite(product: Product, destBranchId?: string): Product {
+  if (!isEquipmentProduct(product)) return product;
+  const next = sanitizeEquipmentProduct(product);
+  const orphans = unmappedImeis(next);
+  if (orphans.length === 0) return next;
+  const dest = destBranchId ? toInventoryBranchId(destBranchId) : inferEquipmentDest(next);
+  if (!dest) return next;
+  return addImeisToProduct(next, dest, orphans);
+}
+
 export function addImeisToProduct(product: Product, branchId: string, rawImeis: string[]): Product {
   const dest = toInventoryBranchId(branchId);
   const map = canonicalBranchImeiMap(product);

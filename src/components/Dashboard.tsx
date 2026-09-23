@@ -50,9 +50,12 @@ import {
   collectProductImeis,
   findImeiOnCatalog,
   imeisEqual,
+  inferEquipmentDest,
   isEquipmentProduct,
   normalizeImei,
   removeImeisFromProduct,
+  sanitizeEquipmentProduct,
+  sealEquipmentWrite,
   toInventoryBranchId
 } from '../lib/imeiInventory';
 import { accessoryStockAt, addAccessoryStock, removeAccessoryStock } from '../lib/accessoryInventory';
@@ -1317,10 +1320,16 @@ export default function Dashboard({
     );
     if (existing && isEquipmentProduct(existing)) {
       const dest =
-        (['b-navojoa', 'b-huatabampo', 'b-matriz'] as const).find(
-          (id) => (newProd.branchImeiMap?.[id] || []).length > 0
-        ) || 'b-matriz';
-      const merged = addImeisToProduct(existing, dest, collectProductImeis(newProd));
+        inferEquipmentDest(newProd) ||
+        (hasCashTill(currentBranch.id) ? toInventoryBranchId(currentBranch.id) : undefined);
+      const incomingImeis = collectProductImeis(newProd);
+      const merged = dest
+        ? addImeisToProduct(existing, dest, incomingImeis)
+        : sanitizeEquipmentProduct({
+            ...existing,
+            imeiList: [...collectProductImeis(existing), ...incomingImeis],
+            imeis: [...collectProductImeis(existing), ...incomingImeis]
+          });
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
       commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
       return;
@@ -1346,24 +1355,31 @@ export default function Dashboard({
       commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
       return;
     }
+    const dest =
+      inferEquipmentDest(newProd) ||
+      (hasCashTill(currentBranch.id) ? toInventoryBranchId(currentBranch.id) : undefined);
+    const sealed = isEquipmentProduct(newProd) ? sealEquipmentWrite(newProd, dest) : newProd;
     setProducts((prev) => {
       const existingIdx = prev.findIndex(
-        (p) => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase()
+        (p) => p.id === sealed.id || p.code.trim().toUpperCase() === sealed.code.trim().toUpperCase()
       );
       if (existingIdx !== -1) {
         const updatedList = [...prev];
-        updatedList[existingIdx] = { ...prev[existingIdx], ...newProd };
+        updatedList[existingIdx] = isEquipmentProduct(sealed)
+          ? sealed
+          : { ...prev[existingIdx], ...sealed };
         return updatedList;
       }
-      return [...prev, newProd];
+      return [...prev, sealed];
     });
-    commitProduct(newProd, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+    commitProduct(sealed, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
     const base = productsRef.current.find((p) => p.id === updatedProd.id);
-    setProducts((prev) => prev.map((p) => (p.id === updatedProd.id ? updatedProd : p)));
-    commitProduct(updatedProd, base).catch((err) => console.error('Error encolando el cambio de producto:', err));
+    const next = isEquipmentProduct(updatedProd) ? sanitizeEquipmentProduct(updatedProd) : updatedProd;
+    setProducts((prev) => prev.map((p) => (p.id === next.id ? next : p)));
+    commitProduct(next, base).catch((err) => console.error('Error encolando el cambio de producto:', err));
   };
 
   const handleReceivePurchase = async (draft: PurchaseDraft) => {

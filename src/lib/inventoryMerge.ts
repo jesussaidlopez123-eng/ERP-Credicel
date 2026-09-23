@@ -16,6 +16,8 @@ import {
   listHasImei,
   normalizeImei,
   sanitizeEquipmentProduct,
+  sealEquipmentWrite,
+  inferEquipmentDest,
   storedImeiInList,
   unmappedImeis,
   INVENTORY_BRANCH_IDS
@@ -191,9 +193,31 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
     }
   }
 
+  const serverOrphans = unmappedImeis(keep).filter((im) => !listHasImei(placed, im) && !removed(im));
+  const incomingOrphans = unmappedImeis(incoming).filter((im) => !listHasImei(placed, im) && !removed(im));
+  const newOrphans = incomingOrphans.filter((im) => !setHasImei(serverAll, im));
+
+  let destForNew = inferEquipmentDest(incoming);
+  if (!destForNew && baseLoc) {
+    const addedBranches = INVENTORY_BRANCH_IDS.filter((id) =>
+      (incomingMap[id] || []).some((im) => !locationOf(baseLoc, im))
+    );
+    if (addedBranches.length === 1) destForNew = addedBranches[0];
+  }
+  if (!destForNew) {
+    const addedVsServer = INVENTORY_BRANCH_IDS.filter((id) =>
+      (incomingMap[id] || []).some((im) => !locationOf(serverLoc, im))
+    );
+    if (addedVsServer.length === 1) destForNew = addedVsServer[0];
+  }
+  if (destForNew) {
+    for (const im of newOrphans) place(im, destForNew);
+  }
+
+  // Huérfanos viejos de la nube se conservan. Un guardado nuevo sin sucursal ya no se pega suelto.
   const extras = [
-    ...unmappedImeis(keep).filter((im) => !listHasImei(placed, im) && !removed(im)),
-    ...unmappedImeis(incoming).filter((im) => !listHasImei(placed, im) && !removed(im))
+    ...serverOrphans.filter((im) => !listHasImei(placed, im)),
+    ...incomingOrphans.filter((im) => !listHasImei(placed, im) && setHasImei(serverAll, im))
   ];
 
   return sanitizeEquipmentProduct({
@@ -212,7 +236,7 @@ export function applyInventoryWrite(
   base?: InventorySnapshot | null
 ): Product {
   if (!server) {
-    return isEquipmentProduct(incoming) ? sanitizeEquipmentProduct(incoming) : sanitizeAccessoryProduct(incoming);
+    return isEquipmentProduct(incoming) ? sealEquipmentWrite(incoming) : sanitizeAccessoryProduct(incoming);
   }
   if (isEquipmentProduct(incoming) || isEquipmentProduct(server)) {
     return applyEquipmentWrite(server, incoming, base);
