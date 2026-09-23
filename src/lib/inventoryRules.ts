@@ -7,7 +7,8 @@ import {
   isEquipmentProduct,
   locateImeiOnProduct,
   normalizeImei,
-  toInventoryBranchId
+  toInventoryBranchId,
+  unmappedImeis
 } from './imeiInventory';
 
 export const VIRTUAL_POS_PRODUCT_IDS = new Set([
@@ -61,6 +62,7 @@ export function realEquipmentStockAt(products: Product[], branchId: string): num
 export type ImeiLookup =
   | { status: 'found'; product: Product; branchId: string }
   | { status: 'other_branch'; product: Product; branchId: string }
+  | { status: 'unassigned'; product: Product }
   | { status: 'missing' };
 
 export function findImeiInInventory(
@@ -72,14 +74,20 @@ export function findImeiInInventory(
   if (!needle) return { status: 'missing' };
 
   let otherBranchHit: { product: Product; branchId: string } | null = null;
+  let unassignedHit: Product | null = null;
   const adminView = isAdminWorkspace(currentBranchId) || currentBranchId === 'all';
   const want = adminView ? '' : toInventoryBranchId(currentBranchId);
 
   for (const p of products) {
     const loc = locateImeiOnProduct(p, rawImei);
     if (!loc) continue;
-    if (adminView || loc.unassigned || loc.branchId === want) {
-      return { status: 'found', product: p, branchId: loc.unassigned ? want || loc.branchId : loc.branchId };
+    if (loc.unassigned) {
+      // No pertenece a ninguna tienda. No se finge que está en el PDV que lo escanea.
+      unassignedHit = p;
+      continue;
+    }
+    if (adminView || loc.branchId === want) {
+      return { status: 'found', product: p, branchId: loc.branchId };
     }
     if (loc.branchId) otherBranchHit = { product: p, branchId: loc.branchId };
   }
@@ -87,8 +95,18 @@ export function findImeiInInventory(
   if (otherBranchHit) {
     return { status: 'other_branch', product: otherBranchHit.product, branchId: otherBranchHit.branchId };
   }
+  if (unassignedHit) {
+    return { status: 'unassigned', product: unassignedHit };
+  }
 
   return { status: 'missing' };
+}
+
+export function unassignedEquipmentCount(products: Product[]): number {
+  return (products || []).reduce((sum, product) => {
+    if (!isEquipmentProduct(product) || isVirtualPosProduct(product)) return sum;
+    return sum + unmappedImeis(product).length;
+  }, 0);
 }
 
 export function branchDisplayShort(branchId: string): string {

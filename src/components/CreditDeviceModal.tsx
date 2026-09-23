@@ -70,15 +70,48 @@ export default function CreditDeviceModal({
   const checkImeiInSystem = (cleanImei: string) => {
     const lookup = findImeiInInventory(products, cleanImei, activeBranchId);
     if (lookup.status === 'found') {
-      return { found: true, product: lookup.product, otherBranch: null as string | null, stockBranchId: lookup.branchId };
+      return {
+        found: true,
+        product: lookup.product,
+        otherBranch: null as string | null,
+        unassigned: false,
+        stockBranchId: lookup.branchId
+      };
     }
     if (lookup.status === 'other_branch' && isAdminWorkspace(activeBranchId)) {
-      return { found: true, product: lookup.product, otherBranch: null as string | null, stockBranchId: lookup.branchId };
+      return {
+        found: true,
+        product: lookup.product,
+        otherBranch: null as string | null,
+        unassigned: false,
+        stockBranchId: lookup.branchId
+      };
     }
     if (lookup.status === 'other_branch') {
-      return { found: false, product: null, otherBranch: branchDisplayShort(lookup.branchId), stockBranchId: lookup.branchId };
+      return {
+        found: false,
+        product: lookup.product,
+        otherBranch: branchDisplayShort(lookup.branchId),
+        unassigned: false,
+        stockBranchId: lookup.branchId
+      };
     }
-    return { found: false, product: null, otherBranch: null as string | null, stockBranchId: undefined as string | undefined };
+    if (lookup.status === 'unassigned') {
+      return {
+        found: false,
+        product: lookup.product,
+        otherBranch: null as string | null,
+        unassigned: true,
+        stockBranchId: undefined as string | undefined
+      };
+    }
+    return {
+      found: false,
+      product: null,
+      otherBranch: null as string | null,
+      unassigned: false,
+      stockBranchId: undefined as string | undefined
+    };
   };
 
   const cleanImeiInput = imei.trim().toUpperCase();
@@ -178,7 +211,11 @@ export default function CreditDeviceModal({
     // STRICT SYSTEM CHECK: IMEI MUST EXIST IN SYSTEM TO SELL IT
     const check = checkImeiInSystem(cleanImei);
     if (!check.found || !check.product) {
-      if (check.otherBranch) {
+      if (check.unassigned) {
+        setValidationError(
+          `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' está en el sistema${check.product ? ` (${check.product.name})` : ''} pero no tiene sucursal. El encargado debe asignarlo en Inventario a la tienda donde está el equipo físico.`
+        );
+      } else if (check.otherBranch) {
         setValidationError(
           `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' pertenece a la sucursal ${check.otherBranch}. Se requiere realizar un traspaso formal a ${currentBranch?.name || activeBranchId} antes de realizar la venta.`
         );
@@ -490,6 +527,13 @@ export default function CreditDeviceModal({
                   <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
                     ✓ IMEI Verificado en {currentBranch?.name || 'Sucursal'}: <strong className="underline">{imeiCheckResult.product.name}</strong> (${imeiCheckResult.product.price.toFixed(2)})
+                  </span>
+                </div>
+              ) : imeiCheckResult.unassigned ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-xs text-amber-950 font-bold">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    ⚠️ IMEI en el sistema{imeiCheckResult.product ? ` (${imeiCheckResult.product.name})` : ''} pero sin sucursal. Asígnelo en Inventario a la tienda donde está el equipo físico.
                   </span>
                 </div>
               ) : imeiCheckResult.otherBranch ? (

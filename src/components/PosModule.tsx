@@ -35,6 +35,7 @@ import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem, realEquipmentStockAt } from '../lib/inventoryRules';
+import { imeisAtBranch } from '../lib/imeiInventory';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { todayCashDateKey } from '../lib/dateUtils';
 import {
@@ -287,6 +288,15 @@ function PosModule({
     const queryUpper = query.toUpperCase();
 
     const imeiLookup = findImeiInInventory(products, queryUpper, posStockBranchId || 'all');
+    if (imeiLookup.status === 'unassigned') {
+      setScanFeedback({
+        type: 'error',
+        text: `❌ IMEI SIN SUCURSAL: "${queryUpper}" está en el sistema (${imeiLookup.product.name}) pero no tiene tienda asignada. El encargado debe asignarlo en Inventario antes de venderlo.`
+      });
+      setScannerInput('');
+      setTimeout(() => setScanFeedback(null), 6000);
+      return;
+    }
     if (imeiLookup.status === 'other_branch' && !isAdminUser) {
       setScanFeedback({
         type: 'error',
@@ -443,9 +453,10 @@ function PosModule({
         p.id.toLowerCase().includes(q) ||
         p.brand?.toLowerCase().includes(q) ||
         p.model?.toLowerCase().includes(q) ||
-        p.imei?.toLowerCase().includes(q) ||
-        p.imeiList?.some(im => im.toLowerCase().includes(q)) ||
-        (p.branchImeiMap && Object.values(p.branchImeiMap).some(arr => arr.some(im => im.toLowerCase().includes(q))));
+        (posStockBranchId
+          ? imeisAtBranch(p, posStockBranchId)
+          : Object.values(p.branchImeiMap || {}).flat()
+        ).some((im) => im.toLowerCase().includes(q));
       return matchesCategory && matchesSearch;
     });
 
@@ -769,7 +780,9 @@ function PosModule({
           const msg =
             lookup.status === 'other_branch'
               ? `El IMEI está en ${branchDisplayShort(lookup.branchId)}. Elige esa sucursal o haz el traspaso.`
-              : `El IMEI ${item.metadata.imei} ya no está en el inventario de ${getBranchDisplayName(branchId)}.`;
+              : lookup.status === 'unassigned'
+                ? `El IMEI ${item.metadata.imei} está en el sistema pero sin sucursal. Asígnelo en Inventario antes de cobrar.`
+                : `El IMEI ${item.metadata.imei} ya no está en el inventario de ${getBranchDisplayName(branchId)}.`;
           setSaleError(msg);
           throw new Error(msg);
         }

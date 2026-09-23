@@ -50,6 +50,7 @@ import {
   moveAccessoryStock,
   removeAccessoryStock
 } from '../lib/accessoryInventory';
+import { isVirtualPosProduct, unassignedEquipmentCount } from '../lib/inventoryRules';
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
@@ -256,6 +257,43 @@ function InventoryModule({
       return collectProductImeis(p).length;
     }
     return accessoryTotalStock(p);
+  };
+
+  const orphanImeiCount = unassignedEquipmentCount(products);
+  const orphanProducts = useMemo(
+    () =>
+      (products || []).filter(
+        (p) => isEquipmentProduct(p) && !isVirtualPosProduct(p) && unmappedImeis(p).length > 0
+      ),
+    [products]
+  );
+
+  const handleAssignImeisToBranch = (product: Product, rawImeis: string[], branchId: string) => {
+    const dest = toInventoryBranchId(branchId);
+    const unique = rawImeis.map((im) => canonicalImei(im) || normalizeImei(im)).filter(Boolean);
+    if (unique.length === 0) return;
+    const updated = addImeisToProduct(product, dest, unique);
+    const branchName = ALL_BRANCHES.find((b) => b.id === dest)?.name || dest;
+    onRecordMovement?.({
+      type: 'ajuste',
+      productId: product.id,
+      productCode: product.code,
+      productName: product.name,
+      category: product.category,
+      inventoryType: 'equipo',
+      quantity: unique.length,
+      targetBranchId: dest,
+      targetBranchName: branchName,
+      operatorName: currentOperator?.name || 'Admin',
+      operatorId: currentOperator?.id,
+      imeis: unique,
+      reason: 'Asignación de IMEI sin sucursal',
+      details: `Asignación de ${unique.length} IMEI(s) sin sucursal a ${branchName}`
+    });
+    onUpdateProduct(updated);
+    if (viewingImeisProduct?.id === product.id) {
+      setViewingImeisProduct(updated);
+    }
   };
 
   const renderLockedProductCard = (
@@ -1366,6 +1404,40 @@ function InventoryModule({
 
       </div>
 
+      {orphanImeiCount > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 shadow-sm shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+            <div className="flex items-start gap-2.5 flex-1 min-w-0">
+              <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-black text-amber-950">
+                  {orphanImeiCount} IMEI{orphanImeiCount === 1 ? '' : 's'} sin sucursal
+                </p>
+                <p className="text-[11px] text-amber-900 font-medium leading-snug mt-0.5">
+                  Equipos que llegaron en la lista plana (captura vieja o carga inicial). No se pueden vender en el PDV hasta asignarlos a la tienda donde está el celular físico.
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {orphanProducts.slice(0, 6).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveInventoryTab('equipo');
+                        setViewingImeisProduct(p);
+                        setImeiSearchQuery('');
+                      }}
+                      className="px-2 py-1 bg-white border border-amber-300 rounded-lg text-[10px] font-extrabold text-amber-950 hover:bg-amber-100 cursor-pointer"
+                    >
+                      {p.name} · {unmappedImeis(p).length}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* VISTA TABLA GENERAL DE INVENTARIO */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1 flex flex-col">
           <div className="overflow-x-auto flex-1">
@@ -1494,20 +1566,32 @@ function InventoryModule({
                                 : `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length}`;
 
                               if (imeiList.length === 1) {
+                                const isLoose = loose.length === 1;
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      if (isLoose) {
+                                        setViewingImeisProduct(p);
+                                        setImeiSearchQuery('');
+                                        return;
+                                      }
                                       setTraceInitialImei(imeiList[0]);
                                       setIsImeiTraceOpen(true);
                                     }}
                                     className="text-left"
-                                    title="Ver trazado de este IMEI"
+                                    title={isLoose ? 'Asignar este IMEI a una sucursal' : 'Ver trazado de este IMEI'}
                                   >
-                                    <span className="bg-blue-100 text-blue-900 px-2 py-0.5 rounded border border-blue-200">
+                                    <span className={`px-2 py-0.5 rounded border ${
+                                      isLoose
+                                        ? 'bg-amber-100 text-amber-950 border-amber-300'
+                                        : 'bg-blue-100 text-blue-900 border-blue-200'
+                                    }`}>
                                       {imeiList[0]}
                                     </span>
-                                    <span className="block text-[10px] text-slate-500 font-sans font-bold mt-0.5">{locLabel}</span>
+                                    <span className={`block text-[10px] font-sans font-bold mt-0.5 ${
+                                      isLoose ? 'text-amber-700' : 'text-slate-500'
+                                    }`}>{locLabel}</span>
                                   </button>
                                 );
                               }
@@ -2897,16 +2981,19 @@ function InventoryModule({
               <div className="max-h-64 overflow-y-auto space-y-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                 {(() => {
                   const grouped = imeisGroupedByBranch(viewingImeisProduct);
+                  const orphans = unmappedImeis(viewingImeisProduct);
                   const rows = [
                     ...ALL_BRANCHES.flatMap((branch) =>
                       (grouped[branch.id as keyof typeof grouped] || []).map((imei) => ({
                         imei,
-                        branchName: branch.name
+                        branchName: branch.name,
+                        unassigned: false
                       }))
                     ),
-                    ...unmappedImeis(viewingImeisProduct).map((imei) => ({
+                    ...orphans.map((imei) => ({
                       imei,
-                      branchName: 'Sin sucursal asignada'
+                      branchName: 'Sin sucursal asignada',
+                      unassigned: true
                     }))
                   ];
                   const filtered = rows.filter((row) =>
@@ -2917,33 +3004,71 @@ function InventoryModule({
                     return <p className="p-4 text-center text-slate-400">No se encontraron IMEIs con ese criterio.</p>;
                   }
 
-                  return filtered.map((row, idx) => (
-                    <div key={`${row.imei}-${idx}`} className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 font-mono text-xs font-bold text-slate-800">
+                  return (
+                    <>
+                      {orphans.length > 0 && (
+                        <div className="p-2.5 mb-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="font-sans text-[10px] font-extrabold text-amber-950 mb-1.5">
+                            {orphans.length} sin sucursal. Asigne a la tienda donde está el equipo físico:
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {ALL_BRANCHES.map((branch) => (
+                              <button
+                                key={branch.id}
+                                type="button"
+                                onClick={() => handleAssignImeisToBranch(viewingImeisProduct, orphans, branch.id)}
+                                className="px-2 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded-md text-[10px] font-extrabold cursor-pointer"
+                              >
+                                Todos a {branch.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {filtered.map((row, idx) => (
+                    <div key={`${row.imei}-${idx}`} className={`flex items-center justify-between gap-2 p-2 rounded-lg border font-mono text-xs font-bold ${
+                      row.unassigned ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-white border-slate-200 text-slate-800'
+                    }`}>
                       <button
                         type="button"
-                        className="text-left"
+                        className="text-left min-w-0"
                         onClick={() => {
                           setViewingImeisProduct(null);
                           setTraceInitialImei(row.imei);
                           setIsImeiTraceOpen(true);
                         }}
                       >
-                        <span className="text-blue-900">{row.imei}</span>
+                        <span className={row.unassigned ? 'text-amber-950' : 'text-blue-900'}>{row.imei}</span>
                         <span className="block font-sans text-[10px] text-slate-500">{row.branchName}</span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(row.imei);
-                          setCopiedImei(row.imei);
-                          setTimeout(() => setCopiedImei(null), 1500);
-                        }}
-                        className="px-2 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-all cursor-pointer font-sans font-extrabold"
-                      >
-                        {copiedImei === row.imei ? '¡Copiado!' : 'Copiar'}
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {row.unassigned && ALL_BRANCHES.map((branch) => (
+                          <button
+                            key={branch.id}
+                            type="button"
+                            onClick={() => handleAssignImeisToBranch(viewingImeisProduct, [row.imei], branch.id)}
+                            className="px-1.5 py-1 text-[9px] bg-amber-800 hover:bg-amber-900 text-white rounded font-sans font-extrabold cursor-pointer"
+                            title={`Asignar a ${branch.name}`}
+                          >
+                            {branch.name === 'Huatabampo' ? 'HUA' : branch.name === 'Navojoa' ? 'NAV' : 'MTZ'}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(row.imei);
+                            setCopiedImei(row.imei);
+                            setTimeout(() => setCopiedImei(null), 1500);
+                          }}
+                          className="px-2 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-all cursor-pointer font-sans font-extrabold"
+                        >
+                          {copiedImei === row.imei ? '¡Copiado!' : 'Copiar'}
+                        </button>
+                      </div>
                     </div>
-                  ));
+                      ))}
+                    </>
+                  );
                 })()}
               </div>
 

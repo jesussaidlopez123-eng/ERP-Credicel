@@ -187,7 +187,7 @@ revisar(
   'El overlay de la cola no debía mover el stock de la otra sucursal'
 );
 
-console.log('── 16:30 IMEI suelto (solo lista, sin sucursal) se vende en Navojoa y desaparece');
+console.log('── 16:30 IMEI suelto (solo lista, sin sucursal) no se vende hasta asignarlo');
 const loose = phone({
   stock: 1,
   imeiList: [IMEI_HUA],
@@ -195,12 +195,21 @@ const loose = phone({
   branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] }
 });
 revisar(
-  findImeiInInventory([loose], IMEI_HUA, 'b-navojoa').status === 'found',
-  'Un IMEI sin sucursal asignada debía poder venderse en el PDV que lo escanea'
+  findImeiInInventory([loose], IMEI_HUA, 'b-navojoa').status === 'unassigned',
+  'Un IMEI sin sucursal no debe venderse en el PDV que lo escanea'
 );
-const soldLoose = removeImeisFromProduct(loose, [IMEI_HUA]);
-revisar(soldLoose.stock === 0, 'Vender el IMEI suelto debía dejar stock 0');
-revisar(collectProductImeis(soldLoose).length === 0, 'El IMEI suelto no debía quedar escondido en otra lista');
+const assignedLoose = addImeisToProduct(loose, 'b-navojoa', [IMEI_HUA]);
+revisar(
+  findImeiInInventory([assignedLoose], IMEI_HUA, 'b-navojoa').status === 'found',
+  'Tras asignarlo a Navojoa sí se puede vender ahí'
+);
+revisar(
+  findImeiInInventory([assignedLoose], IMEI_HUA, 'b-huatabampo').status === 'other_branch',
+  'Tras asignarlo a Navojoa, Huatabampo no puede venderlo'
+);
+const soldLoose = removeImeisFromProduct(assignedLoose, [IMEI_HUA]);
+revisar(soldLoose.stock === 0, 'Vender el IMEI asignado debía dejar stock 0');
+revisar(collectProductImeis(soldLoose).length === 0, 'El IMEI no debía quedar escondido en otra lista');
 
 console.log('── 17:00 Merge sin foto previa: formatos distintos del mismo IMEI no se suman');
 const mergedFormats = applyInventoryWrite(

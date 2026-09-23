@@ -117,7 +117,7 @@ export function locateImeiOnProduct(
   }
   const loose = [...(product.imeiList || []), ...(product.imeis || []), product.imei || ''];
   if (loose.some((im) => imeisEqual(im, rawImei))) {
-    // Lista plana sin sucursal: no es Matriz. El PDV de Navojoa debe poder venderlo.
+    // Lista plana sin sucursal: no pertenece a ninguna tienda hasta que el encargado lo asigne.
     return { branchId: '', hidden: true, unassigned: true };
   }
   return null;

@@ -142,6 +142,8 @@ assert.deepEqual(imeisAtBranch(dangling, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(dangling, 'b-matriz'), []);
 assert.deepEqual(dangling.imeiList?.includes('BBB'), true);
 assert.equal(dangling.stock, 2);
+assert.equal(locateImeiOnProduct(dangling, 'BBB')?.unassigned, true);
+assert.equal(locateImeiOnProduct(dangling, 'AAA')?.branchId, 'b-navojoa');
 
 const ticket = {
   id: 't1',

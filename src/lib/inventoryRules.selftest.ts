@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Product } from '../types';
-import { findImeiInInventory, getBranchStockQty, realEquipmentStockAt, restoreBranchForSaleItem } from './inventoryRules.ts';
+import { findImeiInInventory, getBranchStockQty, realEquipmentStockAt, restoreBranchForSaleItem, unassignedEquipmentCount } from './inventoryRules.ts';
 
 const phone: Product = {
   id: 'prod-x',
@@ -31,11 +31,16 @@ const looseOnly: Product = {
   branchImeiMap: { 'b-navojoa': [], 'b-huatabampo': [], 'b-matriz': [] }
 };
 const looseAtNav = findImeiInInventory([looseOnly], '351299123456789', 'b-navojoa');
-assert.equal(looseAtNav.status, 'found');
-assert.equal(looseAtNav.status === 'found' ? looseAtNav.branchId : '', 'b-navojoa');
+assert.equal(looseAtNav.status, 'unassigned');
+assert.equal(looseAtNav.status === 'unassigned' ? looseAtNav.product.id : '', 'prod-x');
 
 const scanned = findImeiInInventory([looseOnly], ']351299123456789', 'b-navojoa');
-assert.equal(scanned.status, 'found');
+assert.equal(scanned.status, 'unassigned');
+
+const adminLoose = findImeiInInventory([looseOnly], '351299123456789', 'all');
+assert.equal(adminLoose.status, 'unassigned');
+assert.equal(unassignedEquipmentCount([looseOnly]), 1);
+assert.equal(unassignedEquipmentCount([phone]), 0);
 
 const mislabeled: Product = {
   ...phone,
