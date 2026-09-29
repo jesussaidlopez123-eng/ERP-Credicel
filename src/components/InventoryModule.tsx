@@ -22,7 +22,8 @@ import {
   Printer,
   Pencil,
   Tag,
-  MoreHorizontal
+  MoreHorizontal,
+  Package
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
 import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
@@ -62,6 +63,7 @@ const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
 const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
 const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
+const InventoryLoteModal = lazy(() => import('./InventoryLoteModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -108,6 +110,7 @@ function InventoryModule({
   const [printBranchId, setPrintBranchId] = useState<string>('all');
   const [isLabelsModalOpen, setIsLabelsModalOpen] = useState(false);
   const [labelTargetProduct, setLabelTargetProduct] = useState<Product | null>(null);
+  const [loteKind, setLoteKind] = useState<'accesorio' | 'equipo' | null>(null);
 
   const handleOpenPrintModalForBranch = (branchId: string) => {
     setPrintBranchId(branchId);
@@ -1361,6 +1364,24 @@ function InventoryModule({
           >
             <PlusCircle className="w-3.5 h-3.5" />
             <span>Nuevo producto</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setLoteKind(activeInventoryTab)}
+            className={`flex items-center justify-center gap-1 px-3 py-1.5 font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border ${
+              activeInventoryTab === 'equipo'
+                ? 'bg-white text-blue-800 border-blue-300 hover:bg-blue-50'
+                : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
+            }`}
+            title={
+              activeInventoryTab === 'equipo'
+                ? 'Ingresar varios modelos con IMEI de una sola vez'
+                : 'Ingresar varios accesorios de una sola vez'
+            }
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>Paquete de ingreso</span>
           </button>
 
           <button
@@ -3554,6 +3575,22 @@ function InventoryModule({
           currentOperator={currentOperator}
           branches={allBranches}
         />
+      </LazyWhen>
+
+      <LazyWhen when={Boolean(loteKind)}>
+        {loteKind && (
+          <InventoryLoteModal
+            kind={loteKind}
+            products={products}
+            salesTickets={salesTickets}
+            operatorName={currentOperator?.name}
+            operatorId={currentOperator?.id}
+            onClose={() => setLoteKind(null)}
+            onAddProduct={onAddProduct}
+            onUpdateProduct={onUpdateProduct}
+            onRecordMovement={onRecordMovement}
+          />
+        )}
       </LazyWhen>
 
     </div>
