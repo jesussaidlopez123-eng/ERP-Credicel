@@ -9,10 +9,12 @@ import {
   Clock,
   User,
   CheckCircle2,
-  Wrench
+  Wrench,
+  CalendarDays
 } from 'lucide-react';
 import { AppNotification, Branch, Operator } from '../types';
 import { notificationVisibleToOperator } from '../lib/repairUtils';
+import { notificationIsSticky } from '../lib/agenda';
 
 interface NotificationsPopoverProps {
   isOpen: boolean;
@@ -48,8 +50,8 @@ export default function NotificationsPopover({
       operatorId: currentOperator.id
     })
   );
-  const clearableCount = visibleNotifications.filter((n) => n.type !== 'gasto_reparacion').length;
-  const hasRepairCostDue = visibleNotifications.some((n) => n.type === 'gasto_reparacion');
+  const clearableCount = visibleNotifications.filter((n) => !notificationIsSticky(n)).length;
+  const hasSticky = visibleNotifications.some((n) => notificationIsSticky(n));
 
   return (
     <>
@@ -95,8 +97,8 @@ export default function NotificationsPopover({
         {visibleNotifications.length > 0 && (
           <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 text-[11px] text-slate-500">
             <span>
-              {hasRepairCostDue
-                ? 'El aviso de gasto de reparación se quita al capturar el costo.'
+              {hasSticky
+                ? 'Los avisos de taller y de agenda se quitan al completar la tarea.'
                 : 'Haz clic en un aviso para confirmarlo y quitarlo.'}
             </span>
             {clearableCount > 0 && (
@@ -121,6 +123,7 @@ export default function NotificationsPopover({
             visibleNotifications.map((n) => {
               const isUrgente = n.urgency === 'urgente';
               const isRepairCost = n.type === 'gasto_reparacion';
+              const isAgenda = n.type === 'agenda_tarea';
 
               return (
                 <div
@@ -129,12 +132,16 @@ export default function NotificationsPopover({
                     onSelectNotification ? onSelectNotification(n) : onDismissNotification(n.id)
                   }
                   title={
-                    isRepairCost
+                    isAgenda
+                      ? 'Abrir la agenda de Notas'
+                      : isRepairCost
                       ? 'Abrir Reparaciones para capturar el gasto interno'
                       : 'Haz clic para marcar como leído y quitar aviso'
                   }
                   className={`p-3.5 transition-all cursor-pointer relative group ${
-                    isRepairCost
+                    isAgenda
+                      ? 'bg-indigo-50/70 hover:bg-indigo-50 border-l-4 border-l-indigo-600'
+                      : isRepairCost
                       ? 'bg-amber-50/70 hover:bg-amber-50 border-l-4 border-l-amber-600'
                       : isUrgente
                       ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-600'
@@ -143,13 +150,17 @@ export default function NotificationsPopover({
                 >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-xl shrink-0 ${
-                      isRepairCost
+                      isAgenda
+                        ? 'bg-indigo-100 text-indigo-700'
+                        : isRepairCost
                         ? 'bg-amber-100 text-amber-700'
                         : isUrgente
                         ? 'bg-red-100 text-red-600'
                         : 'bg-blue-100 text-blue-600'
                     }`}>
-                      {isRepairCost ? (
+                      {isAgenda ? (
+                        <CalendarDays className="w-4 h-4" />
+                      ) : isRepairCost ? (
                         <Wrench className="w-4 h-4" />
                       ) : isUrgente ? (
                         <AlertTriangle className="w-4 h-4 animate-bounce" />
@@ -161,18 +172,20 @@ export default function NotificationsPopover({
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center justify-between gap-1">
                         <h4 className={`text-xs font-bold ${
-                          isRepairCost ? 'text-amber-950' : isUrgente ? 'text-red-950' : 'text-slate-900'
+                          isAgenda ? 'text-indigo-950' : isRepairCost ? 'text-amber-950' : isUrgente ? 'text-red-950' : 'text-slate-900'
                         }`}>
                           {n.title}
                         </h4>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          isRepairCost
+                          isAgenda
+                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                            : isRepairCost
                             ? 'bg-amber-100 text-amber-800 border border-amber-200'
                             : isUrgente
                             ? 'bg-red-100 text-red-700 border border-red-200'
                             : 'bg-blue-100 text-blue-700 border border-blue-200'
                         }`}>
-                          {isRepairCost ? 'Taller' : isUrgente ? 'Urgente' : 'Normal'}
+                          {isAgenda ? 'Agenda' : isRepairCost ? 'Taller' : isUrgente ? 'Urgente' : 'Normal'}
                         </span>
                       </div>
 

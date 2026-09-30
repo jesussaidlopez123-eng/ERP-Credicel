@@ -128,6 +128,10 @@ export function notificationVisibleToOperator(
   if (n.type === 'gasto_reparacion') {
     return normalizeRole(opts.role) === 'admin';
   }
+  if (n.type === 'agenda_tarea') {
+    const role = normalizeRole(opts.role);
+    return role === 'admin' || role === 'manager';
+  }
   const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === opts.branchId;
   const matchesOperator =
     !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === opts.operatorId;

@@ -29,8 +29,10 @@ export interface AppNotification {
   branchId: string; // 'all' or specific branch id
   targetOperatorId?: string; // 'all' or specific operator id
   targetOperatorName?: string;
-  type?: 'aviso' | 'pedido_stock' | 'gasto_reparacion';
+  type?: 'aviso' | 'pedido_stock' | 'gasto_reparacion' | 'agenda_tarea';
   repairId?: string;
+  agendaTaskId?: string;
+  agendaDateKey?: string;
   requestDetails?: {
     productName: string;
     requestedQty: number;
@@ -446,4 +448,20 @@ export interface CredicelDashDoc {
     color?: string;
     pinned?: boolean;
     checklist?: boolean;
+}
+
+export interface AgendaTask {
+  id: string;
+  title: string;
+  notes?: string;
+  /** Día de la agenda en hora Sonora (YYYY-MM-DD). */
+  dateKey: string;
+  /** Alarma opcional HH:mm (hora Sonora). */
+  alarmTime?: string;
+  done: boolean;
+  doneAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  authorName: string;
+  authorId?: string;
 }

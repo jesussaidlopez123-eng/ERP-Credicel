@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense, startTransition } from 'react';
 import Sidebar from './Sidebar';
 import NotificationsPopover from './NotificationsPopover';
-import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja, PurchaseDraft } from '../types';
+import { Branch, Operator, ModuleId, AppNotification, Product, SaleTicket, Expense, RepairPriceItem, CorteXRecord, InventoryMovement, CreditAccount, RepairRecord, SesionCaja, PurchaseDraft, AgendaTask } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
@@ -64,7 +64,7 @@ import {
   pendingProductWritesFromOutboxPayload,
   type PendingInventoryWrite
 } from '../lib/inventoryMerge';
-import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { money, newUniqueId } from '../lib/ids';
 import {
   canOpenNewCashSession,
@@ -117,6 +117,12 @@ import {
   repairCostDueNotificationId,
   repairCostDueNotificationPlan
 } from '../lib/repairUtils';
+import {
+  agendaNotificationPlan,
+  notificationIsSticky,
+  normalizeAgendaTask
+} from '../lib/agenda';
+import { deleteAgendaTaskFromCloud, saveAgendaTaskToCloud, subscribeToAgendaTasks } from '../lib/agendaCloud';
 import SyncStatusChip from './SyncStatusChip';
 import LazyWhen, { ModuleLoading } from './LazyWhen';
 import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
@@ -179,6 +185,11 @@ export default function Dashboard({
   const [repairRecords, setRepairRecords] = useState<RepairRecord[]>(() =>
     loadCachedList<RepairRecord>('repairs')
   );
+  const [agendaTasks, setAgendaTasks] = useState<AgendaTask[]>(() =>
+    loadCachedList<AgendaTask>('agenda').map((row) => normalizeAgendaTask(row)).filter((row): row is AgendaTask => Boolean(row))
+  );
+  const [agendaFocusDateKey, setAgendaFocusDateKey] = useState<string | null>(null);
+  const [agendaClock, setAgendaClock] = useState(() => getHermosilloClock());
   const [repairsCloudReady, setRepairsCloudReady] = useState(false);
   const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
   const [cloudSynced, setCloudSynced] = useState(true);
@@ -201,6 +212,7 @@ export default function Dashboard({
   const productsRef = useRef(products);
   const repairRecordsRef = useRef(repairRecords);
   const notificationsRef = useRef(notifications);
+  const agendaTasksRef = useRef(agendaTasks);
   /** Lo capturado en este equipo que la nube todavía no confirma. */
   const localOnlyRef = useRef<{
     sales: SaleTicket[];
@@ -223,6 +235,7 @@ export default function Dashboard({
   cortesRef.current = cortesX;
   repairRecordsRef.current = repairRecords;
   notificationsRef.current = notifications;
+  agendaTasksRef.current = agendaTasks;
   productsRef.current = products;
 
   const markCloudDown = (message?: string) => {
@@ -359,6 +372,22 @@ export default function Dashboard({
       () => markCloudDown()
     );
 
+    const unsubAgenda = subscribeToAgendaTasks(
+      (rows) => {
+        setAgendaTasks((prev) => {
+          const fromCloud = keepIfCloudEmpty(rows, prev);
+          const next = mergeByIdKeep(prev, fromCloud)
+            .map((row) => normalizeAgendaTask(row))
+            .filter((row): row is AgendaTask => Boolean(row))
+            .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.createdAt.localeCompare(b.createdAt));
+          agendaTasksRef.current = next;
+          scheduleSaveCachedList('agenda', next);
+          return next;
+        });
+      },
+      () => markCloudDown()
+    );
+
     return () => {
       unsubProducts();
       unsubSales();
@@ -370,6 +399,7 @@ export default function Dashboard({
       unsubFunds();
       unsubCredits();
       unsubRepairs();
+      unsubAgenda();
     };
   }, []);
 
@@ -1319,6 +1349,84 @@ export default function Dashboard({
     });
   };
 
+  const persistAgendaTask = async (task: AgendaTask) => {
+    const saved = normalizeAgendaTask({
+      ...task,
+      updatedAt: task.updatedAt || trustedIso()
+    });
+    if (!saved) throw new Error('Escribe una tarea con fecha válida.');
+    const next = [saved, ...agendaTasksRef.current.filter((row) => row.id !== saved.id)].sort(
+      (a, b) => a.dateKey.localeCompare(b.dateKey) || a.createdAt.localeCompare(b.createdAt)
+    );
+    agendaTasksRef.current = next;
+    setAgendaTasks(next);
+    saveCachedList('agenda', next);
+    await saveAgendaTaskToCloud(saved).catch((err) => {
+      console.error('Error guardando la tarea de agenda:', err);
+    });
+  };
+
+  const handleDeleteAgendaTask = async (task: AgendaTask) => {
+    const next = agendaTasksRef.current.filter((row) => row.id !== task.id);
+    agendaTasksRef.current = next;
+    setAgendaTasks(next);
+    saveCachedList('agenda', next);
+    const notifId = `notif-agenda-${task.id}`;
+    notificationsRef.current = notificationsRef.current.filter((n) => n.id !== notifId && n.agendaTaskId !== task.id);
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId && n.agendaTaskId !== task.id));
+    deleteNotificationFromFirestore(notifId).catch(() => {});
+    await deleteAgendaTaskFromCloud(task.id).catch((err) => {
+      console.error('Error borrando la tarea de agenda:', err);
+    });
+  };
+
+  useEffect(() => {
+    const tick = () => {
+      const next = getHermosilloClock();
+      setAgendaClock((prev) =>
+        prev.dateKey === next.dateKey && prev.hour === next.hour && prev.minute === next.minute ? prev : next
+      );
+    };
+    tick();
+    const timer = window.setInterval(tick, 20000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const plan = agendaNotificationPlan(agendaTasks, notificationsRef.current, agendaClock);
+    if (plan.add.length === 0 && plan.dismissIds.length === 0) return;
+
+    if (plan.add.length > 0) {
+      const incoming = plan.add.map((row) => ({
+        ...row,
+        createdAt: 'Justo ahora',
+        read: false
+      }));
+      const incomingIds = new Set(incoming.map((n) => n.id));
+      notificationsRef.current = [
+        ...incoming,
+        ...notificationsRef.current.filter((n) => !incomingIds.has(n.id))
+      ];
+      setNotifications((prev) => [...incoming, ...prev.filter((n) => !incomingIds.has(n.id))]);
+      incoming.forEach((notification) => {
+        saveNotificationToFirestore(notification).catch((err) =>
+          console.error('Error avisando tarea de agenda:', err)
+        );
+      });
+    }
+
+    if (plan.dismissIds.length > 0) {
+      const dismiss = new Set(plan.dismissIds);
+      notificationsRef.current = notificationsRef.current.filter((n) => !dismiss.has(n.id));
+      setNotifications((prev) => prev.filter((n) => !dismiss.has(n.id)));
+      plan.dismissIds.forEach((id) => {
+        deleteNotificationFromFirestore(id).catch((err) =>
+          console.error('Error quitando aviso de agenda:', err)
+        );
+      });
+    }
+  }, [agendaTasks, agendaClock, notifications]);
+
   // Add Expense Handler
   const handleAddExpense = async (expense: Expense) => {
     if (isAfterCashClose() && hasCashTill(expense.branchId)) {
@@ -1671,7 +1779,7 @@ export default function Dashboard({
 
   const handleDismissNotification = (id: string) => {
     const target = notificationsRef.current.find((n) => n.id === id);
-    if (target?.type === 'gasto_reparacion') return;
+    if (target && notificationIsSticky(target)) return;
     notificationsRef.current = notificationsRef.current.filter((n) => n.id !== id);
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     deleteNotificationFromFirestore(id).catch((err) => console.error('Error dismissing notification:', err));
@@ -1685,13 +1793,20 @@ export default function Dashboard({
       setIsMobileMenuOpen(false);
       return;
     }
+    if (n.type === 'agenda_tarea') {
+      setAgendaFocusDateKey(n.agendaDateKey || todayCashDateKey());
+      setActiveModule('credicelDashboard');
+      setIsNotificationsOpen(false);
+      setIsMobileMenuOpen(false);
+      return;
+    }
     handleDismissNotification(n.id);
   };
 
   const handleClearAllNotifications = () => {
     const toClear = notifications.filter(
       (n) =>
-        n.type !== 'gasto_reparacion' &&
+        !notificationIsSticky(n) &&
         notificationVisibleToOperator(n, {
           role: currentOperator.role,
           branchId: currentBranch.id,
@@ -1759,6 +1874,8 @@ export default function Dashboard({
   const stableReceivePurchase = useStableCallback(handleReceivePurchase);
   const stableDeleteSaleTicket = useStableCallback(handleDeleteSaleTicket);
   const stableAddNotification = useStableCallback(handleAddNotification);
+  const stableSaveAgendaTask = useStableCallback(persistAgendaTask);
+  const stableDeleteAgendaTask = useStableCallback(handleDeleteAgendaTask);
   const stableDismissNotification = useStableCallback(handleDismissNotification);
   const stableSelectNotification = useStableCallback(handleSelectNotification);
   const stableClearNotifications = useStableCallback(handleClearAllNotifications);
@@ -1895,6 +2012,11 @@ export default function Dashboard({
           <CredicelDashboardModule
             currentOperator={currentOperator}
             currentBranch={currentBranch}
+            agendaTasks={agendaTasks}
+            onSaveAgendaTask={stableSaveAgendaTask}
+            onDeleteAgendaTask={stableDeleteAgendaTask}
+            agendaFocusDateKey={agendaFocusDateKey}
+            onAgendaFocusConsumed={() => setAgendaFocusDateKey(null)}
           />
         );
       case 'settings':
