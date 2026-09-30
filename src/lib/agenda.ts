@@ -160,8 +160,8 @@ export function buildAgendaTaskNotification(
     urgency: overdue || alarmReached ? 'urgente' : 'normal',
     title: overdue ? `Tarea atrasada · ${task.title}` : `Agenda de hoy · ${task.title}`,
     message: overdue
-      ? `${task.title} quedó pendiente del ${dayLabel}${when}. Ábrala en Notas → Agenda y márquela cuando esté hecha.`
-      : `${task.title} toca ${dayLabel}${when}. Ábrala en Notas → Agenda.`,
+      ? `${task.title} quedó pendiente del ${dayLabel}${when}. Ábrala en el calendario, al lado de avisos, y márquela cuando esté hecha.`
+      : `${task.title} toca ${dayLabel}${when}. Ábrala en el calendario, al lado de avisos.`,
     authorName: task.authorName || 'Agenda',
     branchId: 'all',
     targetOperatorId: 'all',

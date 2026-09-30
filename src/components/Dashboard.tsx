@@ -7,7 +7,7 @@ import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { ALL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { canOpenModule, defaultModuleForRole, normalizeRole } from '../lib/roles';
-import { Bell, Menu, Megaphone } from 'lucide-react';
+import { Bell, CalendarDays, Menu, Megaphone } from 'lucide-react';
 import {
   subscribeToProducts,
   saveProductToFirestore,
@@ -119,6 +119,7 @@ import {
 } from '../lib/repairUtils';
 import {
   agendaNotificationPlan,
+  isAgendaTaskDue,
   notificationIsSticky,
   normalizeAgendaTask
 } from '../lib/agenda';
@@ -133,6 +134,7 @@ import {
   findClosedCorteForDay,
   removeTicketFromCorte
 } from '../lib/historicSale';
+import NotesAgenda from './NotesAgenda';
 
 const CreateNoticeModal = lazy(() => import('./CreateNoticeModal'));
 const RepairPriceCatalogModal = lazy(() => import('./RepairPriceCatalogModal'));
@@ -165,6 +167,7 @@ export default function Dashboard({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAgendaOpen, setIsAgendaOpen] = useState(false);
   const [isCreateNoticeOpen, setIsCreateNoticeOpen] = useState(false);
 
   // POS Quick Modal States
@@ -1772,6 +1775,11 @@ export default function Dashboard({
   );
 
   const unreadCount = visibleNotifications.length;
+  const canUseAgenda = canOpenModule(currentOperator.role, 'credicelDashboard');
+  const agendaDueCount = useMemo(
+    () => agendaTasks.filter((task) => isAgendaTaskDue(task, agendaClock)).length,
+    [agendaTasks, agendaClock]
+  );
   const repairPendingCount = useMemo(
     () => repairRecords.filter(isPendingRepair).length,
     [repairRecords]
@@ -1795,7 +1803,7 @@ export default function Dashboard({
     }
     if (n.type === 'agenda_tarea') {
       setAgendaFocusDateKey(n.agendaDateKey || todayCashDateKey());
-      setActiveModule('credicelDashboard');
+      setIsAgendaOpen(true);
       setIsNotificationsOpen(false);
       setIsMobileMenuOpen(false);
       return;
@@ -2012,11 +2020,6 @@ export default function Dashboard({
           <CredicelDashboardModule
             currentOperator={currentOperator}
             currentBranch={currentBranch}
-            agendaTasks={agendaTasks}
-            onSaveAgendaTask={stableSaveAgendaTask}
-            onDeleteAgendaTask={stableDeleteAgendaTask}
-            agendaFocusDateKey={agendaFocusDateKey}
-            onAgendaFocusConsumed={() => setAgendaFocusDateKey(null)}
           />
         );
       case 'settings':
@@ -2096,9 +2099,47 @@ export default function Dashboard({
             />
           </div>
 
-          <div className="relative">
+          <div className="flex items-center gap-1 relative">
+            {canUseAgenda && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAgendaOpen((open) => !open);
+                    setIsNotificationsOpen(false);
+                  }}
+                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors relative ${
+                    isAgendaOpen ? 'bg-[#0047AB] text-white' : 'hover:bg-slate-100 text-slate-600'
+                  }`}
+                  title="Agenda"
+                >
+                  <CalendarDays className="w-5 h-5" />
+                  {agendaDueCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white bg-indigo-600">
+                      {agendaDueCount}
+                    </span>
+                  )}
+                </button>
+                <NotesAgenda
+                  variant="popover"
+                  isOpen={isAgendaOpen}
+                  onClose={() => setIsAgendaOpen(false)}
+                  tasks={agendaTasks}
+                  currentOperator={currentOperator}
+                  onSaveTask={stableSaveAgendaTask}
+                  onDeleteTask={stableDeleteAgendaTask}
+                  focusDateKey={agendaFocusDateKey}
+                  onFocusConsumed={() => setAgendaFocusDateKey(null)}
+                />
+              </div>
+            )}
+
+            <div className="relative">
             <button
-              onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+              onClick={() => {
+                setIsNotificationsOpen(!isNotificationsOpen);
+                setIsAgendaOpen(false);
+              }}
               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors relative ${
                 isNotificationsOpen ? 'bg-[#0047AB] text-white' : 'hover:bg-slate-100 text-slate-600'
               }`}
@@ -2126,6 +2167,7 @@ export default function Dashboard({
               currentBranch={currentBranch}
               currentOperator={currentOperator}
             />
+            </div>
           </div>
         </header>
 

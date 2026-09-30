@@ -133,7 +133,7 @@ export default function NotificationsPopover({
                   }
                   title={
                     isAgenda
-                      ? 'Abrir la agenda de Notas'
+                      ? 'Abrir el calendario'
                       : isRepairCost
                       ? 'Abrir Reparaciones para capturar el gasto interno'
                       : 'Haz clic para marcar como leído y quitar aviso'

@@ -16,7 +16,7 @@ import {
   Trash2,
   X
 } from 'lucide-react';
-import { Branch, CredicelDashAttachment, CredicelDashCheckItem, CredicelDashDoc, AgendaTask, Operator } from '../types';
+import { Branch, CredicelDashAttachment, CredicelDashCheckItem, CredicelDashDoc, Operator } from '../types';
 import { newUniqueId } from '../lib/ids';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import {
@@ -54,16 +54,10 @@ import {
   saveCredicelDashDocToCloud,
   subscribeToCredicelDashDocs
 } from '../lib/credicelDashboardCloud';
-import NotesAgenda from './NotesAgenda';
 
 interface CredicelDashboardModuleProps {
   currentOperator: Operator;
   currentBranch: Branch;
-  agendaTasks?: AgendaTask[];
-  onSaveAgendaTask?: (task: AgendaTask) => void | Promise<void>;
-  onDeleteAgendaTask?: (task: AgendaTask) => void | Promise<void>;
-  agendaFocusDateKey?: string | null;
-  onAgendaFocusConsumed?: () => void;
 }
 
 type DashView = 'grid' | 'list';
@@ -327,12 +321,7 @@ function NoteCard({
 
 export default function CredicelDashboardModule({
   currentOperator,
-  currentBranch,
-  agendaTasks = [],
-  onSaveAgendaTask,
-  onDeleteAgendaTask,
-  agendaFocusDateKey,
-  onAgendaFocusConsumed
+  currentBranch
 }: CredicelDashboardModuleProps) {
   const [docs, setDocs] = useState<CredicelDashDoc[]>(() => loadCachedDashDocs());
   const [cloudError, setCloudError] = useState<string | null>(null);
@@ -734,7 +723,7 @@ export default function CredicelDashboardModule({
             <div>
               <h3 className="text-xl font-black text-slate-900">Notas</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Notas, agenda del mes y archivos de {currentBranch.name}.
+                Notas, listas para marcar y archivos de {currentBranch.name}.
               </p>
             </div>
             <div className="sm:ml-auto flex flex-wrap items-center gap-2">
@@ -779,17 +768,6 @@ export default function CredicelDashboardModule({
               </button>
             </div>
           </div>
-
-          {onSaveAgendaTask && onDeleteAgendaTask && (
-            <NotesAgenda
-              tasks={agendaTasks}
-              currentOperator={currentOperator}
-              onSaveTask={onSaveAgendaTask}
-              onDeleteTask={onDeleteAgendaTask}
-              focusDateKey={agendaFocusDateKey}
-              onFocusConsumed={onAgendaFocusConsumed}
-            />
-          )}
 
           <button
             type="button"

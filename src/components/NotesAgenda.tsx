@@ -23,6 +23,9 @@ interface NotesAgendaProps {
   onDeleteTask: (task: AgendaTask) => void | Promise<void>;
   focusDateKey?: string | null;
   onFocusConsumed?: () => void;
+  variant?: 'page' | 'popover';
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export default function NotesAgenda({
@@ -31,7 +34,10 @@ export default function NotesAgenda({
   onSaveTask,
   onDeleteTask,
   focusDateKey,
-  onFocusConsumed
+  onFocusConsumed,
+  variant = 'page',
+  isOpen = true,
+  onClose
 }: NotesAgendaProps) {
   const today = todayCashDateKey();
   const initial = monthFromDateKey(focusDateKey || today);
@@ -65,36 +71,47 @@ export default function NotesAgenda({
     setMonth(next.month);
   };
 
-  return (
-    <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0">
-            <CalendarDays className="w-5 h-5" />
-          </div>
-          <div>
+  if (variant === 'popover' && !isOpen) return null;
+
+  const compact = variant === 'popover';
+  const upcomingLimit = compact ? upcoming.slice(0, 3) : upcoming;
+
+  const calendar = (
+    <div className={compact ? 'p-3 space-y-3' : 'space-y-4'}>
+      <div className={`flex items-center justify-between gap-2 ${compact ? '' : 'flex-col sm:flex-row'}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          {compact ? (
             <h2 className="text-sm font-black text-slate-900">Agenda</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Almanaque del mes. Toca un día para agregar recordatorios; al llegar la fecha salen en la campana de avisos.
-            </p>
-          </div>
+          ) : (
+            <>
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0">
+                <CalendarDays className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-black text-slate-900">Agenda</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Toca un día para agregar recordatorios.
+                </p>
+              </div>
+            </>
+          )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => goMonth(-1)}
-            className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer"
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
             aria-label="Mes anterior"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <p className="min-w-[10.5rem] text-center text-sm font-black text-slate-900">
+          <p className="min-w-[8.5rem] text-center text-xs font-black text-slate-900">
             {formatMonthTitle(year, month)}
           </p>
           <button
             type="button"
             onClick={() => goMonth(1)}
-            className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer"
+            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
             aria-label="Mes siguiente"
           >
             <ChevronRight className="w-4 h-4" />
@@ -107,16 +124,26 @@ export default function NotesAgenda({
               setMonth(now.month);
               setSelectedDate(today);
             }}
-            className="ml-1 px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-bold cursor-pointer"
+            className="ml-0.5 px-2 py-1 rounded-lg bg-slate-900 text-white text-[10px] font-bold cursor-pointer"
           >
             Hoy
           </button>
+          {compact && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-0.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+              aria-label="Cerrar agenda"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-0.5">
         {WEEKDAY_LABELS.map((label) => (
-          <div key={label} className="text-center text-[10px] font-black uppercase tracking-wide text-slate-400 py-1">
+          <div key={label} className="text-center text-[10px] font-black uppercase tracking-wide text-slate-400 py-0.5">
             {label}
           </div>
         ))}
@@ -128,7 +155,7 @@ export default function NotesAgenda({
               key={cell.dateKey}
               type="button"
               onClick={() => setSelectedDate(cell.dateKey)}
-              className={`relative min-h-[3.15rem] sm:min-h-[3.6rem] rounded-xl border text-sm font-bold cursor-pointer transition-colors ${
+              className={`relative ${compact ? 'min-h-[2.35rem]' : 'min-h-[3.15rem] sm:min-h-[3.6rem]'} rounded-lg border text-sm font-bold cursor-pointer transition-colors ${
                 selected
                   ? 'border-indigo-500 bg-indigo-50 text-indigo-950'
                   : cell.isToday
@@ -138,12 +165,12 @@ export default function NotesAgenda({
                   : 'border-transparent bg-slate-50 text-slate-400 hover:bg-slate-100'
               }`}
             >
-              <span className="absolute top-1.5 left-1/2 -translate-x-1/2 text-[13px]">
+              <span className={`absolute left-1/2 -translate-x-1/2 ${compact ? 'top-1 text-[12px]' : 'top-1.5 text-[13px]'}`}>
                 {Number(cell.dateKey.slice(8, 10))}
               </span>
               {open > 0 && (
                 <span
-                  className={`absolute bottom-1.5 left-1/2 -translate-x-1/2 min-w-[1.1rem] h-4 px-1 rounded-full text-[9px] font-black leading-4 ${
+                  className={`absolute left-1/2 -translate-x-1/2 ${compact ? 'bottom-0.5' : 'bottom-1.5'} min-w-[0.95rem] h-3.5 px-1 rounded-full text-[8px] font-black leading-[14px] ${
                     cell.isToday && !selected ? 'bg-amber-400 text-slate-900' : 'bg-amber-100 text-amber-800'
                   }`}
                 >
@@ -155,11 +182,11 @@ export default function NotesAgenda({
         })}
       </div>
 
-      {upcoming.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-1.5">Próximos recordatorios</p>
+      {upcomingLimit.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-1">Próximos</p>
           <ul className="space-y-1">
-            {upcoming.map((task) => (
+            {upcomingLimit.map((task) => (
               <li key={task.id}>
                 <button
                   type="button"
@@ -182,7 +209,29 @@ export default function NotesAgenda({
           </ul>
         </div>
       )}
+    </div>
+  );
 
+  return compact ? (
+    <>
+      <div className="fixed inset-0 z-40 bg-transparent" onClick={onClose} />
+      <div className="absolute right-0 top-12 z-50 w-[20.5rem] sm:w-[24rem] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[80vh] overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-150">
+        {calendar}
+      </div>
+      {selectedDate && (
+        <DayAgendaModal
+          dateKey={selectedDate}
+          tasks={tasksOnDate(tasks, selectedDate)}
+          currentOperator={currentOperator}
+          onClose={() => setSelectedDate(null)}
+          onSaveTask={onSaveTask}
+          onDeleteTask={onDeleteTask}
+        />
+      )}
+    </>
+  ) : (
+    <section className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5">
+      {calendar}
       {selectedDate && (
         <DayAgendaModal
           dateKey={selectedDate}
