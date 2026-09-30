@@ -23,13 +23,18 @@ import {
   Pencil,
   Tag,
   MoreHorizontal,
-  Package
+  Package,
+  RotateCcw,
+  ScanSearch
 } from 'lucide-react';
 import { Product, Branch, Operator, InventoryMovement, SaleTicket, CreditAccount } from '../types';
 import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
 import {
   addImeisToProduct,
+  applyEquipmentIntegrity,
+  auditEquipmentInventory,
   collectProductImeis,
+  collectSoldImeisFromHistory,
   findImeiOnCatalog,
   findSoldImeiTicket,
   imeisAtBranch,
@@ -38,6 +43,7 @@ import {
   isEquipmentProduct,
   canonicalImei,
   imeiDigits,
+  listHasImei,
   moveImeisOnProduct,
   normalizeImei,
   removeImeisFromProduct,
@@ -55,6 +61,7 @@ import { isVirtualPosProduct, unassignedEquipmentCount } from '../lib/inventoryR
 import LazyWhen from './LazyWhen';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
+import { normalizeRole } from '../lib/roles';
 
 const InventoryMovementsModal = lazy(() =>
   import('./InventoryMovementsModal').then((m) => ({ default: m.InventoryMovementsModal }))
@@ -64,6 +71,7 @@ const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
 const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
 const InventoryLoteModal = lazy(() => import('./InventoryLoteModal'));
+const InventoryRestoreModal = lazy(() => import('./InventoryRestoreModal'));
 
 interface InventoryModuleProps {
   products: Product[];
@@ -163,6 +171,7 @@ function InventoryModule({
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [isImeiTraceOpen, setIsImeiTraceOpen] = useState(false);
   const [traceInitialImei, setTraceInitialImei] = useState('');
+  const [isKardexOpen, setIsKardexOpen] = useState(false);
 
   // Modal 2: Transferir
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -263,6 +272,10 @@ function InventoryModule({
   };
 
   const orphanImeiCount = unassignedEquipmentCount(products);
+  const equipmentAudit = useMemo(
+    () => auditEquipmentInventory(products, salesTickets, inventoryMovements),
+    [products, salesTickets, inventoryMovements]
+  );
   const orphanProducts = useMemo(
     () =>
       (products || []).filter(
@@ -297,6 +310,42 @@ function InventoryModule({
     if (viewingImeisProduct?.id === product.id) {
       setViewingImeisProduct(updated);
     }
+  };
+
+  const handlePurgeSoldListed = () => {
+    const sold = collectSoldImeisFromHistory(salesTickets, inventoryMovements);
+    const listedSold = equipmentAudit.issues.filter((i) => i.kind === 'sold_listed');
+    if (listedSold.length === 0) return;
+    promptSecurityAuth(
+      'ajuste',
+      'Quitar IMEI ya vendidos',
+      `Se dan de baja del anaquel ${listedSold.length} IMEI que ya aparecen en tickets o en movimientos de venta. No se borra ningún celular que no esté vendido.`,
+      () => {
+        const { changed } = applyEquipmentIntegrity(products, sold);
+        for (const next of changed) {
+          const prev = products.find((p) => p.id === next.id);
+          if (!prev) continue;
+          const removed = collectProductImeis(prev).filter((im) => !listHasImei(collectProductImeis(next), im));
+          if (removed.length === 0) continue;
+          onRecordMovement?.({
+            type: 'ajuste',
+            productId: next.id,
+            productCode: next.code,
+            productName: next.name,
+            category: next.category,
+            inventoryType: 'equipo',
+            quantity: -removed.length,
+            operatorName: currentOperator?.name || 'Admin',
+            operatorId: currentOperator?.id,
+            imeis: removed,
+            reason: 'Auditoría de IMEI vendidos',
+            details: `Auditoría: se quitan ${removed.length} IMEI ya vendidos de ${next.name}`
+          });
+          onUpdateProduct(next);
+          if (viewingImeisProduct?.id === next.id) setViewingImeisProduct(next);
+        }
+      }
+    );
   };
 
   const renderLockedProductCard = (
@@ -1319,12 +1368,20 @@ function InventoryModule({
               <span>2. EQUIPOS</span>
             </button>
 
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-extrabold shadow-2xs">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-[11px] font-extrabold shadow-2xs ${
+              activeInventoryTab === 'equipo' && !equipmentAudit.imeisSealed
+                ? 'bg-amber-50 text-amber-900 border-amber-200'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}>
+              <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${
+                activeInventoryTab === 'equipo' && !equipmentAudit.imeisSealed ? 'text-amber-600' : 'text-emerald-600'
+              }`} />
               <span>
                 {activeInventoryTab === 'accesorio'
                   ? 'Stock solo en Matriz · Navojoa · Huatabampo'
-                  : 'Anti-Duplicados'}
+                  : equipmentAudit.imeisSealed
+                    ? 'IMEI sellados · no se borran'
+                    : `${equipmentAudit.soldListed + equipmentAudit.duplicates + equipmentAudit.stockMismatches} hallazgo(s)`}
               </span>
             </div>
           </div>
@@ -1410,6 +1467,33 @@ function InventoryModule({
               </span>
             )}
           </button>
+
+          {activeInventoryTab === 'equipo' && (
+            <button
+              type="button"
+              onClick={() => {
+                setTraceInitialImei('');
+                setIsImeiTraceOpen(true);
+              }}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Buscar un IMEI: sucursal, venta y movimientos"
+            >
+              <ScanSearch className="w-3.5 h-3.5 text-blue-700" />
+              <span>Trazar IMEI</span>
+            </button>
+          )}
+
+          {normalizeRole(currentOperator?.role) !== 'cashier' && (
+            <button
+              type="button"
+              onClick={() => setIsKardexOpen(true)}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
+              title="Comparar existencias de Matriz, Navojoa y Huatabampo contra el kardex de la nube"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Kardex sucursales</span>
+            </button>
+          )}
         </div>
 
       </div>
@@ -1443,6 +1527,93 @@ function InventoryModule({
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeInventoryTab === 'equipo' && (
+        <div className={`rounded-2xl px-4 py-3 shadow-sm shrink-0 border ${
+          equipmentAudit.imeisSealed
+            ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-white border-slate-200'
+        }`}>
+          <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className={`text-xs font-black ${equipmentAudit.imeisSealed ? 'text-emerald-950' : 'text-slate-900'}`}>
+                {equipmentAudit.imeisSealed
+                  ? 'Los IMEI de equipos están resguardados'
+                  : 'Hay descuadres que se pueden clasificar'}
+              </p>
+              <p className="text-[11px] font-medium text-slate-700 leading-snug mt-0.5">
+                El sistema no borra ni mueve el IMEI de otra sucursal al guardar. Un celular vive en Matriz, Navojoa o Huatabampo; al venderse sale de las tres. Lo que no cuadra suele ser captura en la tienda equivocada, traspaso sin mover el físico, ajuste/merma, o IMEI viejos sin asignar.
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[10px] font-extrabold text-slate-800">
+                  Matriz {equipmentAudit.totals['b-matriz']}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[10px] font-extrabold text-slate-800">
+                  Navojoa {equipmentAudit.totals['b-navojoa']}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[10px] font-extrabold text-slate-800">
+                  Huatabampo {equipmentAudit.totals['b-huatabampo']}
+                </span>
+                {equipmentAudit.unassigned > 0 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-amber-100 border border-amber-300 text-[10px] font-extrabold text-amber-950">
+                    Sin sucursal {equipmentAudit.unassigned} · humano
+                  </span>
+                )}
+                {equipmentAudit.soldListed > 0 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-rose-100 border border-rose-200 text-[10px] font-extrabold text-rose-900">
+                    Vendidos aún listados {equipmentAudit.soldListed} · sistema
+                  </span>
+                )}
+                {equipmentAudit.duplicates > 0 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-orange-100 border border-orange-200 text-[10px] font-extrabold text-orange-950">
+                    Duplicados {equipmentAudit.duplicates} · humano
+                  </span>
+                )}
+                {equipmentAudit.stockMismatches > 0 && (
+                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 border border-slate-300 text-[10px] font-extrabold text-slate-800">
+                    Conteo ≠ IMEI {equipmentAudit.stockMismatches} · sistema
+                  </span>
+                )}
+              </div>
+              {equipmentAudit.issues.filter((i) => i.kind !== 'unassigned').slice(0, 4).length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {equipmentAudit.issues
+                    .filter((i) => i.kind !== 'unassigned')
+                    .slice(0, 4)
+                    .map((issue, idx) => (
+                      <li key={`${issue.kind}-${issue.imei || issue.productId}-${idx}`} className="text-[11px] font-semibold text-slate-700">
+                        <span className={`mr-1 uppercase text-[9px] font-black ${
+                          issue.origin === 'humano' ? 'text-amber-800' : 'text-rose-800'
+                        }`}>
+                          {issue.origin}
+                        </span>
+                        {issue.detail}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 shrink-0">
+              {equipmentAudit.soldListed > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePurgeSoldListed}
+                  className="px-3 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-[11px] font-extrabold cursor-pointer"
+                >
+                  Quitar ya vendidos
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsKardexOpen(true)}
+                className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 rounded-xl text-[11px] font-extrabold cursor-pointer"
+              >
+                Comparar kardex
+              </button>
             </div>
           </div>
         </div>
@@ -3562,6 +3733,14 @@ function InventoryModule({
           movements={inventoryMovements}
           credits={creditAccounts}
           initialImei={traceInitialImei}
+        />
+      </LazyWhen>
+
+      <LazyWhen when={isKardexOpen}>
+        <InventoryRestoreModal
+          open={isKardexOpen}
+          currentOperator={currentOperator}
+          onClose={() => setIsKardexOpen(false)}
         />
       </LazyWhen>
 

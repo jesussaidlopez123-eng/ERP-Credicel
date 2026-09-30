@@ -3,6 +3,7 @@ import type { Product, SaleTicket } from '../types';
 import {
   addImeisToProduct,
   applyEquipmentIntegrity,
+  auditEquipmentInventory,
   collectSoldImeis,
   findImeiOnCatalog,
   findSoldImeiTicket,
@@ -237,5 +238,75 @@ assert.equal(catalogHit?.product.id, 'prod-x');
 
 const soldHit = findSoldImeiTicket([ticket], 'fff');
 assert.equal(soldHit?.folio, 'NAV-0101-001');
+
+const cancelledTicket = { ...ticket, id: 't-cancel', estado: 'CANCELADA' as const };
+assert.equal(collectSoldImeis([cancelledTicket]).has('FFF'), false);
+assert.equal(findSoldImeiTicket([cancelledTicket], 'FFF'), undefined);
+const stillOnShelf = phone({
+  branchImeiMap: { 'b-navojoa': ['FFF'] },
+  imeiList: ['FFF'],
+  stock: 1,
+  branchStock: { 'b-matriz': 0, 'b-navojoa': 1, 'b-huatabampo': 0 }
+});
+const cancelledTrace = traceImei('FFF', { products: [stillOnShelf], tickets: [cancelledTicket] });
+assert.equal(cancelledTrace.status, 'disponible');
+
+const healthyAudit = auditEquipmentInventory(
+  [
+    phone({
+      branchImeiMap: { 'b-navojoa': ['AAA'], 'b-huatabampo': ['BBB'], 'b-matriz': [] },
+      imeiList: ['AAA', 'BBB'],
+      stock: 2,
+      branchStock: { 'b-matriz': 0, 'b-navojoa': 1, 'b-huatabampo': 1 }
+    })
+  ],
+  []
+);
+assert.equal(healthyAudit.imeisSealed, true);
+assert.equal(healthyAudit.totals['b-navojoa'], 1);
+assert.equal(healthyAudit.unassigned, 0);
+
+const messyAudit = auditEquipmentInventory(
+  [
+    phone({
+      id: 'prod-a',
+      code: 'CE-01',
+      name: 'Redmi A',
+      imeiList: ['ORPHAN1', 'DUP111'],
+      branchImeiMap: { 'b-navojoa': ['DUP111'], 'b-huatabampo': [], 'b-matriz': [] },
+      stock: 2,
+      branchStock: { 'b-matriz': 0, 'b-navojoa': 1, 'b-huatabampo': 0 }
+    }),
+    phone({
+      id: 'prod-b',
+      code: 'CE-02',
+      name: 'Redmi B',
+      imeiList: ['DUP111'],
+      branchImeiMap: { 'b-huatabampo': ['DUP111'], 'b-navojoa': [], 'b-matriz': [] },
+      stock: 1,
+      branchStock: { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 1 }
+    })
+  ],
+  []
+);
+assert.ok(messyAudit.unassigned >= 1);
+assert.ok(messyAudit.duplicates >= 1);
+assert.equal(messyAudit.issues.some((i) => i.origin === 'humano' && i.kind === 'unassigned'), true);
+assert.equal(messyAudit.issues.some((i) => i.origin === 'humano' && i.kind === 'duplicate'), true);
+
+const soldGhost = auditEquipmentInventory(
+  [
+    phone({
+      branchImeiMap: { 'b-navojoa': ['FFF'] },
+      imeiList: ['FFF'],
+      stock: 1,
+      branchStock: { 'b-matriz': 0, 'b-navojoa': 1, 'b-huatabampo': 0 }
+    })
+  ],
+  [ticket]
+);
+assert.ok(soldGhost.soldListed >= 1);
+assert.equal(soldGhost.imeisSealed, false);
+assert.equal(soldGhost.issues.some((i) => i.origin === 'sistema' && i.kind === 'sold_listed'), true);
 
 console.log('imeiInventory self-test ok');

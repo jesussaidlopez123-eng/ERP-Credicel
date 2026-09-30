@@ -268,6 +268,21 @@ revisar(
 const soldImeis = collectSoldImeis([ticket]);
 revisar(soldImeis.has(IMEI_NAV), 'El ticket con IMEI canónico debía marcar el equipo como vendido');
 
+console.log('── 19:00 Ticket cancelado no baja el IMEI del anaquel');
+const cancelledTicket = { ...ticket, estado: 'CANCELADA' as const };
+revisar(
+  !collectSoldImeis([cancelledTicket]).has(IMEI_NAV),
+  'Un ticket CANCELADA no debe marcar el IMEI como vendido'
+);
+const liveCancelled = applyLiveCatalog({
+  cloud: [beforeSale],
+  tickets: [cancelledTicket]
+});
+revisar(
+  collectProductImeis(liveCancelled[0]).length === 1,
+  'El catálogo en vivo no debe borrar un IMEI solo porque el ticket quedó cancelado'
+);
+
 console.log('\n════════════════════════════════════');
 if (hallazgos.length === 0) {
   console.log('COTIDIANIDAD DE INVENTARIO: sin fallas detectadas.');

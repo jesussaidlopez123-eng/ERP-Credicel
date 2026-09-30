@@ -305,17 +305,56 @@ export function imeisGroupedByBranch(product: Product): Record<InventoryBranchId
   };
 }
 
+/** Ticket anulado: no descuenta IMEI ni se trata como venta. */
+export function isCancelledSaleTicket(ticket?: SaleTicket | null): boolean {
+  return String(ticket?.estado || '').toUpperCase() === 'CANCELADA';
+}
+
+function ticketSellsPhoneImei(item: SaleTicket['items'][number]): string {
+  const imei = canonicalImei(item.metadata?.imei) || normalizeImei(item.metadata?.imei);
+  if (!imei) return '';
+  if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) return '';
+  if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {
+    return imei;
+  }
+  return '';
+}
+
 export function collectSoldImeis(tickets: SaleTicket[]): Set<string> {
   const sold = new Set<string>();
   for (const ticket of tickets || []) {
+    if (isCancelledSaleTicket(ticket)) continue;
     for (const item of ticket.items || []) {
-      const imei = canonicalImei(item.metadata?.imei) || normalizeImei(item.metadata?.imei);
-      if (!imei) continue;
-      if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
-      if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {
-        sold.add(imei);
-      }
+      const imei = ticketSellsPhoneImei(item);
+      if (imei) sold.add(imei);
     }
+  }
+  return sold;
+}
+
+/** IMEI que salieron por movimiento de venta (kardex reciente), además de tickets. */
+export function collectSoldImeisFromMovements(movements: InventoryMovement[]): Set<string> {
+  const sold = new Set<string>();
+  for (const mov of movements || []) {
+    const kind = String(mov.type || '')
+      .toLowerCase()
+      .trim();
+    if (kind !== 'venta') continue;
+    for (const raw of mov.imeis || []) {
+      const n = canonicalImei(raw) || normalizeImei(raw);
+      if (n) sold.add(n);
+    }
+  }
+  return sold;
+}
+
+export function collectSoldImeisFromHistory(
+  tickets: SaleTicket[] = [],
+  movements: InventoryMovement[] = []
+): Set<string> {
+  const sold = collectSoldImeis(tickets);
+  for (const imei of collectSoldImeisFromMovements(movements)) {
+    if (![...sold].some((existing) => imeisEqual(existing, imei))) sold.add(imei);
   }
   return sold;
 }
@@ -340,15 +379,179 @@ export function findSoldImeiTicket(tickets: SaleTicket[] | undefined, rawImei: s
   const needle = normalizeImei(rawImei);
   if (!needle) return undefined;
   for (const ticket of tickets || []) {
+    if (isCancelledSaleTicket(ticket)) continue;
     for (const item of ticket.items || []) {
       if (!imeisEqual(item.metadata?.imei, needle)) continue;
-      if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
-      if (isPhoneUnitSale(item) || item.metadata?.saleType === 'contado' || item.metadata?.saleType === 'credito') {
-        return ticket;
-      }
+      if (ticketSellsPhoneImei(item)) return ticket;
     }
   }
   return undefined;
+}
+
+export type EquipmentAuditOrigin = 'humano' | 'sistema';
+export type EquipmentAuditKind = 'unassigned' | 'duplicate' | 'sold_listed' | 'stock_mismatch';
+
+export type EquipmentAuditIssue = {
+  kind: EquipmentAuditKind;
+  origin: EquipmentAuditOrigin;
+  imei?: string;
+  productId?: string;
+  productName?: string;
+  productCode?: string;
+  detail: string;
+};
+
+export type EquipmentInventoryAudit = {
+  totals: Record<InventoryBranchId, number>;
+  listed: number;
+  unassigned: number;
+  soldListed: number;
+  duplicates: number;
+  stockMismatches: number;
+  issues: EquipmentAuditIssue[];
+  /** Duplicados, vendidos listados o stock ≠ IMEI: el sello no se rompió si esto es falso por huérfanos viejos. */
+  imeisSealed: boolean;
+};
+
+function setHasImeiLoose(set: Set<string>, raw: string): boolean {
+  if (set.has(raw)) return true;
+  for (const value of set) {
+    if (imeisEqual(value, raw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Diagnóstico de anaquel de equipos: IMEI sellados vs descuadre humano o residuo de sistema.
+ * No muta el catálogo.
+ */
+export function auditEquipmentInventory(
+  products: Product[],
+  tickets: SaleTicket[] = [],
+  movements: InventoryMovement[] = []
+): EquipmentInventoryAudit {
+  const totals: Record<InventoryBranchId, number> = { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 };
+  const issues: EquipmentAuditIssue[] = [];
+  const sold = collectSoldImeisFromHistory(tickets, movements);
+  const owners = new Map<string, { product: Product; branchLabel: string }[]>();
+  let listed = 0;
+  let unassigned = 0;
+  let soldListed = 0;
+  let duplicates = 0;
+  let stockMismatches = 0;
+
+  const rememberOwner = (raw: string, product: Product, branchLabel: string) => {
+    const key = canonicalImei(raw) || normalizeImei(raw);
+    if (!key) return;
+    const stored = storedImeiInList(owners.keys(), key) || key;
+    const row = owners.get(stored) || [];
+    row.push({ product, branchLabel });
+    owners.set(stored, row);
+  };
+
+  for (const product of products || []) {
+    if (!isEquipmentProduct(product) || product.id.startsWith('prod-abono-') || product.id.startsWith('prod-rep-')) {
+      continue;
+    }
+    if (
+      product.id === 'prod-equipo-credito-gen' ||
+      product.id === 'prod-abono-gen' ||
+      product.id === 'prod-recarga-gen' ||
+      product.id === 'prod-reparacion-gen'
+    ) {
+      continue;
+    }
+
+    const grouped = canonicalBranchImeiMap(product);
+    const orphans = unmappedImeis(product);
+    const all = collectProductImeis(product);
+    listed += all.length;
+    unassigned += orphans.length;
+
+    for (const branch of INVENTORY_BRANCH_IDS) {
+      const imeis = grouped[branch] || [];
+      totals[branch] += imeis.length;
+      for (const imei of imeis) rememberOwner(imei, product, getBranchDisplayName(branch));
+      const stockQty = Number(product.branchStock?.[branch] ?? imeis.length);
+      if (stockQty !== imeis.length) {
+        stockMismatches += 1;
+        issues.push({
+          kind: 'stock_mismatch',
+          origin: 'sistema',
+          productId: product.id,
+          productName: product.name,
+          productCode: product.code,
+          detail: `${product.code} ${product.name}: stock de ${getBranchDisplayName(branch)} es ${stockQty} y hay ${imeis.length} IMEI`
+        });
+      }
+    }
+
+    for (const imei of orphans) {
+      rememberOwner(imei, product, 'Sin sucursal');
+      issues.push({
+        kind: 'unassigned',
+        origin: 'humano',
+        imei,
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        detail: `${imei} está en ${product.name} sin tienda. No se perdió: hay que asignarlo a Matriz, Navojoa o Huatabampo.`
+      });
+    }
+
+    for (const imei of all) {
+      if (!setHasImeiLoose(sold, imei)) continue;
+      soldListed += 1;
+      issues.push({
+        kind: 'sold_listed',
+        origin: 'sistema',
+        imei,
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        detail: `${imei} sigue en ${product.name} pero ya hay venta. El anaquel en vivo debería haberlo bajado; se puede limpiar.`
+      });
+    }
+
+    if (Number(product.stock) !== all.length) {
+      stockMismatches += 1;
+      issues.push({
+        kind: 'stock_mismatch',
+        origin: 'sistema',
+        productId: product.id,
+        productName: product.name,
+        productCode: product.code,
+        detail: `${product.code} ${product.name}: stock total ${product.stock} vs ${all.length} IMEI`
+      });
+    }
+  }
+
+  for (const [imei, row] of owners) {
+    const uniqueProducts = new Set(row.map((r) => r.product.id));
+    if (uniqueProducts.size < 2 && row.length < 2) continue;
+    if (uniqueProducts.size < 2) continue;
+    duplicates += 1;
+    issues.push({
+      kind: 'duplicate',
+      origin: 'humano',
+      imei,
+      productId: row[0]?.product.id,
+      productName: row.map((r) => r.product.name).join(' / '),
+      productCode: row[0]?.product.code,
+      detail: `${imei} está en más de un modelo (${row.map((r) => `${r.product.code} · ${r.branchLabel}`).join(', ')}). Suele ser un alta o lote duplicado.`
+    });
+  }
+
+  return {
+    totals,
+    listed,
+    unassigned,
+    soldListed,
+    duplicates,
+    stockMismatches,
+    issues: issues.slice(0, 48),
+    imeisSealed: soldListed === 0 && duplicates === 0 && stockMismatches === 0
+  };
 }
 
 export function applyEquipmentIntegrity(
@@ -431,7 +634,8 @@ export function traceImei(
 
   let ticket: SaleTicket | undefined;
   for (const t of ctx.tickets || []) {
-    const item = (t.items || []).find((i) => normalizeImei(i.metadata?.imei) === imei);
+    if (isCancelledSaleTicket(t)) continue;
+    const item = (t.items || []).find((i) => imeisEqual(i.metadata?.imei, imei));
     if (!item) continue;
     if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
     ticket = t;
