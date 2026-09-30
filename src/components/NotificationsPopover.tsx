@@ -1,21 +1,24 @@
 import React from 'react';
-import { 
-  Bell, 
-  Megaphone, 
-  AlertTriangle, 
-  Plus, 
-  X, 
+import {
+  Bell,
+  Megaphone,
+  AlertTriangle,
+  Plus,
+  X,
   Store,
   Clock,
   User,
-  CheckCircle2
+  CheckCircle2,
+  Wrench
 } from 'lucide-react';
 import { AppNotification, Branch, Operator } from '../types';
+import { notificationVisibleToOperator } from '../lib/repairUtils';
 
 interface NotificationsPopoverProps {
   isOpen: boolean;
   onClose: () => void;
   notifications: AppNotification[];
+  onSelectNotification?: (notification: AppNotification) => void;
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
   onOpenCreateModal: () => void;
@@ -27,6 +30,7 @@ export default function NotificationsPopover({
   isOpen,
   onClose,
   notifications,
+  onSelectNotification,
   onDismissNotification,
   onClearAllNotifications,
   onOpenCreateModal,
@@ -37,25 +41,24 @@ export default function NotificationsPopover({
 
   const isAdmin = currentOperator.role === 'admin';
 
-  // Filter notifications for current branch AND current operator
-  const visibleNotifications = notifications.filter((n) => {
-    const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
-    const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
-    return matchesBranch && matchesOperator;
-  });
+  const visibleNotifications = notifications.filter((n) =>
+    notificationVisibleToOperator(n, {
+      role: currentOperator.role,
+      branchId: currentBranch.id,
+      operatorId: currentOperator.id
+    })
+  );
+  const clearableCount = visibleNotifications.filter((n) => n.type !== 'gasto_reparacion').length;
+  const hasRepairCostDue = visibleNotifications.some((n) => n.type === 'gasto_reparacion');
 
   return (
     <>
-      {/* Backdrop overlay */}
-      <div 
+      <div
         className="fixed inset-0 z-40 bg-transparent"
         onClick={onClose}
       />
 
-      {/* Popover Card */}
       <div className="absolute right-0 top-12 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in slide-in-from-top-2 duration-150">
-        
-        {/* Header */}
         <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-yellow-400">
@@ -64,7 +67,7 @@ export default function NotificationsPopover({
             <div>
               <h3 className="font-bold text-sm">Avisos y Alertas</h3>
               <p className="text-[11px] text-slate-400">
-                {visibleNotifications.length > 0 
+                {visibleNotifications.length > 0
                   ? `${visibleNotifications.length} alerta${visibleNotifications.length > 1 ? 's' : ''} pendiente${visibleNotifications.length > 1 ? 's' : ''}`
                   : 'Sin avisos pendientes'}
               </p>
@@ -72,7 +75,6 @@ export default function NotificationsPopover({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Botón para abrir modal de avisos o solicitudes de surtido */}
             <button
               onClick={onOpenCreateModal}
               title={isAdmin ? "Crear nuevo aviso o solicitar surtido" : "Pedir surtido / Alerta de stock bajo"}
@@ -90,20 +92,24 @@ export default function NotificationsPopover({
           </div>
         </div>
 
-        {/* Quick hint & Clear all bar */}
         {visibleNotifications.length > 0 && (
-          <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Haz clic en un aviso para confirmarlo y quitarlo.</span>
-            <button
-              onClick={onClearAllNotifications}
-              className="text-blue-600 hover:text-blue-800 font-semibold"
-            >
-              Quitar todos
-            </button>
+          <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span>
+              {hasRepairCostDue
+                ? 'El aviso de gasto de reparación se quita al capturar el costo.'
+                : 'Haz clic en un aviso para confirmarlo y quitarlo.'}
+            </span>
+            {clearableCount > 0 && (
+              <button
+                onClick={onClearAllNotifications}
+                className="text-blue-600 hover:text-blue-800 font-semibold shrink-0"
+              >
+                Quitar todos
+              </button>
+            )}
           </div>
         )}
 
-        {/* Notifications List */}
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100 min-h-[160px]">
           {visibleNotifications.length === 0 ? (
             <div className="p-8 text-center text-slate-400 space-y-2">
@@ -114,23 +120,38 @@ export default function NotificationsPopover({
           ) : (
             visibleNotifications.map((n) => {
               const isUrgente = n.urgency === 'urgente';
+              const isRepairCost = n.type === 'gasto_reparacion';
 
               return (
                 <div
                   key={n.id}
-                  onClick={() => onDismissNotification(n.id)}
-                  title="Haz clic para marcar como leído y quitar aviso"
+                  onClick={() =>
+                    onSelectNotification ? onSelectNotification(n) : onDismissNotification(n.id)
+                  }
+                  title={
+                    isRepairCost
+                      ? 'Abrir Reparaciones para capturar el gasto interno'
+                      : 'Haz clic para marcar como leído y quitar aviso'
+                  }
                   className={`p-3.5 transition-all cursor-pointer relative group ${
-                    isUrgente 
-                      ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-600' 
+                    isRepairCost
+                      ? 'bg-amber-50/70 hover:bg-amber-50 border-l-4 border-l-amber-600'
+                      : isUrgente
+                      ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-600'
                       : 'bg-blue-50/30 hover:bg-blue-50 border-l-4 border-l-blue-600'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-xl shrink-0 ${
-                      isUrgente ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                      isRepairCost
+                        ? 'bg-amber-100 text-amber-700'
+                        : isUrgente
+                        ? 'bg-red-100 text-red-600'
+                        : 'bg-blue-100 text-blue-600'
                     }`}>
-                      {isUrgente ? (
+                      {isRepairCost ? (
+                        <Wrench className="w-4 h-4" />
+                      ) : isUrgente ? (
                         <AlertTriangle className="w-4 h-4 animate-bounce" />
                       ) : (
                         <Megaphone className="w-4 h-4" />
@@ -139,15 +160,19 @@ export default function NotificationsPopover({
 
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center justify-between gap-1">
-                        <h4 className={`text-xs font-bold ${isUrgente ? 'text-red-950' : 'text-slate-900'}`}>
+                        <h4 className={`text-xs font-bold ${
+                          isRepairCost ? 'text-amber-950' : isUrgente ? 'text-red-950' : 'text-slate-900'
+                        }`}>
                           {n.title}
                         </h4>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          isUrgente 
-                            ? 'bg-red-100 text-red-700 border border-red-200' 
+                          isRepairCost
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : isUrgente
+                            ? 'bg-red-100 text-red-700 border border-red-200'
                             : 'bg-blue-100 text-blue-700 border border-blue-200'
                         }`}>
-                          {isUrgente ? 'Urgente' : 'Normal'}
+                          {isRepairCost ? 'Taller' : isUrgente ? 'Urgente' : 'Normal'}
                         </span>
                       </div>
 
@@ -155,7 +180,6 @@ export default function NotificationsPopover({
                         {n.message}
                       </p>
 
-                      {/* Targeted Info Footer */}
                       <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-100/80 gap-1">
                         <span className="flex items-center gap-1 font-medium text-slate-500">
                           <Store className="w-3 h-3 text-slate-400" />
@@ -183,7 +207,6 @@ export default function NotificationsPopover({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 text-center">
           <p className="text-[11px] text-slate-500 font-medium">
             CrediCel ERP • Avisos Directos de Administración

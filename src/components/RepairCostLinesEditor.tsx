@@ -75,7 +75,7 @@ export default function RepairCostLinesEditor({
             Costos / gastos de la orden
           </p>
           <p className="text-[11px] text-slate-500">
-            Refacción y mano de obra de esta orden. Pasan al registro semanal cuando se entrega el equipo.
+            Refacción y mano de obra de esta orden. Se pueden capturar después de entregar; no bloquean la caja.
           </p>
         </div>
         <div className="flex flex-wrap gap-3 text-[11px]">

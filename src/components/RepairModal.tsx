@@ -21,7 +21,7 @@ import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
-import { stampRepairLabel } from '../lib/repairUtils';
+import { isPendingRepair, stampRepairLabel } from '../lib/repairUtils';
 import RepairHistoryPanel from './RepairHistoryPanel';
 
 interface RepairModalProps {
@@ -72,7 +72,7 @@ export default function RepairModal({
   const pendingRepairs = useMemo(() => {
     const q = searchFilter.toLowerCase().trim();
     return repairRecords
-      .filter((r) => r.status !== 'entregado' && r.status !== 'cancelado')
+      .filter(isPendingRepair)
       .filter((r) => {
         if (!q) return true;
         return (
@@ -374,7 +374,7 @@ export default function RepairModal({
           {tabButton(
             'entrega',
             <PackageCheck className="w-4 h-4" />,
-            `En taller (${repairRecords.filter((r) => r.status !== 'entregado' && r.status !== 'cancelado').length})`
+            `En taller (${repairRecords.filter(isPendingRepair).length})`
           )}
           {tabButton('historial', <History className="w-4 h-4" />, 'Historial')}
         </div>
@@ -527,6 +527,10 @@ export default function RepairModal({
 
         {activeTab === 'entrega' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="bg-amber-50/70 border border-amber-200/80 p-3 rounded-xl text-xs text-amber-900 font-medium">
+              Cualquier equipo en taller se puede entregar. No hay que marcarlo como listo. El gasto interno
+              (refacción o mano de obra) lo captura administración después, aunque ya se haya entregado.
+            </div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input

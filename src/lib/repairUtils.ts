@@ -1,7 +1,8 @@
-import { RepairCostKind, RepairCostLine, RepairRecord, SaleTicket } from '../types';
+import { AppNotification, RepairCostKind, RepairCostLine, RepairRecord, SaleTicket } from '../types';
 import { money, newUniqueId } from './ids';
 import { safeFormatDate, safeFormatTime } from './dateUtils';
-import { normalizeBranchId } from '../data/initialBranches';
+import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import { normalizeRole } from './roles';
 
 const LEGACY_PREFIX = 'erp_repair_records_';
 
@@ -20,17 +21,18 @@ export function stampRepairLabel(iso: string | undefined, fallback: string | und
 
 export function repairStatusLabel(status: RepairRecord['status'] | string | undefined): string {
   const value = String(status || '').toLowerCase();
-  if (value === 'listo') return 'Listo para entregar';
   if (value === 'entregado' || value === 'entregada') return 'Entregado';
   if (value === 'cancelado' || value === 'cancelada' || value === 'baja') return 'Dado de baja';
   return 'En taller';
 }
 
 export function normalizeRepairStatus(status: string | undefined): RepairRecord['status'] {
-  const value = String(status || '').toLowerCase().trim();
-  if (value === 'listo' || value === 'ready') return 'listo';
+  const value = String(status || '')
+    .toLowerCase()
+    .trim();
   if (value === 'entregado' || value === 'entregada' || value === 'delivered') return 'entregado';
   if (value === 'cancelado' || value === 'cancelada' || value === 'baja') return 'cancelado';
+  // "listo" ya no existe como paso: el equipo se puede entregar en cuanto entra a taller.
   return 'en_taller';
 }
 
@@ -60,6 +62,76 @@ export function normalizeRepairCostLine(
 
 export function repairInternalCost(record: RepairRecord | null | undefined): number {
   return money((record?.costLines || []).reduce((sum, line) => sum + money(line.amount), 0));
+}
+
+/** Entrega hecha en caja y todavía sin refacción / mano de obra capturada. */
+export function needsRepairCostCapture(record: RepairRecord | null | undefined): boolean {
+  if (!record) return false;
+  return record.status === 'entregado' && repairInternalCost(record) <= 0;
+}
+
+export function repairCostDueNotificationId(repairId: string): string {
+  return `notif-rep-${repairId}`;
+}
+
+export function buildRepairCostDueNotification(
+  record: RepairRecord,
+  cashierName: string
+): Omit<AppNotification, 'id' | 'createdAt' | 'read'> {
+  const branch = getBranchDisplayName(record.branchId);
+  return {
+    urgency: 'urgente',
+    title: `Falta gasto de reparación · ${record.id}`,
+    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch}. El costo interno está en $0. Captúrelo en Reparaciones → Historial (refacción o mano de obra). La caja ya no espera ese dato.`,
+    authorName: cashierName,
+    branchId: 'all',
+    targetOperatorId: 'all',
+    type: 'gasto_reparacion',
+    repairId: record.id
+  };
+}
+
+export function repairCostDueNotificationPlan(
+  previous: RepairRecord | undefined,
+  next: RepairRecord,
+  existing: AppNotification[],
+  cashierName: string
+): {
+  add: Omit<AppNotification, 'id' | 'createdAt' | 'read'> | null;
+  dismissIds: string[];
+} {
+  const related = (existing || []).filter(
+    (n) =>
+      n.type === 'gasto_reparacion' &&
+      (n.repairId === next.id || n.id === repairCostDueNotificationId(next.id))
+  );
+  const relatedIds = Array.from(new Set([...related.map((n) => n.id), repairCostDueNotificationId(next.id)]));
+
+  if (next.status !== 'entregado') {
+    return { add: null, dismissIds: related.map((n) => n.id) };
+  }
+  if (repairInternalCost(next) > 0) {
+    return { add: null, dismissIds: relatedIds };
+  }
+
+  const justDelivered = !previous || previous.status !== 'entregado';
+  if (!justDelivered || related.length > 0) {
+    return { add: null, dismissIds: [] };
+  }
+  return { add: buildRepairCostDueNotification(next, cashierName), dismissIds: [] };
+}
+
+export function notificationVisibleToOperator(
+  n: AppNotification,
+  opts: { role?: string; branchId?: string; operatorId?: string }
+): boolean {
+  if (n.type === 'gasto_reparacion') {
+    return normalizeRole(opts.role) === 'admin';
+  }
+  const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === opts.branchId;
+  const matchesOperator =
+    !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === opts.operatorId;
+  return Boolean(matchesBranch && matchesOperator);
 }
 
 export function addRepairCostLine(

@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Ban,
-  CheckCircle2,
   ChevronRight,
   Clock,
   DollarSign,
@@ -21,6 +20,7 @@ import {
   applyRepairCost,
   isPendingRepair,
   matchesRepairSearch,
+  needsRepairCostCapture,
   repairInternalCost,
   repairStatusLabel,
   stampRepairLabel
@@ -40,6 +40,8 @@ interface RepairsModuleProps {
   onLoadOlderRepairs?: () => void;
   repairsHasMore?: boolean;
   repairsLoading?: boolean;
+  focusCostDue?: boolean;
+  onFocusCostDueConsumed?: () => void;
 }
 
 type TabId = 'pendientes' | 'historial';
@@ -53,7 +55,9 @@ function RepairsModule({
   embedded = false,
   onLoadOlderRepairs,
   repairsHasMore = false,
-  repairsLoading = false
+  repairsLoading = false,
+  focusCostDue = false,
+  onFocusCostDueConsumed
 }: RepairsModuleProps) {
   const isAdmin = normalizeRole(currentOperator.role) === 'admin';
   const [activeTab, setActiveTab] = useState<TabId>('pendientes');
@@ -68,6 +72,12 @@ function RepairsModule({
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusCostDue) return;
+    setActiveTab('historial');
+    onFocusCostDueConsumed?.();
+  }, [focusCostDue, onFocusCostDueConsumed]);
 
   const scopedRecords = useMemo(() => {
     return repairRecords.filter((r) => {
@@ -90,12 +100,12 @@ function RepairsModule({
   const pendingStats = useMemo(() => {
     const allPending = scopedRecords.filter(isPendingRepair);
     const sinCosto = allPending.filter((r) => money(r.totalCost) <= 0).length;
-    const listos = allPending.filter((r) => r.status === 'listo').length;
+    const sinGasto = scopedRecords.filter(needsRepairCostCapture).length;
     const saldo = allPending.reduce((sum, r) => sum + money(r.pendingBalance), 0);
     return {
       enTaller: allPending.length,
       sinCosto,
-      listos,
+      sinGasto,
       saldo
     };
   }, [scopedRecords]);
@@ -135,19 +145,6 @@ function RepairsModule({
     }
   };
 
-  const handleMarkReady = async (record: RepairRecord) => {
-    if (savingId) return;
-    setSavingId(record.id);
-    try {
-      await onUpdateRepairRecord({
-        ...record,
-        status: record.status === 'listo' ? 'en_taller' : 'listo'
-      });
-    } finally {
-      setSavingId(null);
-    }
-  };
-
   const handleConfirmCancel = async () => {
     if (!cancelTarget || !onCancelRepairRecord) return;
     await onCancelRepairRecord(cancelTarget, cancelReason);
@@ -164,14 +161,14 @@ function RepairsModule({
           <div>
             <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>
             <p className="text-sm text-slate-500 mt-0.5">
-              El cajero recibe el equipo en caja. Aquí se abre la orden, se cargan los gastos y, al entregar,
-              el folio pasa al registro semanal.
+              El cajero recibe y entrega en caja, sin marcar “listo”. Aquí se capturan los gastos de
+              reparación (refacción o mano de obra), aunque el equipo ya se haya entregado.
             </p>
           </div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <SummaryCard label="En taller" value={String(pendingStats.enTaller)} hint="Pendientes de entregar" />
+          <SummaryCard label="En taller" value={String(pendingStats.enTaller)} hint="Disponibles para entregar en caja" />
           <SummaryCard
             label="Sin precio"
             value={String(pendingStats.sinCosto)}
@@ -179,9 +176,10 @@ function RepairsModule({
             accent={pendingStats.sinCosto > 0 ? 'amber' : 'slate'}
           />
           <SummaryCard
-            label="Listos"
-            value={String(pendingStats.listos)}
-            hint="Para recoger en sucursal"
+            label="Sin gasto interno"
+            value={String(pendingStats.sinGasto)}
+            hint="Entregados que esperan refacción o mano de obra"
+            accent={pendingStats.sinGasto > 0 ? 'amber' : 'slate'}
           />
           <SummaryCard
             label="Saldo por cobrar"
@@ -247,6 +245,21 @@ function RepairsModule({
         )}
       </div>
 
+      {pendingStats.sinGasto > 0 && (
+        <button
+          type="button"
+          onClick={() => setActiveTab('historial')}
+          className="w-full text-left bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 cursor-pointer hover:bg-amber-100"
+        >
+          <p className="text-xs font-black text-amber-950">
+            {pendingStats.sinGasto} entrega{pendingStats.sinGasto === 1 ? '' : 's'} sin gasto interno
+          </p>
+          <p className="text-[11px] text-amber-900 font-medium mt-0.5">
+            Caja ya entregó el equipo. Ábralo en Historial y capture refacción o mano de obra cuando la tenga.
+          </p>
+        </button>
+      )}
+
       {activeTab === 'pendientes' && (
         <div className="space-y-3">
           {pendingRepairs.length === 0 ? (
@@ -261,7 +274,6 @@ function RepairsModule({
             pendingRepairs.map((record) => {
               const editing = editingId === record.id;
               const sinCosto = money(record.totalCost) <= 0;
-              const listo = record.status === 'listo';
               const open = openOrderId === record.id;
               return (
                 <article
@@ -279,13 +291,7 @@ function RepairsModule({
                       <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
                         {getBranchDisplayName(record.branchId)}
                       </span>
-                      <span
-                        className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
-                          listo
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                            : 'border-amber-200 bg-amber-50 text-amber-800'
-                        }`}
-                      >
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800">
                         {repairStatusLabel(record.status)}
                       </span>
                     </div>
@@ -364,15 +370,6 @@ function RepairsModule({
                               Dar de baja
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => void handleMarkReady(record)}
-                            disabled={savingId === record.id}
-                            className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-emerald-50 hover:border-emerald-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            {listo ? 'Volver a taller' : 'Marcar listo'}
-                          </button>
                           <button
                             type="button"
                             onClick={() => (editing ? setEditingId(null) : openCostEditor(record))}
@@ -479,6 +476,8 @@ function RepairsModule({
           <RepairWeekRegisterPanel
             records={scopedRecords}
             showBranch
+            operatorName={currentOperator.name}
+            onUpdateRepairRecord={onUpdateRepairRecord}
             onLoadOlder={onLoadOlderRepairs}
             hasMore={repairsHasMore}
             loadingMore={repairsLoading}

@@ -13,13 +13,16 @@ import {
   type RepairWeekRegister as WeekRegister
 } from '../lib/repairFinance';
 import { downloadRepairRangeExcel } from '../lib/repairExcel';
-import { stampRepairLabel } from '../lib/repairUtils';
+import { stampRepairLabel, needsRepairCostCapture } from '../lib/repairUtils';
+import RepairCostLinesEditor from './RepairCostLinesEditor';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 interface RepairWeekRegisterProps {
   records: RepairRecord[];
   showBranch?: boolean;
+  operatorName?: string;
+  onUpdateRepairRecord?: (record: RepairRecord) => void | Promise<void>;
   onLoadOlder?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -34,6 +37,8 @@ function moneyTone(value: number) {
 export default function RepairWeekRegisterPanel({
   records,
   showBranch = true,
+  operatorName,
+  onUpdateRepairRecord,
   onLoadOlder,
   hasMore = false,
   loadingMore = false
@@ -97,7 +102,7 @@ export default function RepairWeekRegisterPanel({
           </p>
           <h2 className="text-lg font-black text-slate-900">{openWeek.label}</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Equipos entregados esta semana. Precio al cliente menos gastos de reparación = utilidad.
+            Equipos entregados esta semana. El cajero ya puede haber entregado por la mañana; el gasto interno se captura aquí cuando esté listo.
           </p>
         </div>
 
@@ -167,7 +172,9 @@ export default function RepairWeekRegisterPanel({
                           <td className="py-2.5 px-3 text-slate-600">{getBranchDisplayName(row.repair.branchId)}</td>
                         )}
                         <td className="py-2.5 px-3 text-right font-mono">${formatMoney(row.cobrado)}</td>
-                        <td className="py-2.5 px-3 text-right font-mono">${formatMoney(row.gastos)}</td>
+                        <td className={`py-2.5 px-3 text-right font-mono ${needsRepairCostCapture(row.repair) ? 'text-amber-800 font-black' : ''}`}>
+                          ${formatMoney(row.gastos)}
+                        </td>
                         <td className={`py-2.5 px-3 text-right font-mono font-black ${moneyTone(row.utilidad)}`}>
                           ${formatMoney(row.utilidad)}
                         </td>
@@ -188,7 +195,23 @@ export default function RepairWeekRegisterPanel({
                                 </strong>
                               </p>
                             </div>
-                            {(row.repair.costLines || []).length > 0 ? (
+                            {onUpdateRepairRecord && operatorName ? (
+                              <div
+                                className="mt-3"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {needsRepairCostCapture(row.repair) && (
+                                  <p className="mb-2 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                    Caja ya entregó este equipo. Capture el gasto interno (refacción o mano de obra) para el registro financiero.
+                                  </p>
+                                )}
+                                <RepairCostLinesEditor
+                                  record={row.repair}
+                                  operatorName={operatorName}
+                                  onUpdate={onUpdateRepairRecord}
+                                />
+                              </div>
+                            ) : (row.repair.costLines || []).length > 0 ? (
                               <ul className="mt-2 space-y-1">
                                 {(row.repair.costLines || []).map((line) => (
                                   <li key={line.id} className="flex justify-between gap-2 text-[11px]">

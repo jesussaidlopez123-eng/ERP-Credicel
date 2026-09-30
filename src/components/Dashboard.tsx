@@ -112,7 +112,10 @@ import {
   inferRepairsFromTickets,
   isPendingRepair,
   loadLegacyRepairRecords,
-  mergeRepairSources
+  mergeRepairSources,
+  notificationVisibleToOperator,
+  repairCostDueNotificationId,
+  repairCostDueNotificationPlan
 } from '../lib/repairUtils';
 import SyncStatusChip from './SyncStatusChip';
 import LazyWhen, { ModuleLoading } from './LazyWhen';
@@ -152,6 +155,7 @@ export default function Dashboard({
   onLogout 
 }: DashboardProps) {
   const [activeModule, setActiveModule] = useState<ModuleId>(() => defaultModuleForRole(currentOperator.role));
+  const [repairsFocusCostDue, setRepairsFocusCostDue] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -195,6 +199,8 @@ export default function Dashboard({
   const expensesRef = useRef(expenses);
   const cortesRef = useRef(cortesX);
   const productsRef = useRef(products);
+  const repairRecordsRef = useRef(repairRecords);
+  const notificationsRef = useRef(notifications);
   /** Lo capturado en este equipo que la nube todavía no confirma. */
   const localOnlyRef = useRef<{
     sales: SaleTicket[];
@@ -215,6 +221,8 @@ export default function Dashboard({
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
+  repairRecordsRef.current = repairRecords;
+  notificationsRef.current = notifications;
   productsRef.current = products;
 
   const markCloudDown = (message?: string) => {
@@ -1137,7 +1145,7 @@ export default function Dashboard({
 
       // El equipo se marca entregado solo cuando el saldo quedó cobrado.
       if (meta?.repairId && meta.repairType === 'saldo_final') {
-        const pending = repairRecords.find((r) => r.id === meta.repairId);
+        const pending = repairRecordsRef.current.find((r) => r.id === meta.repairId);
         if (pending && pending.status !== 'entregado') {
           void persistRepairRecord({
             ...pending,
@@ -1214,16 +1222,53 @@ export default function Dashboard({
 
   /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
   const persistRepairRecord = async (record: RepairRecord): Promise<RepairRecord> => {
+    const previous = repairRecordsRef.current.find((r) => r.id === record.id);
     const saved = await commitRepairRecord(record);
     localOnlyRef.current.repairs = [
       saved,
       ...localOnlyRef.current.repairs.filter((r) => r.id !== saved.id)
     ];
+    const nextRepairs = [saved, ...repairRecordsRef.current.filter((r) => r.id !== saved.id)];
+    repairRecordsRef.current = nextRepairs;
     setRepairRecords((prev) => {
       const next = [saved, ...prev.filter((r) => r.id !== saved.id)];
+      repairRecordsRef.current = next;
       saveCachedList('repairs', next);
       return next;
     });
+
+    const plan = repairCostDueNotificationPlan(
+      previous,
+      saved,
+      notificationsRef.current,
+      saved.deliveredByName || currentOperator.name
+    );
+    if (plan.add) {
+      const notification: AppNotification = {
+        ...plan.add,
+        id: repairCostDueNotificationId(saved.id),
+        createdAt: 'Justo ahora',
+        read: false
+      };
+      notificationsRef.current = [
+        notification,
+        ...notificationsRef.current.filter((n) => n.id !== notification.id)
+      ];
+      setNotifications((prev) => [notification, ...prev.filter((n) => n.id !== notification.id)]);
+      saveNotificationToFirestore(notification).catch((err) =>
+        console.error('Error avisando gasto de reparación:', err)
+      );
+    }
+    if (plan.dismissIds.length > 0) {
+      const dismiss = new Set(plan.dismissIds);
+      notificationsRef.current = notificationsRef.current.filter((n) => !dismiss.has(n.id));
+      setNotifications((prev) => prev.filter((n) => !dismiss.has(n.id)));
+      plan.dismissIds.forEach((id) => {
+        deleteNotificationFromFirestore(id).catch((err) =>
+          console.error('Error quitando aviso de gasto de reparación:', err)
+        );
+      });
+    }
     return saved;
   };
 
@@ -1608,12 +1653,14 @@ export default function Dashboard({
   // Filter notifications for current user/branch
   const visibleNotifications = useMemo(
     () =>
-      notifications.filter((n) => {
-        const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
-        const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
-        return matchesBranch && matchesOperator;
-      }),
-    [notifications, currentBranch.id, currentOperator.id]
+      notifications.filter((n) =>
+        notificationVisibleToOperator(n, {
+          role: currentOperator.role,
+          branchId: currentBranch.id,
+          operatorId: currentOperator.id
+        })
+      ),
+    [notifications, currentBranch.id, currentOperator.id, currentOperator.role]
   );
 
   const unreadCount = visibleNotifications.length;
@@ -1622,19 +1669,38 @@ export default function Dashboard({
     [repairRecords]
   );
 
-  // Clicking an alert marks it as read and clears/dismisses it
   const handleDismissNotification = (id: string) => {
+    const target = notificationsRef.current.find((n) => n.id === id);
+    if (target?.type === 'gasto_reparacion') return;
+    notificationsRef.current = notificationsRef.current.filter((n) => n.id !== id);
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     deleteNotificationFromFirestore(id).catch((err) => console.error('Error dismissing notification:', err));
   };
 
+  const handleSelectNotification = (n: AppNotification) => {
+    if (n.type === 'gasto_reparacion') {
+      setRepairsFocusCostDue(true);
+      setActiveModule('repairs');
+      setIsNotificationsOpen(false);
+      setIsMobileMenuOpen(false);
+      return;
+    }
+    handleDismissNotification(n.id);
+  };
+
   const handleClearAllNotifications = () => {
-    const toClear = notifications.filter((n) => {
-      const matchesBranch = !n.branchId || n.branchId === 'all' || n.branchId === currentBranch.id;
-      const matchesOperator = !n.targetOperatorId || n.targetOperatorId === 'all' || n.targetOperatorId === currentOperator.id;
-      return matchesBranch && matchesOperator;
-    });
-    setNotifications((prev) => prev.filter((n) => !toClear.some((c) => c.id === n.id)));
+    const toClear = notifications.filter(
+      (n) =>
+        n.type !== 'gasto_reparacion' &&
+        notificationVisibleToOperator(n, {
+          role: currentOperator.role,
+          branchId: currentBranch.id,
+          operatorId: currentOperator.id
+        })
+    );
+    const clearIds = new Set(toClear.map((n) => n.id));
+    notificationsRef.current = notificationsRef.current.filter((n) => !clearIds.has(n.id));
+    setNotifications((prev) => prev.filter((n) => !clearIds.has(n.id)));
     toClear.forEach((n) => {
       deleteNotificationFromFirestore(n.id).catch((err) => console.error('Error dismissing notification:', err));
     });
@@ -1694,6 +1760,7 @@ export default function Dashboard({
   const stableDeleteSaleTicket = useStableCallback(handleDeleteSaleTicket);
   const stableAddNotification = useStableCallback(handleAddNotification);
   const stableDismissNotification = useStableCallback(handleDismissNotification);
+  const stableSelectNotification = useStableCallback(handleSelectNotification);
   const stableClearNotifications = useStableCallback(handleClearAllNotifications);
   const stableUpdateNotifStatus = useStableCallback(handleUpdateNotificationStatus);
 
@@ -1804,6 +1871,8 @@ export default function Dashboard({
             onLoadOlderRepairs={loadOlderRepairs}
             repairsHasMore={repairsHasMore}
             repairsLoading={historyBusy === 'repairs'}
+            focusCostDue={repairsFocusCostDue}
+            onFocusCostDueConsumed={() => setRepairsFocusCostDue(false)}
           />
         );
       case 'executive':
@@ -1925,6 +1994,7 @@ export default function Dashboard({
               isOpen={isNotificationsOpen}
               onClose={() => setIsNotificationsOpen(false)}
               notifications={visibleNotifications}
+              onSelectNotification={stableSelectNotification}
               onDismissNotification={stableDismissNotification}
               onClearAllNotifications={stableClearNotifications}
               onOpenCreateModal={() => {

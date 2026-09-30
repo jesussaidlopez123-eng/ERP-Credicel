@@ -29,7 +29,8 @@ export interface AppNotification {
   branchId: string; // 'all' or specific branch id
   targetOperatorId?: string; // 'all' or specific operator id
   targetOperatorName?: string;
-  type?: 'aviso' | 'pedido_stock';
+  type?: 'aviso' | 'pedido_stock' | 'gasto_reparacion';
+  repairId?: string;
   requestDetails?: {
     productName: string;
     requestedQty: number;
@@ -197,6 +198,7 @@ export interface RepairRecord {
   totalCost: number;
   advancePayment: number;
   pendingBalance: number;
+  /** "listo" ya no se usa: se lee como en_taller para que caja pueda entregar de inmediato. */
   status: 'en_taller' | 'listo' | 'entregado' | 'cancelado';
   receivedAt: string;
   deliveredAt?: string;
