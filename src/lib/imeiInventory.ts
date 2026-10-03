@@ -22,29 +22,78 @@ export function imeiDigits(raw?: string | null): string {
   return String(raw || '').replace(/\D/g, '');
 }
 
+/** Prefijo AIM del lector (]C1, ]A0, ]C…). No come el primer dígito del IMEI. */
+export function stripScannerImeiPrefix(raw?: string | null): string {
+  const s = String(raw || '').replace(/\s+/g, '');
+  const rest = (body: string) => body.replace(/^[^0-9]+/, '');
+  const aim3 = s.match(/^(\][A-Za-z][0-9A-Za-z])([\s\S]*)$/);
+  if (aim3 && imeiDigits(aim3[2]).length === 15) return rest(aim3[2]);
+  const aim2 = s.match(/^(\][A-Za-z])([\s\S]*)$/);
+  if (aim2) return rest(aim2[2]);
+  return rest(s);
+}
+
+/** Dígito verificador IMEI (Luhn). Algunos equipos baratos no lo cumplen: solo es pista. */
+export function imeiLuhnOk(digits?: string | null): boolean {
+  const d = String(digits || '');
+  if (!/^\d{15}$/.test(d)) return false;
+  let sum = 0;
+  for (let i = 0; i < 15; i++) {
+    let n = Number(d[14 - i]);
+    if (i % 2 === 1) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    sum += n;
+  }
+  return sum % 10 === 0;
+}
+
+function pickFifteenFromDigits(digits: string): string {
+  if (digits.length === 15) return digits;
+  if (digits.length < 15) return digits;
+  const first = digits.slice(0, 15);
+  const last = digits.slice(-15);
+  if (first === last) return first;
+  const firstOk = imeiLuhnOk(first);
+  const lastOk = imeiLuhnOk(last);
+  if (digits.length === 16) {
+    if (digits[0] === '0' && lastOk && !firstOk) return last;
+    return first;
+  }
+  if (lastOk && !firstOk) return last;
+  if (firstOk && !lastOk) return first;
+  return first;
+}
+
 /** El lector a veces manda letras, 14 o 17 dígitos; el inventario guarda 15. */
 export function imeisEqual(a?: string | null, b?: string | null): boolean {
   const na = normalizeImei(a);
   const nb = normalizeImei(b);
   if (na && nb && na === nb) return true;
-  const da = imeiDigits(a);
-  const db = imeiDigits(b);
+  const ca = canonicalImei(a);
+  const cb = canonicalImei(b);
+  if (ca && cb && ca === cb) return true;
+  const da = imeiDigits(stripScannerImeiPrefix(a));
+  const db = imeiDigits(stripScannerImeiPrefix(b));
   if (!da || !db || da.length < 14 || db.length < 14) return false;
   if (da === db) return true;
-  if (da.length !== db.length) {
-    const longer = da.length > db.length ? da : db;
-    const shorter = da.length > db.length ? db : da;
-    return longer.startsWith(shorter) || longer.endsWith(shorter);
-  }
-  return false;
+  const longer = da.length > db.length ? da : db;
+  const shorter = da.length > db.length ? db : da;
+  return longer.length === 15 && shorter.length === 14 && longer.startsWith(shorter);
 }
 
-/** Forma estable para guardar: 15 dígitos si el lector trajo basura o dígitos de más. */
+/**
+ * Forma estable para guardar. Un IMEI de 15 dígitos no se recorta ni se reescribe.
+ * Si el lector mandó ]C1 u otro prefijo, se quita y quedan los 15 del celular.
+ */
 export function canonicalImei(raw?: string | null): string {
-  const digits = imeiDigits(raw);
-  if (digits.length >= 15) return digits.slice(0, 15);
-  if (digits.length >= 14) return digits;
-  return normalizeImei(raw);
+  const trimmed = normalizeImei(raw);
+  if (!trimmed) return '';
+  const stripped = stripScannerImeiPrefix(trimmed);
+  const digits = imeiDigits(stripped);
+  if (digits.length >= 14) return pickFifteenFromDigits(digits);
+  return trimmed;
 }
 
 export function listHasImei(list: Iterable<string> | undefined, raw?: string | null): boolean {
@@ -241,13 +290,19 @@ export function addImeisToProduct(product: Product, branchId: string, rawImeis: 
   for (const raw of rawImeis) {
     const n = canonicalImei(raw) || normalizeImei(raw);
     if (!n) continue;
+    const stored =
+      storedImeiInList(
+        INVENTORY_BRANCH_IDS.flatMap((key) => map[key]),
+        n
+      ) || storedImeiInList(extras, n);
+    const keep = stored && imeiDigits(stored).length === 15 ? stored : n;
     for (const key of INVENTORY_BRANCH_IDS) {
       map[key] = map[key].filter((im) => !imeisEqual(im, n));
     }
     extras = extras.filter((im) => !imeisEqual(im, n));
-    if (!listHasImei(added, n) && !listHasImei(map[dest], n)) {
-      added.push(n);
-      map[dest].push(n);
+    if (!listHasImei(added, keep) && !listHasImei(map[dest], keep)) {
+      added.push(keep);
+      map[dest].push(keep);
     }
   }
   return rebuildEquipmentFromMap(product, map, extras);

@@ -451,11 +451,13 @@ function InventoryModule({
     return { isDuplicate: false, conflictingProduct: undefined };
   };
 
-  // 2. Validación estricta de formato y longitud de IMEI (Exactamente 15 dígitos numéricos)
+  // 2. Validación de IMEI: 15 dígitos. El lector puede mandar prefijo; se guarda el IMEI limpio.
   const validateImeiDigits = (imeiStr: string) => {
+    const raw = (imeiStr || '').trim();
     const digits = imeiDigits(imeiStr);
-    const clean = canonicalImei(imeiStr) || (imeiStr || '').trim();
-    if (!clean && !digits) {
+    const clean = canonicalImei(imeiStr);
+    const cleanDigits = imeiDigits(clean);
+    if (!raw && !digits) {
       return {
         isValid: false,
         length: 0,
@@ -465,46 +467,57 @@ function InventoryModule({
       };
     }
 
-    const isNumeric = digits.length > 0;
-    const length = digits.length || clean.length;
-
-    if (!isNumeric) {
+    if (!digits && !cleanDigits) {
       return {
         isValid: false,
-        length,
+        length: raw.length,
         isNumeric: false,
         errorType: 'non_numeric' as const,
-        message: `El IMEI "${clean}" contiene caracteres no válidos. Solo debe contener números (0-9).`
+        message: `El IMEI "${raw}" contiene caracteres no válidos. Solo debe contener números (0-9).`
       };
     }
 
-    if (length < 15) {
+    if (cleanDigits.length === 15) {
+      return {
+        isValid: true,
+        length: 15,
+        isNumeric: true,
+        errorType: null,
+        message:
+          clean !== raw.replace(/\s+/g, '').toUpperCase()
+            ? `Se guardará el IMEI de 15 dígitos: ${clean}`
+            : 'IMEI válido (15 dígitos numéricos)'
+      };
+    }
+
+    if (cleanDigits.length < 15) {
       return {
         isValid: false,
-        length,
+        length: cleanDigits.length,
         isNumeric: true,
         errorType: 'short' as const,
-        message: `Longitud menor a 15 dígitos (${length}/15). Faltan ${15 - length} dígitos (debe tener exactamente 15 dígitos).`
-      };
-    }
-
-    if (digits.length > 17) {
-      return {
-        isValid: false,
-        length: digits.length,
-        isNumeric: true,
-        errorType: 'long' as const,
-        message: `Longitud mayor a 15 dígitos (${digits.length}/15). Sobran ${digits.length - 15} dígitos (debe tener exactamente 15 dígitos).`
+        message: `Longitud menor a 15 dígitos (${cleanDigits.length}/15). Faltan ${15 - cleanDigits.length} dígitos.`
       };
     }
 
     return {
-      isValid: true,
-      length: 15,
+      isValid: false,
+      length: cleanDigits.length,
       isNumeric: true,
-      errorType: null,
-      message: 'IMEI válido (15 dígitos numéricos)'
+      errorType: 'long' as const,
+      message: `No se pudo leer un IMEI de 15 dígitos (${cleanDigits.length} dígitos). Vuelva a escanear o escríbalo a mano.`
     };
+  };
+
+  const commitImeiInput = (idx: number, raw: string) => {
+    const next = canonicalImei(raw);
+    if (!next) return;
+    setImeiInputs((prev) => {
+      const copy = [...prev];
+      if (copy[idx] === next) return prev;
+      copy[idx] = next;
+      return copy;
+    });
   };
 
   // 3. Verificación de IMEI Único (tanto en el lote actual como en todo el inventario de todas las sucursales)
@@ -2911,7 +2924,7 @@ function InventoryModule({
                     Escanee el IMEI de cada equipo con su lector de código de barras.
                   </p>
                   <p className="text-[11px] text-blue-700 mt-0.5">
-                    Al presionar <span className="font-mono font-bold bg-blue-100 px-1 rounded">Enter</span> el cursor avanzará automáticamente al siguiente campo. El sistema valida en tiempo real que ningún IMEI esté duplicado.
+                    Al presionar <span className="font-mono font-bold bg-blue-100 px-1 rounded">Enter</span> se deja el IMEI de 15 dígitos (se quita el prefijo del lector) y el cursor pasa al siguiente. El número no se reescribe dígito por dígito.
                   </p>
                 </div>
               </div>
@@ -2991,9 +3004,11 @@ function InventoryModule({
                                 return copy;
                               });
                             }}
+                            onBlur={() => commitImeiInput(idx, currentVal)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
+                                commitImeiInput(idx, currentVal);
                                 const next = document.getElementById(`imei-input-${idx + 1}`);
                                 if (next) {
                                   next.focus();
@@ -3028,6 +3043,12 @@ function InventoryModule({
                         <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-800 bg-rose-100 p-1.5 rounded-lg border border-rose-300">
                           <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
                           <span>❌ ERROR DE IMEI: {digitValidation.message}</span>
+                        </div>
+                      )}
+                      {isValidAndUnique && digitValidation?.message.startsWith('Se guardará') && (
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-800 bg-emerald-50 p-1.5 rounded-lg border border-emerald-200">
+                          <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                          <span>{digitValidation.message}</span>
                         </div>
                       )}
 

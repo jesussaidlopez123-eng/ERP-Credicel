@@ -10,6 +10,7 @@ import {
   imeisAtBranch,
   inferEquipmentDest,
   locateImeiOnProduct,
+  canonicalImei,
   imeisEqual,
   moveImeisOnProduct,
   normalizeImei,
@@ -33,8 +34,15 @@ const phone = (over: Partial<Product> = {}): Product => ({
 });
 
 assert.equal(normalizeImei('  3512 99  '), '351299');
+assert.equal(canonicalImei('351299123456789'), '351299123456789');
+assert.equal(canonicalImei(']C1351299123456789'), '351299123456789');
+assert.equal(canonicalImei(']A0351299123456789'), '351299123456789');
+assert.equal(canonicalImei(']C351299123456789'), '351299123456789');
+assert.notEqual(canonicalImei(']C1351299123456789'), '135129912345678');
 assert.equal(imeisEqual('351299123456789', ']351299123456789'), true);
+assert.equal(imeisEqual('351299123456789', ']C1351299123456789'), true);
 assert.equal(imeisEqual('351299123456789', '3512991234567890'), true);
+assert.equal(imeisEqual('351299123456789', '135129912345678'), false);
 assert.equal(imeisEqual('HUA111', 'NAV111'), false);
 assert.equal(toInventoryBranchId('all'), 'b-matriz');
 assert.equal(toInventoryBranchId('Administracion'), 'b-matriz');
@@ -103,6 +111,12 @@ const scannedIn = addImeisToProduct(
 );
 assert.equal(scannedIn.stock, 1);
 assert.deepEqual(imeisAtBranch(scannedIn, 'b-navojoa'), ['351299123456789']);
+
+const scannedAim = addImeisToProduct(phone({ stock: 0, imeiList: [] }), 'b-navojoa', [']C1351299123456789']);
+assert.deepEqual(imeisAtBranch(scannedAim, 'b-navojoa'), ['351299123456789']);
+const keepStored = addImeisToProduct(scannedIn, 'b-huatabampo', [']C1351299123456789']);
+assert.deepEqual(imeisAtBranch(keepStored, 'b-huatabampo'), ['351299123456789']);
+assert.equal(keepStored.stock, 1);
 
 const scannedMove = moveImeisOnProduct(
   phone({

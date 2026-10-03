@@ -126,9 +126,11 @@ export function loteImeiFormatError(raw: string): string | null {
   const digits = imeiDigits(raw);
   if (!String(raw || '').trim() && !digits) return 'Falta el IMEI.';
   if (!digits) return 'El IMEI solo puede llevar números.';
-  if (digits.length < 15) return `El IMEI tiene ${digits.length} dígitos; se necesitan 15.`;
-  if (digits.length > 17) return `El IMEI tiene ${digits.length} dígitos; sobran ${digits.length - 15}.`;
-  return null;
+  const clean = loteImeiCanonical(raw);
+  const cleanDigits = imeiDigits(clean);
+  if (cleanDigits.length === 15) return null;
+  if (cleanDigits.length < 15) return `El IMEI tiene ${cleanDigits.length} dígitos; se necesitan 15.`;
+  return `No se leyó un IMEI de 15 dígitos (${cleanDigits.length}). Vuelva a escanear.`;
 }
 
 function codeTaken(

@@ -11,6 +11,7 @@ import {
   emptyBranchImeiMap,
   canonicalBranchImeiMap,
   canonicalImei,
+  imeiDigits,
   imeisEqual,
   isEquipmentProduct,
   listHasImei,
@@ -122,6 +123,7 @@ function foldImeis(imeis: Iterable<string>): string[] {
       out.push(n);
       continue;
     }
+    if (imeiDigits(existing).length === 15) continue;
     const digits = canonicalImei(existing);
     if (existing !== digits && n === digits) {
       out[out.indexOf(existing)] = n;
