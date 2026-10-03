@@ -32,10 +32,11 @@ import {
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
+import { foldOnePerBranchPerDay } from '../lib/corteDayRoster';
 import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
-import { ALL_BRANCHES, COMMERCIAL_BRANCHES, compareBranchIds, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
 import LazyWhen from './LazyWhen';
@@ -265,21 +266,15 @@ function SalesModule({
         return;
       }
       const groupKey = `${normBId}_${dateKey}`;
-      // Ensure dateStr and branchName are always cleanly formatted
       const normalizedCorte: CorteXRecord = {
         ...corte,
         branchId: normBId,
         branchName: getBranchName(normBId),
         dateStr: safeFormatDate(parseSafeDate(dateKey))
       };
-      // For past days, group by branch & date. For today, preserve all closed cortes
-      if (dateKey !== todayIso) {
-        if (!savedGrouped[groupKey]) {
-          savedGrouped[groupKey] = normalizedCorte;
-        }
-      } else {
-        // Closed corte of today
-        savedGrouped[corte.id] = normalizedCorte;
+      const prev = savedGrouped[groupKey];
+      if (!prev || (normalizedCorte.timestamp || '') > (prev.timestamp || '')) {
+        savedGrouped[groupKey] = normalizedCorte;
       }
     });
 
@@ -319,7 +314,7 @@ function SalesModule({
         return;
       }
       const groupKey = `${data.branchId}_${dKey}`;
-      if (!savedGrouped[groupKey] && !savedGrouped[corteId]) {
+      if (!savedGrouped[groupKey]) {
         let cash = 0, card = 0, transfer = 0;
         data.tickets.forEach(t => {
           if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
@@ -330,7 +325,7 @@ function SalesModule({
         const totalSales = cash + card + transfer;
         const targetDate = parseSafeDate(dKey);
 
-        savedGrouped[corteId] = {
+        savedGrouped[groupKey] = {
           id: corteId,
           timestamp: data.maxTimestamp,
           dateStr: safeFormatDate(targetDate),
@@ -421,24 +416,12 @@ function SalesModule({
             !isPrematureAutoCorteRecord(c)
           );
 
-          const branchHasLiveSession =
-            !isAfterCashClose() &&
-            activeCashSession?.estado === 'ABIERTA' &&
-            normalizeBranchId(activeCashSession.sucursal_id || currentBranch.id) === branch.id;
-
-          // Si ya se realizó el corte oficial hoy y NO hay turno vivo ni movimientos abiertos, no duplicar fila
-          if (
-            closedCortesToday.length > 0 &&
-            openTickets.length === 0 &&
-            openExpenses.length === 0 &&
-            !branchHasLiveSession
-          ) {
+          if (closedCortesToday.length > 0) {
             return;
           }
 
-          const isPostCorteTurno = closedCortesToday.length > 0;
-          const ticketsToCount = isPostCorteTurno ? openTickets : (openTickets.length > 0 ? openTickets : branchTodayTickets);
-          const expensesToCount = isPostCorteTurno ? openExpenses : (openExpenses.length > 0 ? openExpenses : branchTodayExpenses);
+          const ticketsToCount = openTickets.length > 0 ? openTickets : branchTodayTickets;
+          const expensesToCount = openExpenses.length > 0 ? openExpenses : branchTodayExpenses;
 
           let cash = 0, card = 0, transfer = 0;
           let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
@@ -479,14 +462,10 @@ function SalesModule({
           } catch {}
 
           openShiftsList.push({
-            id: isPostCorteTurno 
-              ? `CTX-TURNO-POST-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`
-              : `CTX-TURNO-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`,
-            timestamp: `${dateIso}T23:59:59.999Z`,
+            id: `CTX-TURNO-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`,
+            timestamp: `${dateIso}T23:00:00-07:00`,
             dateStr: safeFormatDate(targetDate),
-            timeStr: isPostCorteTurno 
-              ? 'Turno en Vivo (Movimientos posteriores al corte)' 
-              : `Inicia: ${shiftLoginTime} (Turno en Vivo / Tiempo Real)`,
+            timeStr: `Inicia: ${shiftLoginTime} (Turno en Vivo / Tiempo Real)`,
             branchId: branch.id,
             branchName: branch.name,
             operatorName: loggedOperatorName || branchTodayTickets[0]?.operatorName || (branch.id === currentBranch.id ? currentOperator.name : 'Turno Activo (Hoy)'),
@@ -542,7 +521,7 @@ function SalesModule({
           // Días pasados con actividad sin corte manual: Reconciliados y asegurados con su desglose oficial
           pastReconciledList.push({
             id: `CTX_${branch.id}_${dateIso}`,
-            timestamp: `${dateIso}T23:59:59.000Z`,
+            timestamp: `${dateIso}T23:00:00-07:00`,
             dateStr: safeFormatDate(targetDate),
             timeStr: 'Cierre Oficial de Turno',
             branchId: branch.id,
@@ -566,7 +545,7 @@ function SalesModule({
           // Días pasados sin movimientos: Cerrados sin actividad
           zeroDaysList.push({
             id: `CAL-ZERO-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`,
-            timestamp: `${dateIso}T00:00:00.000Z`,
+            timestamp: `${dateIso}T12:00:00-07:00`,
             dateStr: safeFormatDate(targetDate),
             timeStr: 'Cerrado / Sin Actividad (No se laboró)',
             branchId: branch.id,
@@ -588,43 +567,7 @@ function SalesModule({
       });
     });
 
-    const all = [...openShiftsList, ...officialList, ...pastReconciledList, ...zeroDaysList];
-    
-    // Stable, deterministic multi-level sort to avoid any flickering between branches
-    return all.sort((a, b) => {
-      // 1. Date (YYYY-MM-DD) descending (newest day first)
-      const dateA = safeDateIsoKey(a.timestamp) || safeDateIsoKey(a.dateStr) || '';
-      const dateB = safeDateIsoKey(b.timestamp) || safeDateIsoKey(b.dateStr) || '';
-      if (dateA !== dateB) {
-        return dateB.localeCompare(dateA);
-      }
-
-      // 2. Open live shift on top for today
-      const isOpenA = a.id.startsWith('CTX-TURNO') ? 1 : 0;
-      const isOpenB = b.id.startsWith('CTX-TURNO') ? 1 : 0;
-      if (isOpenA !== isOpenB) {
-        return isOpenB - isOpenA;
-      }
-
-      // 3. Zero activity days at the bottom
-      const isZeroA = a.id.startsWith('CAL-ZERO') ? 1 : 0;
-      const isZeroB = b.id.startsWith('CAL-ZERO') ? 1 : 0;
-      if (isZeroA !== isZeroB) {
-        return isZeroA - isZeroB;
-      }
-
-      // 4. CANONICAL INVARIANT BRANCH PRIORITY (Navojoa always 1st, Huatabampo always 2nd)
-      const branchCmp = compareBranchIds(a.branchId, b.branchId);
-      if (branchCmp !== 0) return branchCmp;
-
-      // 5. Timestamp descending if distinct
-      if (a.timestamp && b.timestamp && a.timestamp !== b.timestamp) {
-        return b.timestamp.localeCompare(a.timestamp);
-      }
-
-      // 6. Final tiebreaker by ID
-      return (a.id || '').localeCompare(b.id || '');
-    });
+    return foldOnePerBranchPerDay([...openShiftsList, ...officialList, ...pastReconciledList, ...zeroDaysList]);
   }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator, activeCashSession, branchCashFunds]);
 
   // Filtered Cortes list
