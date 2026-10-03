@@ -65,6 +65,11 @@ import {
   type PendingInventoryWrite
 } from '../lib/inventoryMerge';
 import { safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import {
+  SALES_HISTORY_DAYS,
+  SALES_HISTORY_MAX_PAGES,
+  historyWindowReached
+} from '../lib/historyWindow';
 import { money, newUniqueId } from '../lib/ids';
 import {
   canOpenNewCashSession,
@@ -203,6 +208,11 @@ export default function Dashboard({
   const [salesHasMore, setSalesHasMore] = useState(true);
   const [expensesHasMore, setExpensesHasMore] = useState(true);
   const [cortesHasMore, setCortesHasMore] = useState(true);
+  const [liveHistoryReady, setLiveHistoryReady] = useState(false);
+  const salesHasMoreRef = useRef(true);
+  const expensesHasMoreRef = useRef(true);
+  const cortesHasMoreRef = useRef(true);
+  const historyBackfillRef = useRef(false);
   const [movementsHasMore, setMovementsHasMore] = useState(true);
   const [repairsHasMore, setRepairsHasMore] = useState(true);
   const corteInFlightRef = useRef(false);
@@ -290,7 +300,11 @@ export default function Dashboard({
           scheduleSaveCachedList('sales', next);
           return next;
         });
-        if (sales.length < LIVE_LIMIT.sales) setSalesHasMore(false);
+        if (sales.length < LIVE_LIMIT.sales) {
+          salesHasMoreRef.current = false;
+          setSalesHasMore(false);
+        }
+        setLiveHistoryReady(true);
         if (cloudProductsRef.current.length > 0) {
           publishCatalogFromCloud(cloudProductsRef.current);
         }
@@ -308,7 +322,10 @@ export default function Dashboard({
           scheduleSaveCachedList('expenses', next);
           return next;
         });
-        if (exps.length < LIVE_LIMIT.expenses) setExpensesHasMore(false);
+        if (exps.length < LIVE_LIMIT.expenses) {
+          expensesHasMoreRef.current = false;
+          setExpensesHasMore(false);
+        }
       },
       () => markCloudDown()
     );
@@ -329,7 +346,11 @@ export default function Dashboard({
           scheduleSaveCachedList('cortes', next);
           return next;
         });
-        if (cortes.length < LIVE_LIMIT.cortes) setCortesHasMore(false);
+        if (cortes.length < LIVE_LIMIT.cortes) {
+          cortesHasMoreRef.current = false;
+          setCortesHasMore(false);
+        }
+        setLiveHistoryReady(true);
       },
       () => markCloudDown()
     );
@@ -406,80 +427,150 @@ export default function Dashboard({
     };
   }, []);
 
-  const loadOlderSales = useCallback(async () => {
-    if (historyBusy) return;
+  const pullOlderSales = useCallback(async (): Promise<{ added: number; done: boolean }> => {
     const before = oldestTimestamp(salesTicketsRef.current, 'timestamp');
     if (!before) {
+      salesHasMoreRef.current = false;
       setSalesHasMore(false);
-      return;
+      return { added: 0, done: true };
     }
+    const extra = await fetchOlderSales(before, HISTORY_PAGE);
+    if (extra.length > 0) {
+      const next = sortByTimestampDesc(mergeByIdKeep(salesTicketsRef.current, extra));
+      salesTicketsRef.current = next;
+      setSalesTickets(next);
+      scheduleSaveCachedList('sales', next);
+    }
+    const done = extra.length < HISTORY_PAGE;
+    if (done) {
+      salesHasMoreRef.current = false;
+      setSalesHasMore(false);
+    }
+    return { added: extra.length, done };
+  }, []);
+
+  const pullOlderExpenses = useCallback(async (): Promise<{ added: number; done: boolean }> => {
+    const before = oldestTimestamp(expensesRef.current, 'timestamp');
+    if (!before) {
+      expensesHasMoreRef.current = false;
+      setExpensesHasMore(false);
+      return { added: 0, done: true };
+    }
+    const extra = await fetchOlderExpenses(before, HISTORY_PAGE);
+    if (extra.length > 0) {
+      const next = sortByTimestampDesc(mergeByIdKeep(expensesRef.current, extra));
+      expensesRef.current = next;
+      setExpenses(next);
+      scheduleSaveCachedList('expenses', next);
+    }
+    const done = extra.length < HISTORY_PAGE;
+    if (done) {
+      expensesHasMoreRef.current = false;
+      setExpensesHasMore(false);
+    }
+    return { added: extra.length, done };
+  }, []);
+
+  const pullOlderCortes = useCallback(async (): Promise<{ added: number; done: boolean }> => {
+    const before = oldestTimestamp(cortesRef.current, 'timestamp');
+    if (!before) {
+      cortesHasMoreRef.current = false;
+      setCortesHasMore(false);
+      return { added: 0, done: true };
+    }
+    const extra = await fetchOlderCortes(before, HISTORY_PAGE);
+    if (extra.length > 0) {
+      const next = sortByTimestampDesc(mergeByIdKeep(cortesRef.current, extra));
+      cortesRef.current = next;
+      setCortesX(next);
+      scheduleSaveCachedList('cortes', next);
+    }
+    const done = extra.length < HISTORY_PAGE;
+    if (done) {
+      cortesHasMoreRef.current = false;
+      setCortesHasMore(false);
+    }
+    return { added: extra.length, done };
+  }, []);
+
+  const loadOlderSales = useCallback(async () => {
+    if (historyBusy) return;
     setHistoryBusy('sales');
     try {
-      const extra = await fetchOlderSales(before, HISTORY_PAGE);
-      if (extra.length < HISTORY_PAGE) setSalesHasMore(false);
-      if (extra.length > 0) {
-        setSalesTickets((prev) => {
-          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
-          scheduleSaveCachedList('sales', next);
-          return next;
-        });
-      }
+      await pullOlderSales();
     } catch (err) {
       console.warn('[Historial] ventas:', err);
     } finally {
       setHistoryBusy(null);
     }
-  }, [historyBusy]);
+  }, [historyBusy, pullOlderSales]);
 
   const loadOlderExpenses = useCallback(async () => {
     if (historyBusy) return;
-    const before = oldestTimestamp(expensesRef.current, 'timestamp');
-    if (!before) {
-      setExpensesHasMore(false);
-      return;
-    }
     setHistoryBusy('expenses');
     try {
-      const extra = await fetchOlderExpenses(before, HISTORY_PAGE);
-      if (extra.length < HISTORY_PAGE) setExpensesHasMore(false);
-      if (extra.length > 0) {
-        setExpenses((prev) => {
-          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
-          scheduleSaveCachedList('expenses', next);
-          return next;
-        });
-      }
+      await pullOlderExpenses();
     } catch (err) {
       console.warn('[Historial] gastos:', err);
     } finally {
       setHistoryBusy(null);
     }
-  }, [historyBusy]);
+  }, [historyBusy, pullOlderExpenses]);
 
   const loadOlderCortes = useCallback(async () => {
     if (historyBusy) return;
-    const before = oldestTimestamp(cortesRef.current, 'timestamp');
-    if (!before) {
-      setCortesHasMore(false);
-      return;
-    }
     setHistoryBusy('cortes');
     try {
-      const extra = await fetchOlderCortes(before, HISTORY_PAGE);
-      if (extra.length < HISTORY_PAGE) setCortesHasMore(false);
-      if (extra.length > 0) {
-        setCortesX((prev) => {
-          const next = sortByTimestampDesc(mergeByIdKeep(prev, extra));
-          scheduleSaveCachedList('cortes', next);
-          return next;
-        });
-      }
+      await pullOlderCortes();
     } catch (err) {
       console.warn('[Historial] cortes:', err);
     } finally {
       setHistoryBusy(null);
     }
-  }, [historyBusy]);
+  }, [historyBusy, pullOlderCortes]);
+
+  const ensureSalesHistoryWindow = useCallback(async () => {
+    if (historyBackfillRef.current) return;
+    historyBackfillRef.current = true;
+    setHistoryBusy('cortes');
+    const today = todayCashDateKey();
+    try {
+      for (let page = 0; page < SALES_HISTORY_MAX_PAGES; page++) {
+        const cortesOk = historyWindowReached(cortesRef.current, today, SALES_HISTORY_DAYS);
+        const salesOk = historyWindowReached(salesTicketsRef.current, today, SALES_HISTORY_DAYS);
+        const expensesOk = historyWindowReached(expensesRef.current, today, SALES_HISTORY_DAYS);
+        if (cortesOk && salesOk && expensesOk) break;
+
+        let progressed = false;
+        if (!cortesOk && cortesHasMoreRef.current) {
+          const result = await pullOlderCortes();
+          progressed = progressed || result.added > 0;
+          if (result.done && result.added === 0 && !progressed) {
+            /* no more cortes */
+          }
+        }
+        if (!salesOk && salesHasMoreRef.current) {
+          const result = await pullOlderSales();
+          progressed = progressed || result.added > 0;
+        }
+        if (!expensesOk && expensesHasMoreRef.current) {
+          const result = await pullOlderExpenses();
+          progressed = progressed || result.added > 0;
+        }
+        if (!progressed) break;
+      }
+    } catch (err) {
+      console.warn('[Historial] ventana de ventas:', err);
+    } finally {
+      historyBackfillRef.current = false;
+      setHistoryBusy(null);
+    }
+  }, [pullOlderCortes, pullOlderSales, pullOlderExpenses]);
+
+  useEffect(() => {
+    if (!liveHistoryReady) return;
+    void ensureSalesHistoryWindow();
+  }, [liveHistoryReady, ensureSalesHistoryWindow]);
 
   const loadOlderMovements = useCallback(async () => {
     if (historyBusy) return;

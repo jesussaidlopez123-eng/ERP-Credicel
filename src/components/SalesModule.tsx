@@ -30,7 +30,7 @@ import {
   Lock
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
-import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
 import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import { classifySaleItem } from '../lib/saleClassification';
@@ -664,6 +664,19 @@ function SalesModule({
     return groups;
   }, [filteredCortes, todayIso]);
 
+  const historySpan = useMemo(() => {
+    let oldest = '';
+    let realCount = 0;
+    for (const corte of filteredCortes) {
+      if (corte.id.startsWith('CAL-ZERO')) continue;
+      const key = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
+      if (!key) continue;
+      realCount += 1;
+      if (!oldest || key < oldest) oldest = key;
+    }
+    return { oldest, realCount };
+  }, [filteredCortes]);
+
   // Filtered Live Tickets
   const filteredTickets = useMemo(() => {
     return safeTickets.filter(ticket => {
@@ -982,7 +995,11 @@ function SalesModule({
               </span>
             </div>
             <p className="text-[11px] text-slate-500 hidden sm:block">
-              Sucursal, horario, total y corte
+              {historyBusy === 'cortes'
+                ? 'Cargando días anteriores…'
+                : historySpan.oldest
+                  ? `Desde ${formatCashDateLabel(historySpan.oldest)}`
+                  : 'Sucursal, horario, total y corte'}
             </p>
           </div>
 
@@ -1086,11 +1103,18 @@ function SalesModule({
             </div>
           )}
 
+          <div className="px-3 sm:px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
+            {historyBusy === 'cortes'
+              ? 'Traemos el historial de la nube (hasta 6 meses). Los días vacíos recientes se listan para que se vea si no se laboró.'
+              : historySpan.realCount === 0
+                ? 'Aún no hay cortes cargados. Si la nube tiene historial, use el botón de abajo.'
+                : `Hay ${historySpan.realCount} turnos en pantalla${historySpan.oldest ? ` desde ${formatCashDateLabel(historySpan.oldest)}` : ''}.`}
+          </div>
           <LoadMoreButton
             hasMore={cortesHasMore}
             loading={historyBusy === 'cortes'}
             onClick={onLoadOlderCortes}
-            label="Cargar cortes anteriores"
+            label="Cargar meses anteriores"
           />
 
         </div>

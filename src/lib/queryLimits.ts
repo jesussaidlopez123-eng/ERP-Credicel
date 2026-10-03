@@ -2,7 +2,7 @@
 export const LIVE_LIMIT = {
   sales: 400,
   expenses: 400,
-  cortes: 120,
+  cortes: 500,
   movements: 400,
   repairsHistory: 300
 } as const;
