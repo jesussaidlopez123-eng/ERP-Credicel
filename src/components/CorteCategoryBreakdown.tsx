@@ -36,19 +36,19 @@ type Props = {
 
 export default function CorteCategoryBreakdown({
   breakdown,
-  caption = 'Suma de lunes a domingo. Haz clic en una fila para ver el detalle.'
+  caption = ''
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (key: string) => setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs divide-y divide-slate-100">
-      <div className="px-4 py-3 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-          <Receipt className="w-4 h-4 text-slate-600" />
-          <span>Desglose por Concepto / Categoría</span>
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
+      <div className="px-3 py-2 bg-slate-50 flex items-center justify-between gap-1">
+        <h4 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+          <Receipt className="w-3.5 h-3.5 text-slate-500" />
+          <span>Desglose</span>
         </h4>
-        <span className="text-xs text-slate-500">{caption}</span>
+        {caption ? <span className="text-[11px] text-slate-500">{caption}</span> : null}
       </div>
 
       {CORTE_CATEGORY_ORDER.map((key) => {

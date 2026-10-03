@@ -263,9 +263,6 @@ export default function EditProductModal({
                     className="w-full px-3 py-2 bg-white border border-blue-300 rounded-xl text-xs font-mono font-black text-blue-950 uppercase focus:ring-2 focus:ring-blue-600 focus:outline-none shadow-2xs"
                   />
                 </div>
-                <span className="text-[9px] text-blue-700 mt-0.5 block font-medium">
-                  Identificador y SKU del producto
-                </span>
               </div>
 
               {/* TIPO DE INVENTARIO */}
@@ -280,7 +277,6 @@ export default function EditProductModal({
                   value={isEquipo ? 'Equipo Celular (Smartphone)' : 'Accesorio'}
                   className="w-full px-3 py-2 bg-slate-200/80 border border-slate-300 rounded-xl text-xs font-extrabold text-slate-700 cursor-not-allowed select-none"
                 />
-                <span className="text-[9px] text-slate-500 mt-0.5 block">Categoría de catálogo</span>
               </div>
 
             </div>

@@ -152,9 +152,7 @@ export default function ImeiTraceModal({
                       <p className="text-slate-800 font-extrabold mt-1">Ahora está en {result.branchName}</p>
                     )}
                     {result.wasHidden && (
-                      <p className="text-amber-800 mt-1">
-                        Estaba en una ubicación que no se veía. Quedó en Matriz para que se pueda transferir o vender.
-                      </p>
+                      <p className="text-amber-800 mt-1">Quedó en Matriz</p>
                     )}
                   </div>
                 </div>

@@ -62,43 +62,39 @@ export default function Sidebar({
 
       <aside className={`
         fixed md:static inset-y-0 left-0 z-50
-        w-60 bg-white text-slate-700 flex flex-col h-full shrink-0 border-r border-slate-200
+        w-52 bg-white text-slate-700 flex flex-col h-full shrink-0 border-r border-slate-200
         transition-transform duration-300 ease-in-out
         ${isMobileOpen ? 'translate-x-0 shadow-xl' : '-translate-x-full md:translate-x-0'}
       `}>
-        <div className="px-5 pt-5 pb-4 border-b border-slate-200 relative">
+        <div className="px-3 pt-3 pb-2.5 border-b border-slate-200 relative">
           {onCloseMobile && (
             <button
               onClick={onCloseMobile}
-              className="md:hidden absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+              className="md:hidden absolute top-2.5 right-2.5 p-1 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           )}
 
-          <div className="mb-4 flex justify-start">
+          <div className="mb-2.5 flex justify-start">
             <Logo theme="light" size="sm" />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-slate-900 text-sm font-semibold">
-              <Store className="w-4 h-4 text-[#0047AB]" />
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+            <div className="flex items-center gap-1.5 text-slate-900 text-[13px] font-semibold">
+              <Store className="w-3.5 h-3.5 text-[#0047AB]" />
               <span className="truncate">{currentBranch.name}</span>
             </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
               <span className="truncate">{currentOperator.name}</span>
-              <span className="ml-auto rounded bg-white border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
+              <span className="ml-auto rounded bg-white border border-slate-200 px-1 py-0.5 text-[10px] font-semibold text-slate-600">
                 {roleText}
               </span>
             </div>
           </div>
         </div>
 
-        <nav className="flex-1 py-3 px-2.5 space-y-0.5 overflow-y-auto">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 px-2">
-            Menú
-          </div>
-
+        <nav className="flex-1 py-2 px-2 space-y-0.5 overflow-y-auto">
           {menuItems.map((item) => {
             const isActive = activeModule === item.id;
             return (
@@ -108,7 +104,7 @@ export default function Sidebar({
                   onModuleChange(item.id);
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium transition-colors cursor-pointer ${
                   isActive
                     ? 'bg-[#0047AB] text-white'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -130,10 +126,10 @@ export default function Sidebar({
           })}
         </nav>
 
-        <div className="p-3 border-t border-slate-200">
+        <div className="p-2 border-t border-slate-200">
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-[13px] font-medium text-slate-500 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
             Cerrar sesión

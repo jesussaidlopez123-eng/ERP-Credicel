@@ -100,8 +100,8 @@ export default function RechargeModal({
 
           {/* Custom Amount input */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              O bien, escribe un monto personalizado:
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Otro monto
             </label>
             <div className="relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-extrabold text-slate-400 text-base">$</span>

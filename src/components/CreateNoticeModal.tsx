@@ -155,10 +155,7 @@ export default function CreateNoticeModal({
             <div className="w-12 h-12 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto">
               <ShieldCheck className="w-6 h-6" />
             </div>
-            <h4 className="font-bold text-slate-900 text-sm">Permisos Insuficientes para Avisos</h4>
-            <p className="text-xs text-slate-500 max-w-xs mx-auto">
-              Sólo el Administrador Principal puede publicar avisos institucionales. Puedes cambiar a la pestaña <b>"Pedir Surtido / Stock Bajo"</b> para solicitar productos para tu sucursal.
-            </p>
+            <h4 className="font-semibold text-slate-900 text-sm">Sin permiso para avisos</h4>
             <button
               onClick={() => setNoticeType('pedido_stock')}
               className="mt-2 px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
@@ -313,7 +310,7 @@ export default function CreateNoticeModal({
             {/* Message / Content */}
             <div>
               <label className="block text-xs font-extrabold text-slate-700 mb-1">
-                {noticeType === 'aviso' ? 'Mensaje o Instrucciones *' : 'Notas o Detalles Adicionales'}
+                {noticeType === 'aviso' ? 'Mensaje' : 'Notas'}
               </label>
               <textarea
                 required={noticeType === 'aviso'}

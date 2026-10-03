@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Store, User, Lock, ArrowRight, Eye, EyeOff, ShieldCheck
+  Store, User, Lock, ArrowRight, Eye, EyeOff
 } from 'lucide-react';
 import { Branch, Operator } from '../types';
 import Logo from './Logo';
@@ -108,25 +108,20 @@ export default function Login({
     <div className="min-h-screen bg-[#f4f6f9] flex items-center justify-center p-3 sm:p-6">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         
-        <div className="bg-[#0b3a6e] px-6 sm:px-8 py-8 text-center text-white">
-          <div className="flex flex-col items-center space-y-3">
-            <div className="px-4 py-2 bg-white rounded-xl">
+        <div className="bg-[#0b3a6e] px-5 py-5 text-center text-white">
+          <div className="flex flex-col items-center space-y-2">
+            <div className="px-3 py-1.5 bg-white rounded-lg">
               <Logo size="md" theme="light" />
             </div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              Punto de venta CREDI CEL
-            </h1>
-            <p className="text-xs text-blue-100">
-              Matriz · Navojoa · Huatabampo
-            </p>
+            <h1 className="text-sm font-semibold tracking-tight">CREDI CEL</h1>
           </div>
         </div>
 
         {/* Form Body */}
-        <div className="p-5 sm:p-7 space-y-5">
+        <div className="p-4 sm:p-5 space-y-4">
           {isAfterCashClose() && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-700 leading-relaxed">
-              Después de las 11:00 p.m. (hora Sonora) la caja del día ya está cerrada y el corte queda registrado. Puedes entrar a consultar, pero no se abrirá un turno nuevo hasta después de medianoche.
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
+              Caja cerrada · 11:00 p.m.
             </div>
           )}
           
@@ -150,7 +145,7 @@ export default function Login({
                     setPassword('');
                     setError('');
                   }}
-                  className="block w-full pl-10 pr-8 py-3 border border-slate-300 rounded-xl text-slate-900 font-bold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white cursor-pointer shadow-xs"
+                  className="block w-full pl-10 pr-8 py-2 border border-slate-300 rounded-lg text-slate-900 font-semibold focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white cursor-pointer"
                 >
                   {safeOperators.map((op) => {
                     const isAdminOp = normalizeRole(op.role) === 'admin';
@@ -168,22 +163,17 @@ export default function Login({
 
             {/* Automatically Display Assigned Branch */}
             {selectedOperator && (
-              <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl space-y-2">
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-1">
-                    <Store className="w-3.5 h-3.5 text-blue-600" />
-                    {isAdminUser ? 'Ámbito de trabajo:' : 'Sucursal de trabajo:'}
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                    <Store className="w-3.5 h-3.5 text-slate-400" />
+                    {isAdminUser ? 'Administración' : 'Sucursal'}
                   </span>
                   {getRoleBadge(selectedOperator.role)}
                 </div>
 
                 {isAdminUser ? (
-                  <div className="pt-0.5">
-                    <p className="text-sm font-semibold text-blue-950">Administración</p>
-                    <p className="text-[11px] text-blue-800/80 mt-0.5">
-                      Entras sin sucursal. Ves Matriz, Navojoa y Huatabampo. No se abre caja.
-                    </p>
-                  </div>
+                  <p className="text-sm font-semibold text-slate-900">Administración</p>
                 ) : (selectedOperator.branchIds || []).length > 1 ? (
                   <select
                     value={assignedBranch?.id || ''}
@@ -214,7 +204,7 @@ export default function Login({
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1">
                   <Lock className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Contraseña de Acceso</span>
+                  <span>Contraseña</span>
                 </label>
                 <button
                   type="button"
@@ -239,15 +229,8 @@ export default function Login({
                     setError('');
                   }}
                   placeholder="Contraseña"
-                  className="block w-full pl-10 pr-10 py-3 border border-slate-300 rounded-xl text-slate-900 font-medium focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white shadow-xs placeholder:font-normal placeholder:text-slate-400"
+                  className="block w-full pl-10 pr-10 py-2 border border-slate-300 rounded-lg text-slate-900 font-medium focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm bg-white placeholder:font-normal placeholder:text-slate-400"
                 />
-              </div>
-              
-              <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium px-1">
-                <span className="flex items-center gap-1 text-slate-500">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  Acceso con usuario y contraseña
-                </span>
               </div>
             </div>
 
@@ -261,9 +244,9 @@ export default function Login({
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 bg-[#0047AB] hover:bg-[#003d93] text-white py-3.5 px-4 rounded-xl text-sm font-semibold transition-colors cursor-pointer mt-2"
+              className="w-full flex items-center justify-center gap-2 bg-[#0047AB] hover:bg-[#003d93] text-white py-2.5 px-4 rounded-lg text-sm font-semibold transition-colors cursor-pointer mt-1"
             >
-              <span>Ingresar al Sistema</span>
+              <span>Ingresar</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 
@@ -272,9 +255,8 @@ export default function Login({
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
-          <span>CREDI CEL · Multi-sucursal</span>
-          <span>Uso interno</span>
+        <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 text-[11px] text-slate-400 text-center">
+          Matriz · Navojoa · Huatabampo
         </div>
 
       </div>

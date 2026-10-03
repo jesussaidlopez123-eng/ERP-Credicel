@@ -51,7 +51,6 @@ export default function NotificationsPopover({
     })
   );
   const clearableCount = visibleNotifications.filter((n) => !notificationIsSticky(n)).length;
-  const hasSticky = visibleNotifications.some((n) => notificationIsSticky(n));
 
   return (
     <>
@@ -67,7 +66,7 @@ export default function NotificationsPopover({
               <Bell className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-sm">Avisos y Alertas</h3>
+              <h3 className="font-semibold text-sm">Avisos</h3>
               <p className="text-[11px] text-slate-400">
                 {visibleNotifications.length > 0
                   ? `${visibleNotifications.length} alerta${visibleNotifications.length > 1 ? 's' : ''} pendiente${visibleNotifications.length > 1 ? 's' : ''}`
@@ -96,11 +95,7 @@ export default function NotificationsPopover({
 
         {visibleNotifications.length > 0 && (
           <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-            <span>
-              {hasSticky
-                ? 'Los avisos de taller y de agenda se quitan al completar la tarea.'
-                : 'Haz clic en un aviso para confirmarlo y quitarlo.'}
-            </span>
+            <span>{visibleNotifications.length} avisos</span>
             {clearableCount > 0 && (
               <button
                 onClick={onClearAllNotifications}
@@ -136,7 +131,7 @@ export default function NotificationsPopover({
                       ? 'Abrir el calendario'
                       : isRepairCost
                       ? 'Abrir Reparaciones para capturar el gasto interno'
-                      : 'Haz clic para marcar como leído y quitar aviso'
+                      : 'Marcar leído'
                   }
                   className={`p-3.5 transition-all cursor-pointer relative group ${
                     isAgenda

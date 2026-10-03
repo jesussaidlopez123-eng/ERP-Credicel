@@ -2135,7 +2135,7 @@ export default function Dashboard({
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         
         {/* Top Header */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-5 shrink-0 relative z-30">
+        <header className="h-11 bg-white border-b border-slate-200 flex items-center justify-between px-2.5 sm:px-4 shrink-0 relative z-30">
           <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
@@ -2146,7 +2146,7 @@ export default function Dashboard({
             </button>
 
             <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-semibold text-slate-900 truncate">
+              <h2 className="text-sm font-semibold text-slate-900 truncate">
                 {activeModule === 'pos' ? 'Punto de venta' :
                  activeModule === 'inventory' ? 'Inventario' :
                  activeModule === 'purchases' ? 'Compras' :
@@ -2186,12 +2186,12 @@ export default function Dashboard({
                     setIsAgendaOpen((open) => !open);
                     setIsNotificationsOpen(false);
                   }}
-                  className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors relative ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${
                     isAgendaOpen ? 'bg-[#0047AB] text-white' : 'hover:bg-slate-100 text-slate-600'
                   }`}
                   title="Agenda"
                 >
-                  <CalendarDays className="w-5 h-5" />
+                  <CalendarDays className="w-4 h-4" />
                   {agendaDueCount > 0 && (
                     <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white bg-indigo-600">
                       {agendaDueCount}
@@ -2218,12 +2218,12 @@ export default function Dashboard({
                 setIsNotificationsOpen(!isNotificationsOpen);
                 setIsAgendaOpen(false);
               }}
-              className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors relative ${
+              className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors relative ${
                 isNotificationsOpen ? 'bg-[#0047AB] text-white' : 'hover:bg-slate-100 text-slate-600'
               }`}
               title="Avisos"
             >
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white bg-red-600">
                   {unreadCount}
@@ -2250,7 +2250,7 @@ export default function Dashboard({
         </header>
 
         {/* Workspace Content Area */}
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className="flex-1 overflow-y-auto p-2.5 sm:p-3">
           {sessionError && (
             <div className={`max-w-[1600px] mx-auto mb-3 rounded-xl border px-3 py-2 text-sm ${
               cloudSynced ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-rose-300 bg-rose-50 text-rose-900'
@@ -2295,10 +2295,8 @@ export default function Dashboard({
       {nightClosing && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center border border-slate-200 shadow-xl space-y-3">
-            <h4 className="text-base font-semibold text-slate-900">Cierre automático 11:00 p.m.</h4>
-            <p className="text-sm text-slate-600">
-              Se está registrando el corte del turno y se cerrará la sesión. Mañana entra con su contraseña para abrir caja de nuevo.
-            </p>
+            <h4 className="text-sm font-semibold text-slate-900">Cierre 11:00 p.m.</h4>
+            <p className="text-xs text-slate-600">Registrando corte…</p>
           </div>
         </div>
       )}

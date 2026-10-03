@@ -174,9 +174,6 @@ export default function PaymentCheckoutModal({
                 <p className="text-[11px] font-black uppercase tracking-wider text-[#0047AB]">
                   0. Sucursal y fecha del cobro
                 </p>
-                <p className="text-[11px] text-slate-600 mt-0.5">
-                  Si ayer se vendió y no alcanzó a pasarse, elige esa sucursal y esa fecha. Si el corte ya cerró, la venta entra a ese corte.
-                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <label className="block">
@@ -400,14 +397,11 @@ export default function PaymentCheckoutModal({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 mt-1 px-1">
-                  <span>💡 Puedes teclear cualquier cantidad libre con tu teclado físico o pantalla.</span>
-                  {numCashReceived > 0 && isUnder && (
-                    <span className="text-rose-600 font-black">
-                      Falta entregar: ${difference.toFixed(2)}
-                    </span>
-                  )}
-                </div>
+                {numCashReceived > 0 && isUnder && (
+                  <div className="flex items-center justify-end text-[11px] font-semibold text-rose-600 mt-1 px-1">
+                    Falta ${difference.toFixed(2)}
+                  </div>
+                )}
               </div>
 
               {/* TECLADO NUMÉRICO TÁCTIL (DESPLEGABLE / OPCIONAL) */}

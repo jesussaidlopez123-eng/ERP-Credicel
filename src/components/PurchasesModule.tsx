@@ -384,7 +384,7 @@ export default function PurchasesModule({
   }, [drafts]);
 
   return (
-    <div className="space-y-6 pb-20 relative">
+    <div className="space-y-3 pb-8 relative">
       
       {/* Primary Navigation Tabs */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 border-b border-slate-200 pb-2 pt-1">
@@ -398,7 +398,7 @@ export default function PurchasesModule({
             }`}
           >
             <FileText className="w-4 h-4 text-blue-600" />
-            Borradores & Cotizaciones
+            Borradores
             <span className="ml-1 px-2 py-0.5 text-[10px] font-black rounded-full bg-slate-100 text-slate-700">
               {drafts.filter(d => d.status === 'borrador').length}
             </span>
@@ -413,7 +413,7 @@ export default function PurchasesModule({
             }`}
           >
             <Store className="w-4 h-4" />
-            Pedidos de Mis Sucursales
+            Pedidos
             {pendingRequestsCount > 0 && (
               <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-red-600 text-white animate-pulse">
                 {pendingRequestsCount} pendientes
@@ -824,12 +824,9 @@ export default function PurchasesModule({
           ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-extrabold text-xs text-slate-700 uppercase tracking-wider">
-                  Historial Cronológico de Pedidos ({archivedDrafts.length})
+                <h3 className="font-semibold text-xs text-slate-700">
+                  Historial ({archivedDrafts.length})
                 </h3>
-                <span className="text-[11px] text-slate-500 font-bold">
-                  Haz clic en el estado para actualizarlo en tiempo real
-                </span>
               </div>
 
               <div className="grid grid-cols-1 gap-4">

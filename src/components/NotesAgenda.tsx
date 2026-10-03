@@ -88,10 +88,7 @@ export default function NotesAgenda({
                 <CalendarDays className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-sm font-black text-slate-900">Agenda</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Toca un día para agregar recordatorios.
-                </p>
+                <h2 className="text-sm font-semibold text-slate-900">Agenda</h2>
               </div>
             </>
           )}

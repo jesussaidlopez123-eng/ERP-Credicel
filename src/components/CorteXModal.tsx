@@ -908,9 +908,6 @@ export default function CorteXModal({
                     <Receipt className="w-4 h-4 text-slate-600" />
                     <span>Tickets de este corte</span>
                   </h4>
-                  <p className="text-[11px] text-slate-500 mb-2">
-                    Eliminar pide contraseña de administrador. El stock e IMEI vuelven a la sucursal y el corte se recalcula.
-                  </p>
                   <ul className="divide-y divide-slate-100">
                     {branchTickets.map((ticket) => (
                       <li key={ticket.id} className="py-2 flex items-center justify-between gap-3">
@@ -952,9 +949,8 @@ export default function CorteXModal({
                 <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
                   <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                     <Receipt className="w-4 h-4 text-slate-600" />
-                    <span>Desglose por Concepto / Categoría</span>
+                    <span>Desglose</span>
                   </h4>
-                  <span className="text-xs text-slate-500">Haz clic en una fila para ver el detalle</span>
                 </div>
 
                 {/* Accesorios y Productos */}

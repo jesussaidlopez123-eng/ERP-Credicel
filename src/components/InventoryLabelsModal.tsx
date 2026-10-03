@@ -178,9 +178,6 @@ export default function InventoryLabelsModal({
               <h3 className="text-sm font-semibold text-slate-900">
                 {initialProduct ? `Etiquetas · ${initialProduct.name}` : 'Etiquetas de inventario'}
               </h3>
-              <p className="text-[11px] text-slate-500">
-                Código, nombre, código de barras y precio. Elige la medida: 3.5 × 2.5 cm o rollo 58 mm.
-              </p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:bg-slate-200">
@@ -239,7 +236,7 @@ export default function InventoryLabelsModal({
               {queue.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center py-8">
                   <Package className="w-8 h-8 mb-2 text-slate-300" />
-                  <p className="text-xs font-semibold text-slate-600">Elige productos de la lista</p>
+                  <p className="text-xs font-semibold text-slate-600">Sin productos</p>
                 </div>
               ) : (
                 queue.map((item) => (

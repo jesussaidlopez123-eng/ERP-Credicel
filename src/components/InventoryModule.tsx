@@ -1367,7 +1367,7 @@ function InventoryModule({
               }`}
             >
               <Headphones className="w-4 h-4 text-blue-400" />
-              <span>1. ACCESORIOS</span>
+              <span>Accesorios</span>
             </button>
 
             <button
@@ -1379,7 +1379,7 @@ function InventoryModule({
               }`}
             >
               <Smartphone className="w-4 h-4 text-amber-300" />
-              <span>2. EQUIPOS</span>
+              <span>Equipos</span>
             </button>
 
             <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-[11px] font-extrabold shadow-2xs ${
@@ -1392,9 +1392,9 @@ function InventoryModule({
               }`} />
               <span>
                 {activeInventoryTab === 'accesorio'
-                  ? 'Stock solo en Matriz · Navojoa · Huatabampo'
+                  ? `${filteredProducts.length} ítems`
                   : equipmentAudit.imeisSealed
-                    ? 'IMEI sellados · no se borran'
+                    ? 'IMEI en orden'
                     : `${equipmentAudit.soldListed + equipmentAudit.duplicates + equipmentAudit.stockMismatches} hallazgo(s)`}
               </span>
             </div>
@@ -1518,11 +1518,8 @@ function InventoryModule({
             <div className="flex items-start gap-2.5 flex-1 min-w-0">
               <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
               <div>
-                <p className="text-xs font-black text-amber-950">
+                <p className="text-xs font-semibold text-amber-950">
                   {orphanImeiCount} IMEI{orphanImeiCount === 1 ? '' : 's'} sin sucursal
-                </p>
-                <p className="text-[11px] text-amber-900 font-medium leading-snug mt-0.5">
-                  Equipos que llegaron en la lista plana (captura vieja o carga inicial). No se pueden vender en el PDV hasta asignarlos a la tienda donde está el celular físico.
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {orphanProducts.slice(0, 6).map((p) => (
@@ -1554,13 +1551,10 @@ function InventoryModule({
         }`}>
           <div className="flex flex-col lg:flex-row lg:items-start gap-3">
             <div className="flex-1 min-w-0">
-              <p className={`text-xs font-black ${equipmentAudit.imeisSealed ? 'text-emerald-950' : 'text-slate-900'}`}>
+              <p className={`text-xs font-semibold ${equipmentAudit.imeisSealed ? 'text-emerald-950' : 'text-slate-900'}`}>
                 {equipmentAudit.imeisSealed
-                  ? 'Los IMEI de equipos están resguardados'
-                  : 'Hay descuadres que se pueden clasificar'}
-              </p>
-              <p className="text-[11px] font-medium text-slate-700 leading-snug mt-0.5">
-                El sistema no borra ni mueve el IMEI de otra sucursal al guardar. Un celular vive en Matriz, Navojoa o Huatabampo; al venderse sale de las tres. Lo que no cuadra suele ser captura en la tienda equivocada, traspaso sin mover el físico, ajuste/merma, o IMEI viejos sin asignar.
+                  ? 'IMEI en orden'
+                  : 'Descuadres'}
               </p>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 <span className="px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[10px] font-extrabold text-slate-800">
@@ -2435,8 +2429,8 @@ function InventoryModule({
                 </button>
               </div>
               {!ajustarAction && (
-                <p className="text-[11px] font-bold text-amber-800 -mt-2">
-                  Elige si vas a descontar merma o a sumar una corrección. No se asume ninguna acción.
+                <p className="text-[11px] font-semibold text-amber-800 -mt-2">
+                  Elija merma o corrección
                 </p>
               )}
 
@@ -2917,19 +2911,6 @@ function InventoryModule({
 
             <form onSubmit={handleSaveCapturedImeis} className="p-6 space-y-4">
               
-              {/* Banner informativo */}
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold">
-                    Escanee el IMEI de cada equipo con su lector de código de barras.
-                  </p>
-                  <p className="text-[11px] text-blue-700 mt-0.5">
-                    Al presionar <span className="font-mono font-bold bg-blue-100 px-1 rounded">Enter</span> se deja el IMEI de 15 dígitos (se quita el prefijo del lector) y el cursor pasa al siguiente. El número no se reescribe dígito por dígito.
-                  </p>
-                </div>
-              </div>
-
               {/* Banner General de Alerta si hay duplicados detectados */}
               {(() => {
                 let batchDupCount = 0;
@@ -2949,13 +2930,12 @@ function InventoryModule({
                     <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-rose-900 text-xs flex items-start gap-2">
                       <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                       <div>
-                        <p className="font-extrabold text-rose-950">
-                          🚫 BLOQUEO ANTI-DUPLICADOS ACTIVO: Se detectaron IMEIs duplicados
+                        <p className="font-semibold text-rose-950">
+                          IMEI duplicados
                         </p>
                         <p className="text-[11px] text-rose-800 mt-0.5">
-                          {batchDupCount > 0 && `• ${batchDupCount} IMEI(s) repetidos dentro de este mismo lote. `}
-                          {sysDupCount > 0 && `• ${sysDupCount} IMEI(s) ya existentes en el inventario activo. `}
-                          Corrija los campos marcados en rojo para poder continuar.
+                          {batchDupCount > 0 && `${batchDupCount} en este lote. `}
+                          {sysDupCount > 0 && `${sysDupCount} ya en inventario.`}
                         </p>
                       </div>
                     </div>
@@ -3333,11 +3313,8 @@ function InventoryModule({
                 </div>
               </div>
 
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-950 font-bold flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <p>
-                  Ningún IMEI viene marcado. Escanea o marca uno por uno los equipos que realmente se van a traspasar. No se elige nada por defecto.
-                </p>
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-950 font-semibold">
+                Marque o escanee los IMEI a traspasar
               </div>
 
               {/* Lector / Escáner de IMEI */}
@@ -3491,11 +3468,8 @@ function InventoryModule({
                 </div>
               </div>
 
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-950 font-bold flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
-                <p>
-                  Ningún IMEI viene marcado. Escanea o marca uno por uno los equipos que se dan de baja. No se elige nada por defecto.
-                </p>
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-950 font-semibold">
+                Marque o escanee los IMEI a dar de baja
               </div>
 
               {/* Escáner de IMEI */}

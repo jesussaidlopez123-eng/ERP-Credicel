@@ -417,19 +417,14 @@ function SalesModule({
   };
 
   return (
-    <div className="space-y-4 pb-12">
+    <div className="space-y-3 pb-8">
       
-      <div className="bg-white rounded-2xl p-5 border border-slate-200">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900">Ventas y cortes de caja</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Movimiento del día por sucursal. El arqueo se hace una sola vez, desde cada tarjeta.
-            </p>
-          </div>
+      <div className="bg-white rounded-xl p-3 border border-slate-200">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <h1 className="text-sm font-semibold text-slate-900">Ventas y cortes</h1>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {branchLiveStats.map(bStat => {
             const hasSales = bStat.todayTicketsCount > 0;
             return (
@@ -521,7 +516,7 @@ function SalesModule({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2">
         
         {/* Branch Selector */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -578,7 +573,7 @@ function SalesModule({
 
       {/* TAB 1: CORTES X Y CALENDARIO NATURAL */}
       {activeTab === 'cortes' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           
           <div className="px-3 sm:px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -600,14 +595,11 @@ function SalesModule({
           </div>
 
           {filteredCortes.length === 0 ? (
-            <div className="text-center py-16 px-4 space-y-3">
+            <div className="text-center py-8 px-4 space-y-2">
               <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
                 <Calculator className="w-6 h-6" />
               </div>
-              <h3 className="font-black text-slate-700 text-sm">No se encontraron registros</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No hay datos para los filtros seleccionados.
-              </p>
+              <h3 className="font-semibold text-slate-700 text-sm">Sin registros</h3>
             </div>
           ) : (
             <div>
@@ -701,10 +693,10 @@ function SalesModule({
 
           <div className="px-3 sm:px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
             {historyBusy === 'cortes'
-              ? 'Cargando días anteriores en segundo plano…'
+              ? 'Cargando…'
               : historySpan.realCount === 0
-                ? 'Aún no hay cortes cargados. Si la nube tiene historial, use el botón de abajo.'
-                : `Hay ${historySpan.realCount} turnos${historySpan.oldest ? ` desde ${formatCashDateLabel(historySpan.oldest)}` : ''}. Se muestran ${Math.min(visibleDayCount, cortesByDay.length)} de ${cortesByDay.length} días.`}
+                ? 'Sin cortes'
+                : `${Math.min(visibleDayCount, cortesByDay.length)} / ${cortesByDay.length} días`}
           </div>
           <LoadMoreButton
             hasMore={visibleDayCount < cortesByDay.length}
@@ -723,13 +715,13 @@ function SalesModule({
 
       {/* TAB 2: VENTAS Y TICKETS EN VIVO */}
       {activeTab === 'tickets' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           
           <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Receipt className="w-4 h-4 text-blue-600" />
               <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Monitor de Tickets de Venta en Tiempo Real
+                Tickets
               </h2>
               <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">
                 {filteredTickets.length} tickets
@@ -744,14 +736,11 @@ function SalesModule({
           </div>
 
           {filteredTickets.length === 0 ? (
-            <div className="text-center py-16 px-4 space-y-3">
+            <div className="text-center py-8 px-4 space-y-2">
               <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
                 <Receipt className="w-6 h-6" />
               </div>
-              <h3 className="font-black text-slate-700 text-sm">No se encontraron tickets</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No hay ventas registradas para la sucursal o fecha seleccionada.
-              </p>
+              <h3 className="font-semibold text-slate-700 text-sm">Sin tickets</h3>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -874,13 +863,13 @@ function SalesModule({
 
       {/* TAB 3: GASTOS Y SALIDAS DE CAJA */}
       {activeTab === 'expenses' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           
           <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <TrendingDown className="w-4 h-4 text-rose-600" />
               <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Monitor de Gastos y Salidas de Caja Chica
+                Gastos
               </h2>
               <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full">
                 {filteredExpenses.length} gastos
@@ -895,14 +884,11 @@ function SalesModule({
           </div>
 
           {filteredExpenses.length === 0 ? (
-            <div className="text-center py-16 px-4 space-y-3">
+            <div className="text-center py-8 px-4 space-y-2">
               <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
                 <TrendingDown className="w-6 h-6" />
               </div>
-              <h3 className="font-black text-slate-700 text-sm">No se encontraron gastos</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No hay salidas de efectivo registradas para los filtros seleccionados.
-              </p>
+              <h3 className="font-semibold text-slate-700 text-sm">Sin gastos</h3>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -1030,7 +1016,7 @@ function SalesModule({
           <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs">
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Activity className="w-4 h-4 text-blue-600" />
-              Resumen Financiero del Período
+              Resumen
             </h3>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1055,7 +1041,7 @@ function SalesModule({
                 <span className="text-lg font-black text-emerald-700 font-mono block mt-1">
                   ${summaryMetrics.netIncome.toFixed(2)}
                 </span>
-                <span className="text-[11px] text-slate-400">Ingresos menos egresos</span>
+                <span className="text-[11px] text-slate-400">Neto</span>
               </div>
 
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">

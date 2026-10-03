@@ -8,7 +8,6 @@ import {
   History,
   Megaphone,
   Package,
-  ShieldCheck,
   Smartphone,
   Store,
   Wallet,
@@ -740,7 +739,7 @@ function WeekBoard({
 
       <p className="px-4 py-2.5 text-[11px] text-slate-500 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
         <History className="w-3.5 h-3.5" />
-        Celulares vendidos: {financeRow.phonesSold}. Toca una categoría abajo para ver el historial de otras semanas.
+        Equipos: {financeRow.phonesSold}
         <span className="flex flex-wrap gap-1 ml-1">
           {[...OURS, ...PASS].map((item) => (
             <button
@@ -781,20 +780,13 @@ export default function ExecutiveModule({
   const activeWeek = weeks.find((week) => week.weekStart === activeWeekStart) || weeks[0];
 
   return (
-    <div className="space-y-6 pb-16">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+    <div className="space-y-4 pb-8">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-[#0047AB] uppercase tracking-[0.18em]">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Dirección
-          </div>
-          <h1 className="text-2xl font-semibold text-slate-900 mt-1 flex items-center gap-2">
-            <Building2 className="w-6 h-6 text-slate-400" />
+          <h1 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-slate-400" />
             Semana actual
           </h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-            El mismo desglose que el Corte X (accesorios, abonos, enganches, taller, recargas y gastos), sumado de lunes a domingo. Elige sucursal o mira las tres juntas.
-          </p>
         </div>
 
         <button
@@ -814,10 +806,7 @@ export default function ExecutiveModule({
       <section>
         <div className="flex items-end justify-between gap-3 mb-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">Semanas naturales</h2>
-            <p className="text-xs text-slate-500">
-              Numeradas lunes a domingo. Abajo van las fechas en que sí se trabajó.
-            </p>
+            <h2 className="text-sm font-semibold text-slate-900">Semanas</h2>
           </div>
         </div>
         {weeks.length === 0 ? (

@@ -175,6 +175,8 @@ html, body, #root {
   background-color: var(--credicel-paper);
   color: var(--credicel-ink);
   font-family: 'Source Sans 3', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.35;
   font-feature-settings: 'kern' 1, 'liga' 1;
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;

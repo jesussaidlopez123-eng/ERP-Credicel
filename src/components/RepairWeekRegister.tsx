@@ -100,10 +100,7 @@ export default function RepairWeekRegisterPanel({
           <p className="text-[11px] font-black uppercase tracking-wide text-indigo-700">
             {openWeek.isCurrent ? 'Semana actual' : 'Registro semanal'}
           </p>
-          <h2 className="text-lg font-black text-slate-900">{openWeek.label}</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Equipos entregados esta semana. El cajero ya puede haber entregado por la mañana; el gasto interno se captura aquí cuando esté listo.
-          </p>
+          <h2 className="text-sm font-semibold text-slate-900">{openWeek.label}</h2>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -266,10 +263,7 @@ export default function RepairWeekRegisterPanel({
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">Registro administrativo</p>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Elige una semana. Al abrirla ves los equipos entregados, la suma de gastos y la utilidad.
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Registro</p>
       </div>
 
       <ExcelRangeCard records={records} />

@@ -156,35 +156,26 @@ function RepairsModule({
 
   return (
     <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
-      <div className={`bg-white rounded-2xl border border-slate-200 ${embedded ? 'p-3' : 'p-5'}`}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900">Reparaciones</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              El cajero recibe y entrega en caja, sin marcar “listo”. Aquí se capturan los gastos de
-              reparación (refacción o mano de obra), aunque el equipo ya se haya entregado.
-            </p>
-          </div>
+      <div className={`bg-white rounded-xl border border-slate-200 ${embedded ? 'p-2.5' : 'p-3'}`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <h1 className="text-sm font-semibold text-slate-900">Reparaciones</h1>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <SummaryCard label="En taller" value={String(pendingStats.enTaller)} hint="Disponibles para entregar en caja" />
+        <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <SummaryCard label="En taller" value={String(pendingStats.enTaller)} />
           <SummaryCard
             label="Sin precio"
             value={String(pendingStats.sinCosto)}
-            hint="Hay que capturar el precio al cliente"
             accent={pendingStats.sinCosto > 0 ? 'amber' : 'slate'}
           />
           <SummaryCard
             label="Sin gasto interno"
             value={String(pendingStats.sinGasto)}
-            hint="Entregados que esperan refacción o mano de obra"
             accent={pendingStats.sinGasto > 0 ? 'amber' : 'slate'}
           />
           <SummaryCard
             label="Saldo por cobrar"
             value={`$${formatMoney(pendingStats.saldo)}`}
-            hint="Al entregar en caja"
           />
         </div>
 
@@ -251,11 +242,8 @@ function RepairsModule({
           onClick={() => setActiveTab('historial')}
           className="w-full text-left bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 cursor-pointer hover:bg-amber-100"
         >
-          <p className="text-xs font-black text-amber-950">
+          <p className="text-xs font-semibold text-amber-950">
             {pendingStats.sinGasto} entrega{pendingStats.sinGasto === 1 ? '' : 's'} sin gasto interno
-          </p>
-          <p className="text-[11px] text-amber-900 font-medium mt-0.5">
-            Caja ya entregó el equipo. Ábralo en Historial y capture refacción o mano de obra cuando la tenga.
           </p>
         </button>
       )}
@@ -265,10 +253,7 @@ function RepairsModule({
           {pendingRepairs.length === 0 ? (
             <div className="p-10 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 space-y-2">
               <PackageCheck className="w-10 h-10 mx-auto text-slate-300" />
-              <p className="text-sm font-bold text-slate-700">No hay reparaciones pendientes.</p>
-              <p className="text-xs text-slate-400">
-                Las recepciones se capturan en el punto de venta. Al entregar, el equipo pasa al Historial semanal.
-              </p>
+              <p className="text-sm font-semibold text-slate-700">Sin pendientes</p>
             </div>
           ) : (
             pendingRepairs.map((record) => {
@@ -501,23 +486,20 @@ function RepairsModule({
 function SummaryCard({
   label,
   value,
-  hint,
   accent = 'slate'
 }: {
   label: string;
   value: string;
-  hint: string;
   accent?: 'slate' | 'amber';
 }) {
   return (
     <div
-      className={`rounded-xl border px-3 py-3 ${
+      className={`rounded-lg border px-2.5 py-2 ${
         accent === 'amber' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'
       }`}
     >
       <p className="text-[11px] font-semibold text-slate-500">{label}</p>
-      <p className="text-lg font-black text-slate-900 mt-0.5">{value}</p>
-      <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p>
+      <p className="text-base font-semibold text-slate-900 mt-0.5">{value}</p>
     </div>
   );
 }

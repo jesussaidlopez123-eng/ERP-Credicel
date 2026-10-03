@@ -310,42 +310,28 @@ export default function SettingsModule({
   }, [operators, searchTerm, selectedRoleFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       
       {/* Module Title Header */}
-      <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Settings className="w-5 h-5 text-blue-400" />
-            <h1 className="text-xl font-black tracking-tight">Módulo de Configuración y Control de Usuarios</h1>
-          </div>
-          <p className="text-xs text-slate-300 font-medium">
-            Gestión centralizada de credenciales (usuarios y contraseñas), asignación de sucursales y permisos del sistema.
-          </p>
+      <div className="bg-slate-900 text-white px-4 py-3 rounded-xl border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Settings className="w-4 h-4 text-blue-400" />
+          <h1 className="text-sm font-semibold tracking-tight">Usuarios</h1>
         </div>
 
-        {/* Admin Principal Badge */}
-        <div className="flex items-center gap-2 bg-slate-800/80 px-3.5 py-2 rounded-xl border border-slate-700">
-          <ShieldCheck className={`w-5 h-5 ${isMainAdmin ? 'text-emerald-400' : 'text-amber-400'}`} />
-          <div className="text-left">
-            <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">Estado de Permisos</span>
-            <span className="text-xs font-black text-white">
-              {isMainAdmin ? '👑 Admin Principal (Edición Habilitada)' : '👁️ Solo Lectura (Usuario Estándar)'}
-            </span>
-          </div>
+        <div className="flex items-center gap-2 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700">
+          <ShieldCheck className={`w-4 h-4 ${isMainAdmin ? 'text-emerald-400' : 'text-amber-400'}`} />
+          <span className="text-xs font-semibold text-white">
+            {isMainAdmin ? 'Edición' : 'Solo lectura'}
+          </span>
         </div>
       </div>
 
       {/* RESTRICTION WARNING IF NOT MAIN ADMIN */}
       {!isMainAdmin && (
-        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3 text-amber-900 animate-in fade-in">
-          <ShieldAlert className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-extrabold text-sm text-amber-950">Acceso de Edición Restringido</h4>
-            <p className="text-xs mt-0.5 leading-relaxed text-amber-900">
-              Únicamente el <strong>Administrador Principal (Admin Principal)</strong> tiene autorización para crear nuevos usuarios, modificar contraseñas y alterar los roles o asignación de sucursales. A continuación se muestra el directorio activo de personal en modo consulta.
-            </p>
-          </div>
+        <div className="px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900">
+          <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+          <h4 className="font-semibold text-xs text-amber-950">Solo consulta</h4>
         </div>
       )}
 

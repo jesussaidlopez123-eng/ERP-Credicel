@@ -721,10 +721,7 @@ export default function CredicelDashboardModule({
         <div className="max-w-6xl mx-auto space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div>
-              <h3 className="text-xl font-black text-slate-900">Notas</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Notas, listas para marcar y archivos de {currentBranch.name}.
-              </p>
+              <h3 className="text-sm font-semibold text-slate-900">Notas</h3>
             </div>
             <div className="sm:ml-auto flex flex-wrap items-center gap-2">
               <div className="relative flex-1 sm:flex-none">
@@ -803,13 +800,8 @@ export default function CredicelDashboardModule({
             ) : filteredDocs.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-center px-4">
                 <FolderOpen className="w-12 h-12 text-slate-300 mb-3" />
-                <p className="text-sm font-black text-slate-800">
-                  {searchQuery.trim() ? 'No hay coincidencias' : 'Aún no hay notas'}
-                </p>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                  {searchQuery.trim()
-                    ? 'Prueba con otro título o nombre de archivo.'
-                    : 'Pulsa + para escribir una nota o adjuntar archivos. También puedes soltar archivos aquí.'}
+                <p className="text-sm font-semibold text-slate-800">
+                  {searchQuery.trim() ? 'Sin coincidencias' : 'Sin notas'}
                 </p>
               </div>
             ) : view === 'grid' ? (

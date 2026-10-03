@@ -25,8 +25,7 @@ import {
   Volume2,
   VolumeX,
   AlertCircle,
-  Printer,
-  MonitorSmartphone
+  Printer
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
 import LazyWhen from './LazyWhen';
@@ -822,30 +821,8 @@ function PosModule({
   };
 
   return (
-    <div className="h-full flex flex-col gap-2 p-3 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
-      {!hasCashTill(currentBranch.id) && (
-        <div className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 flex items-start gap-2">
-          <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
-          <p className="text-[11px] leading-relaxed text-slate-700">
-            Estás en <strong>Administración</strong>. Puedes armar el ticket y al cobrar eliges <strong>sucursal</strong> y
-            <strong> fecha</strong>. Si ayer no alcanzó a pasarse, entra al corte de ayer aunque ya esté cerrado.
-          </p>
-        </div>
-      )}
-      {hasCashTill(currentBranch.id) && (
-        <div className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 flex items-start gap-2">
-          <MonitorSmartphone className="w-4 h-4 text-[#0047AB] mt-0.5 shrink-0" />
-          <p className="text-[11px] leading-relaxed text-slate-600">
-            {tillLocked
-              ? 'Caja cerrada a las 11:00 p.m. (hora Sonora). El corte del día ya quedó registrado. El siguiente turno abre después de medianoche.'
-              : activeCashSession?.id
-              ? 'Si recargas o entras en otra computadora de esta sucursal, el turno es el mismo. A las 11:00 p.m. el sistema registra el corte y cierra la sesión solo.'
-              : 'Conectando el turno de caja… no cobres hasta ver “Turno abierto”.'}
-          </p>
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
+    <div className="h-full flex flex-col gap-2 p-2 bg-slate-100/80 overflow-y-auto md:overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row gap-3 min-h-0">
       
       {/* LEFT COLUMN: Barcode Scanner & Product Grid ("BOTONES DE COBRO") */}
       <div className="flex-1 flex flex-col min-w-0 bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3.5 overflow-y-auto min-h-[300px] md:min-h-0">
@@ -862,7 +839,7 @@ function PosModule({
                 type="text"
                 value={scannerInput}
                 onChange={(e) => setScannerInput(e.target.value)}
-                placeholder="Escanear Código o Clave (ej: CARG-20W, CRIS-9H)..."
+                placeholder="Código o IMEI"
                 className="w-full pl-8 pr-8 py-1.5 bg-slate-50 border border-indigo-200 focus:border-indigo-600 focus:bg-white text-slate-900 text-xs font-bold rounded-lg outline-none transition-all placeholder:text-slate-400 placeholder:font-normal"
               />
               <div className="absolute inset-y-0 right-0 pr-2 flex items-center gap-1">
@@ -1065,12 +1042,9 @@ function PosModule({
         )}
         
         {filteredProducts.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16">
-            <ShoppingBag className="w-12 h-12 mb-3 text-slate-300 stroke-1" />
-            <p className="text-sm font-bold text-slate-700">No hay productos en esta categoría o búsqueda.</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Los nuevos modelos registrados en <strong>Inventario</strong> aparecen automáticamente aquí.
-            </p>
+          <div className="h-full flex flex-col items-center justify-center text-slate-400 py-10">
+            <ShoppingBag className="w-8 h-8 mb-2 text-slate-300 stroke-1" />
+            <p className="text-sm font-semibold text-slate-700">Sin productos</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3.5">
