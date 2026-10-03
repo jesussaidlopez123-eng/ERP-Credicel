@@ -487,29 +487,21 @@ function SalesModule({
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-slate-200">
+        <div className="tool-seg mt-3">
           {([
             ['cortes', 'Cortes', filteredCortes.length],
             ['tickets', 'Tickets', filteredTickets.length],
             ['expenses', 'Gastos', filteredExpenses.length],
-            ['analytics', 'Métodos de pago', null],
+            ['analytics', 'Pagos', null],
           ] as const).map(([id, label, count]) => (
             <button
               key={id}
               type="button"
+              data-active={activeTab === id}
               onClick={() => switchTab(id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                activeTab === id
-                  ? 'bg-[#0047AB] text-white'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-              }`}
             >
               {label}
-              {count != null && (
-                <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
-                  {count}
-                </span>
-              )}
+              {count != null && <span className="text-[10px] text-slate-500">{count}</span>}
             </button>
           ))}
         </div>
@@ -521,11 +513,10 @@ function SalesModule({
         {/* Branch Selector */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Store className="w-4 h-4 text-slate-500 shrink-0" />
-          <span className="text-xs font-bold text-slate-700 shrink-0">Sucursal:</span>
           <select
             value={selectedBranchId}
             onChange={(e) => setSelectedBranchId(e.target.value)}
-            className="w-full sm:w-64 bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
+            className="w-full sm:w-52 bg-white border border-slate-300 text-slate-900 text-xs font-semibold rounded-md px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden cursor-pointer"
           >
             {branchesList.map(b => (
               <option key={b.id} value={b.id}>{b.name}</option>
@@ -543,7 +534,7 @@ function SalesModule({
                 ticketDateFilter === 'today' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Hoy ({todayIso})
+              Hoy
             </button>
             <button
               type="button"
@@ -552,7 +543,7 @@ function SalesModule({
                 ticketDateFilter === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Todo el Historial
+              Historial
             </button>
           </div>
         )}

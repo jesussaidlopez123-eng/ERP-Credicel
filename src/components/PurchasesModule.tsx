@@ -388,52 +388,23 @@ export default function PurchasesModule({
       
       {/* Primary Navigation Tabs */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 border-b border-slate-200 pb-2 pt-1">
-        <div className="flex flex-wrap gap-2 bg-slate-200/60 p-1 rounded-2xl border border-slate-300/60">
-          <button
-            onClick={() => setActiveTab('drive')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${
-              activeTab === 'drive'
-                ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <FileText className="w-4 h-4 text-blue-600" />
+        <div className="tool-seg">
+          <button type="button" data-active={activeTab === 'drive'} onClick={() => setActiveTab('drive')}>
+            <FileText className="w-3.5 h-3.5" />
             Borradores
-            <span className="ml-1 px-2 py-0.5 text-[10px] font-black rounded-full bg-slate-100 text-slate-700">
-              {drafts.filter(d => d.status === 'borrador').length}
-            </span>
+            <span className="text-[10px] text-slate-500">{drafts.filter(d => d.status === 'borrador').length}</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab('solicitudes')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer relative ${
-              activeTab === 'solicitudes'
-                ? 'bg-amber-500 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Store className="w-4 h-4" />
+          <button type="button" data-active={activeTab === 'solicitudes'} onClick={() => setActiveTab('solicitudes')}>
+            <Store className="w-3.5 h-3.5" />
             Pedidos
             {pendingRequestsCount > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-red-600 text-white animate-pulse">
-                {pendingRequestsCount} pendientes
-              </span>
+              <span className="text-[10px] text-slate-500">{pendingRequestsCount}</span>
             )}
           </button>
-
-          <button
-            onClick={() => setActiveTab('historial')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer relative ${
-              activeTab === 'historial'
-                ? 'bg-slate-900 text-white shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <History className="w-4 h-4 text-amber-400" />
-            Historial de Pedidos & Archivo
-            <span className="px-2 py-0.5 text-[10px] font-black rounded-full bg-amber-400 text-slate-950">
-              {historyStats.totalCount}
-            </span>
+          <button type="button" data-active={activeTab === 'historial'} onClick={() => setActiveTab('historial')}>
+            <History className="w-3.5 h-3.5" />
+            Historial
+            <span className="text-[10px] text-slate-500">{historyStats.totalCount}</span>
           </button>
         </div>
 

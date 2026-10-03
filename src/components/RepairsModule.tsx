@@ -179,7 +179,7 @@ function RepairsModule({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-slate-200">
+        <div className="tool-seg mt-3">
           {([
             ['pendientes', 'Pendientes', pendingStats.enTaller],
             ['historial', 'Historial', scopedRecords.filter((r) => !isPendingRepair(r)).length]
@@ -187,18 +187,12 @@ function RepairsModule({
             <button
               key={id}
               type="button"
+              data-active={activeTab === id}
               onClick={() => setActiveTab(id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                activeTab === id
-                  ? 'bg-[#0047AB] text-white'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-              }`}
             >
               {id === 'pendientes' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
               {label}
-              <span className={`text-[10px] px-1.5 rounded-full ${activeTab === id ? 'bg-white/20' : 'bg-white text-slate-500'}`}>
-                {count}
-              </span>
+              <span className="text-[10px] text-slate-500">{count}</span>
             </button>
           ))}
         </div>

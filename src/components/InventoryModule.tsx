@@ -1351,165 +1351,88 @@ function InventoryModule({
     <div className="h-full flex flex-col p-3 bg-slate-100 overflow-y-auto space-y-3">
       
       {/* BARRA SUPERIOR ORGANIZADA EN 2 NIVELES CON DISEÑO RESPONSIVO */}
-      <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-2.5 shrink-0">
-        
-        {/* FILA 1: PESTAÑAS PRINCIPALES (ACCESORIOS / EQUIPOS) + BÚSQUEDA RÁPIDA */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-          
-          {/* Pestañas 1. ACCESORIOS y 2. EQUIPOS */}
-          <div className="flex items-center gap-2">
+      <div className="bg-white px-2.5 py-2 rounded-xl border border-slate-200 shrink-0">
+        <div className="flex flex-col xl:flex-row xl:items-center gap-2">
+          <div className="tool-seg shrink-0">
             <button
+              type="button"
+              data-active={activeInventoryTab === 'accesorio'}
               onClick={() => setActiveInventoryTab('accesorio')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                activeInventoryTab === 'accesorio'
-                  ? 'bg-slate-900 text-white shadow-md ring-2 ring-slate-900'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
             >
-              <Headphones className="w-4 h-4 text-blue-400" />
-              <span>Accesorios</span>
+              <Headphones className="w-3.5 h-3.5" />
+              Accesorios
             </button>
-
             <button
+              type="button"
+              data-active={activeInventoryTab === 'equipo'}
               onClick={() => setActiveInventoryTab('equipo')}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                activeInventoryTab === 'equipo'
-                  ? 'bg-blue-700 text-white shadow-md ring-2 ring-blue-700'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
             >
-              <Smartphone className="w-4 h-4 text-amber-300" />
-              <span>Equipos</span>
+              <Smartphone className="w-3.5 h-3.5" />
+              Equipos
             </button>
-
-            <div className={`hidden md:flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-[11px] font-extrabold shadow-2xs ${
-              activeInventoryTab === 'equipo' && !equipmentAudit.imeisSealed
-                ? 'bg-amber-50 text-amber-900 border-amber-200'
-                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-            }`}>
-              <ShieldCheck className={`w-3.5 h-3.5 shrink-0 ${
-                activeInventoryTab === 'equipo' && !equipmentAudit.imeisSealed ? 'text-amber-600' : 'text-emerald-600'
-              }`} />
-              <span>
-                {activeInventoryTab === 'accesorio'
-                  ? `${filteredProducts.length} ítems`
-                  : equipmentAudit.imeisSealed
-                    ? 'IMEI en orden'
-                    : `${equipmentAudit.soldListed + equipmentAudit.duplicates + equipmentAudit.stockMismatches} hallazgo(s)`}
-              </span>
-            </div>
           </div>
 
-          {/* Búsqueda en Vivo */}
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="relative flex-1 min-w-[12rem] max-w-sm">
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar por nombre, código o IMEI..."
+              placeholder="Nombre, código o IMEI"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none"
+              className="tool-search"
             />
             {searchQuery && (
-              <button 
+              <button
+                type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
               >
                 ✕
               </button>
             )}
           </div>
-        </div>
 
-        {/* FILA 2: ALTA Y REPORTES */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={handleOpenNuevoProducto}
-            className={`flex items-center justify-center gap-1 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
-              activeInventoryTab === 'equipo'
-                ? 'bg-blue-700 hover:bg-blue-800'
-                : 'bg-emerald-600 hover:bg-emerald-700'
-            }`}
-            title={activeInventoryTab === 'equipo' ? 'Registrar un modelo de equipo nuevo' : 'Registrar un accesorio nuevo'}
-          >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>Nuevo producto</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setLoteKind(activeInventoryTab)}
-            className={`flex items-center justify-center gap-1 px-3 py-1.5 font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border ${
-              activeInventoryTab === 'equipo'
-                ? 'bg-white text-blue-800 border-blue-300 hover:bg-blue-50'
-                : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-50'
-            }`}
-            title={
-              activeInventoryTab === 'equipo'
-                ? 'Ingresar varios modelos con IMEI de una sola vez'
-                : 'Ingresar varios accesorios de una sola vez'
-            }
-          >
-            <Package className="w-3.5 h-3.5" />
-            <span>Paquete de ingreso</span>
-          </button>
-
-          <button
-            onClick={() => setIsPrintModalOpen(true)}
-            className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer ${
-              activeInventoryTab === 'equipo'
-                ? 'bg-blue-800 hover:bg-blue-900'
-                : 'bg-purple-800 hover:bg-purple-900'
-            }`}
-            title={`Generar e imprimir reporte de ${activeInventoryTab === 'equipo' ? 'Equipos' : 'Accesorios'}`}
-          >
-            <Printer className="w-3.5 h-3.5 text-amber-300" />
-            <span>{activeInventoryTab === 'equipo' ? 'Reporte Equipos' : 'Reporte Accesorios'}</span>
-          </button>
-
-          <button
-            onClick={() => setIsMovementsModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer border border-slate-700"
-            title="Ver Historial de Movimientos de los últimos 15 días con auto-limpieza"
-          >
-            <History className="w-3.5 h-3.5 text-purple-300" />
-            <span>Historial</span>
-            {inventoryMovements && inventoryMovements.length > 0 && (
-              <span className="px-1.5 py-0.2 text-[10px] font-black bg-purple-500 text-white rounded-full">
-                {inventoryMovements.length}
-              </span>
+          <div className="tool-row xl:ml-auto">
+            <button type="button" onClick={handleOpenNuevoProducto} className="tool-btn tool-btn-primary">
+              <PlusCircle className="w-3.5 h-3.5" />
+              Nuevo
+            </button>
+            <button type="button" onClick={() => setLoteKind(activeInventoryTab)} className="tool-btn">
+              <Package className="w-3.5 h-3.5" />
+              Paquete
+            </button>
+            <button type="button" onClick={() => setIsPrintModalOpen(true)} className="tool-btn">
+              <Printer className="w-3.5 h-3.5" />
+              Reporte
+            </button>
+            <button type="button" onClick={() => setIsMovementsModalOpen(true)} className="tool-btn">
+              <History className="w-3.5 h-3.5" />
+              Historial
+              {inventoryMovements && inventoryMovements.length > 0 && (
+                <span className="text-[10px] text-slate-500">{inventoryMovements.length}</span>
+              )}
+            </button>
+            {activeInventoryTab === 'equipo' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTraceInitialImei('');
+                  setIsImeiTraceOpen(true);
+                }}
+                className="tool-btn"
+              >
+                <ScanSearch className="w-3.5 h-3.5" />
+                IMEI
+              </button>
             )}
-          </button>
-
-          {activeInventoryTab === 'equipo' && (
-            <button
-              type="button"
-              onClick={() => {
-                setTraceInitialImei('');
-                setIsImeiTraceOpen(true);
-              }}
-              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white text-slate-800 border border-slate-300 hover:bg-slate-50 font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Buscar un IMEI: sucursal, venta y movimientos"
-            >
-              <ScanSearch className="w-3.5 h-3.5 text-blue-700" />
-              <span>Trazar IMEI</span>
-            </button>
-          )}
-
-          {normalizeRole(currentOperator?.role) !== 'cashier' && (
-            <button
-              type="button"
-              onClick={() => setIsKardexOpen(true)}
-              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-xl shadow-2xs transition-all cursor-pointer"
-              title="Comparar existencias de Matriz, Navojoa y Huatabampo contra el kardex de la nube"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Kardex sucursales</span>
-            </button>
-          )}
+            {normalizeRole(currentOperator?.role) !== 'cashier' && (
+              <button type="button" onClick={() => setIsKardexOpen(true)} className="tool-btn">
+                <RotateCcw className="w-3.5 h-3.5" />
+                Sucursales
+              </button>
+            )}
+          </div>
         </div>
-
       </div>
 
       {orphanImeiCount > 0 && (

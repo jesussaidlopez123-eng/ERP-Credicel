@@ -8,9 +8,9 @@ interface LogoProps {
 
 export default function Logo({ className = '', size = 'md', theme = 'light' }: LogoProps) {
   const sizes = {
-    sm: 'text-2xl',
-    md: 'text-4xl',
-    lg: 'text-5xl'
+    sm: 'text-xl',
+    md: 'text-3xl',
+    lg: 'text-4xl'
   };
 
   const currentSize = sizes[size];
@@ -19,7 +19,7 @@ export default function Logo({ className = '', size = 'md', theme = 'light' }: L
   const secondPartColor = theme === 'light' ? 'text-slate-900' : 'text-white';
 
   return (
-    <div className={`flex items-center justify-center font-bold tracking-tight ${currentSize} ${className}`}>
+    <div className={`flex items-center justify-center font-semibold tracking-[-0.04em] ${currentSize} ${className}`}>
       <span className={`${firstPartColor} transition-colors`}>CREDI</span>
       <span className={`${secondPartColor} transition-colors`}>CEL</span>
     </div>

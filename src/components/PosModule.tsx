@@ -5,27 +5,16 @@ import {
   Plus, 
   Minus, 
   Trash2, 
-  DollarSign, 
-  CreditCard, 
-  ArrowRight, 
-  Calculator, 
-  TrendingDown, 
   Smartphone, 
-  RefreshCw, 
-  Tag, 
   X, 
   CheckCircle2, 
   Store,
-  Sparkles,
-  Zap,
-  Filter,
   Wrench,
   Barcode,
   ScanLine,
   Volume2,
   VolumeX,
-  AlertCircle,
-  Printer
+  AlertCircle
 } from 'lucide-react';
 import { Product, CartItem, CartItemMetadata, SaleTicket, Expense, Branch, Operator, RepairRecord, CorteXRecord, CreditAccount, SesionCaja } from '../types';
 import LazyWhen from './LazyWhen';
@@ -941,69 +930,23 @@ function PosModule({
           )}
 
           {/* Quick Category Filter Bar */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 pt-1 no-scrollbar text-xs font-extrabold">
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('all')}
-              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer ${
-                selectedCategory === 'all'
-                  ? 'bg-slate-900 text-white shadow-2xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Todos ({products.length})
+          <div className="tool-seg w-full sm:w-auto overflow-x-auto">
+            <button type="button" data-active={selectedCategory === 'all'} onClick={() => setSelectedCategory('all')}>
+              Todos
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('accesorio')}
-              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
-                selectedCategory === 'accesorio'
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
-              }`}
-            >
-              <Tag className="w-3 h-3" />
-              Accesorios ({products.filter(p => p.category === 'accesorio' || p.inventoryType === 'accesorio').length})
+            <button type="button" data-active={selectedCategory === 'accesorio'} onClick={() => setSelectedCategory('accesorio')}>
+              Accesorios
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('equipo')}
-              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
-                selectedCategory === 'equipo'
-                  ? 'bg-indigo-600 text-white shadow-2xs'
-                  : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
-              }`}
-            >
-              <Smartphone className="w-3 h-3" />
-              Equipos / Celulares ({products.filter(p => p.category === 'equipo_credito' || p.category === 'equipo' || p.inventoryType === 'equipo').length})
+            <button type="button" data-active={selectedCategory === 'equipo'} onClick={() => setSelectedCategory('equipo')}>
+              Equipos
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('servicio')}
-              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
-                selectedCategory === 'servicio'
-                  ? 'bg-amber-600 text-white shadow-2xs'
-                  : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
-              }`}
-            >
-              <Wrench className="w-3 h-3" />
-              Taller / Reparaciones
+            <button type="button" data-active={selectedCategory === 'servicio'} onClick={() => setSelectedCategory('servicio')}>
+              Taller
               {pendingOnBoard > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/90 text-amber-800 text-[10px] font-black">
-                  {pendingOnBoard}
-                </span>
+                <span className="text-[10px] text-slate-500">{pendingOnBoard}</span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('recarga')}
-              className={`px-2.5 py-1 rounded-lg transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
-                selectedCategory === 'recarga'
-                  ? 'bg-emerald-600 text-white shadow-2xs'
-                  : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-              }`}
-            >
-              <Zap className="w-3 h-3" />
+            <button type="button" data-active={selectedCategory === 'recarga'} onClick={() => setSelectedCategory('recarga')}>
               Recargas
             </button>
           </div>
@@ -1013,10 +956,7 @@ function PosModule({
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 space-y-2 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-black text-amber-950">Reparaciones en taller</p>
-              <p className="text-[11px] text-amber-800">
-                {pendingOnBoard} equipo(s) pendiente(s) hasta hoy. Aquí se capturan o cambian los costos.
-              </p>
+              <p className="text-xs font-semibold text-amber-950">Taller · {pendingOnBoard}</p>
             </div>
             <button
               type="button"
@@ -1169,10 +1109,7 @@ function PosModule({
               <div className="p-3 bg-slate-50 rounded-full border border-slate-200">
                 <ShoppingBag className="w-8 h-8 text-slate-300 stroke-1" />
               </div>
-              <p className="text-xs font-extrabold text-slate-700">Carrito de compras vacío</p>
-              <p className="text-[11px] text-slate-400 max-w-[200px] leading-relaxed">
-                Selecciona un producto o servicio de la izquierda para agregarlo.
-              </p>
+              <p className="text-xs font-semibold text-slate-700">Vacío</p>
             </div>
           ) : (
             cart.map((item) => (
@@ -1288,13 +1225,13 @@ function PosModule({
           {/* Subtotal & Total Banner */}
           <div className="bg-white p-2.5 rounded-xl border border-slate-200/80 shadow-2xs space-y-1">
             <div className="flex justify-between items-center text-[11px] text-slate-500 font-bold">
-              <span>Subtotal Venta:</span>
-              <span>${cartSubtotal.toFixed(2)} MXN</span>
+              <span>Subtotal</span>
+              <span className="font-mono">${cartSubtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between items-center pt-1 border-t border-slate-100">
-              <span className="text-xs font-black text-slate-800 uppercase tracking-wider">TOTAL A COBRAR:</span>
-              <span className="text-xl text-emerald-700 font-black">
-                ${cartTotal.toFixed(2)} <span className="text-[10px] font-bold text-slate-500">MXN</span>
+              <span className="text-xs font-semibold text-slate-800">Total</span>
+              <span className="text-lg text-emerald-700 font-semibold font-mono">
+                ${cartTotal.toFixed(2)}
               </span>
             </div>
           </div>

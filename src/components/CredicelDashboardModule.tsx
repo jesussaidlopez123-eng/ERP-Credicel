@@ -723,44 +723,26 @@ export default function CredicelDashboardModule({
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Notas</h3>
             </div>
-            <div className="sm:ml-auto flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 sm:flex-none">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="sm:ml-auto tool-row">
+              <div className="relative flex-1 sm:w-56">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar notas…"
-                  className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm font-medium bg-white"
+                  placeholder="Buscar"
+                  className="tool-search"
                 />
               </div>
-              <div className="flex rounded-xl border border-slate-200 bg-white p-0.5">
-                <button
-                  type="button"
-                  onClick={() => changeView('grid')}
-                  className={`px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                    view === 'grid' ? 'bg-[#0047AB] text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                  title="Ver recuadros"
-                >
-                  <LayoutGrid className="w-4 h-4" />
+              <div className="tool-seg">
+                <button type="button" data-active={view === 'grid'} onClick={() => changeView('grid')} title="Recuadros">
+                  <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => changeView('list')}
-                  className={`px-2.5 py-1.5 rounded-lg cursor-pointer ${
-                    view === 'list' ? 'bg-[#0047AB] text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                  title="Ver lista"
-                >
-                  <List className="w-4 h-4" />
+                <button type="button" data-active={view === 'list'} onClick={() => changeView('list')} title="Lista">
+                  <List className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={openNew}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#0047AB] hover:bg-[#003d93] text-white text-sm font-extrabold cursor-pointer shadow-sm"
-              >
-                <Plus className="w-4 h-4" />
+              <button type="button" onClick={openNew} className="tool-btn tool-btn-primary">
+                <Plus className="w-3.5 h-3.5" />
                 Nuevo
               </button>
             </div>
