@@ -82,7 +82,9 @@ assert.equal(fileExtOf('sin-extension'), 'ARCHIVO');
 
 assert.equal(canOpenModule('admin', 'credicelDashboard'), true);
 assert.equal(canOpenModule('manager', 'credicelDashboard'), true);
+assert.equal(canOpenModule('manager', 'repairs'), true);
 assert.equal(canOpenModule('cashier', 'credicelDashboard'), false);
+assert.equal(canOpenModule('cashier', 'repairs'), false);
 assert.equal(defaultModuleForRole('admin'), 'credicelDashboard');
 assert.equal(defaultModuleForRole('manager'), 'credicelDashboard');
 assert.equal(defaultModuleForRole('cashier'), 'pos');

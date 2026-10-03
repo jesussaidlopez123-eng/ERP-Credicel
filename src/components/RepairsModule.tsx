@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Ban,
-  ChevronRight,
   Clock,
   DollarSign,
   History,
@@ -22,11 +21,14 @@ import {
   matchesRepairSearch,
   needsRepairCostCapture,
   repairInternalCost,
-  repairStatusLabel,
-  stampRepairLabel
+  shiftRepairWorkStage,
+  stampRepairLabel,
+  workStageLabel,
+  workStageOf
 } from '../lib/repairUtils';
 import RepairWeekRegisterPanel from './RepairWeekRegister';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
+import RepairShopBoard from './RepairShopBoard';
 import { CancelRepairDialog } from './RepairHistoryPanel';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -44,7 +46,7 @@ interface RepairsModuleProps {
   onFocusCostDueConsumed?: () => void;
 }
 
-type TabId = 'pendientes' | 'historial';
+type TabId = 'tablero' | 'historial';
 
 function RepairsModule({
   repairRecords,
@@ -59,8 +61,10 @@ function RepairsModule({
   focusCostDue = false,
   onFocusCostDueConsumed
 }: RepairsModuleProps) {
-  const isAdmin = normalizeRole(currentOperator.role) === 'admin';
-  const [activeTab, setActiveTab] = useState<TabId>('pendientes');
+  const role = normalizeRole(currentOperator.role);
+  const isAdmin = role === 'admin';
+  const isManager = role === 'manager';
+  const [activeTab, setActiveTab] = useState<TabId>('tablero');
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 160);
@@ -78,6 +82,12 @@ function RepairsModule({
     setActiveTab('historial');
     onFocusCostDueConsumed?.();
   }, [focusCostDue, onFocusCostDueConsumed]);
+
+  useEffect(() => {
+    if (isManager && !isAdmin) {
+      setSelectedBranchId(normalizeBranchId(currentBranch.id));
+    }
+  }, [isManager, isAdmin, currentBranch.id]);
 
   const scopedRecords = useMemo(() => {
     return repairRecords.filter((r) => {
@@ -152,13 +162,17 @@ function RepairsModule({
     setCancelReason('');
   };
 
-  if (!isAdmin) return null;
+  if (!isAdmin && !isManager) return null;
+
+  const handleMoveStage = async (record: RepairRecord, delta: -1 | 1) => {
+    await onUpdateRepairRecord(shiftRepairWorkStage(record, delta));
+  };
 
   return (
     <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
       <div className={`bg-white rounded-xl border border-slate-200 ${embedded ? 'p-2.5' : 'p-3'}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-          <h1 className="text-sm font-semibold text-slate-900">Reparaciones</h1>
+          <h1 className="text-sm font-semibold text-slate-900">Taller</h1>
         </div>
 
         <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -181,7 +195,7 @@ function RepairsModule({
 
         <div className="tool-seg mt-3">
           {([
-            ['pendientes', 'Pendientes', pendingStats.enTaller],
+            ['tablero', 'Tablero', pendingStats.enTaller],
             ['historial', 'Historial', scopedRecords.filter((r) => !isPendingRepair(r)).length]
           ] as Array<[TabId, string, number]>).map(([id, label, count]) => (
             <button
@@ -190,7 +204,7 @@ function RepairsModule({
               data-active={activeTab === id}
               onClick={() => setActiveTab(id)}
             >
-              {id === 'pendientes' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
+              {id === 'tablero' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
               {label}
               <span className="text-[10px] text-slate-500">{count}</span>
             </button>
@@ -216,7 +230,7 @@ function RepairsModule({
           </select>
         </div>
 
-        {activeTab === 'pendientes' && (
+        {activeTab === 'tablero' && (
           <div className="relative w-full sm:flex-1">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -242,61 +256,49 @@ function RepairsModule({
         </button>
       )}
 
-      {activeTab === 'pendientes' && (
+      {activeTab === 'tablero' && (
         <div className="space-y-3">
           {pendingRepairs.length === 0 ? (
-            <div className="p-10 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 space-y-2">
-              <PackageCheck className="w-10 h-10 mx-auto text-slate-300" />
-              <p className="text-sm font-semibold text-slate-700">Sin pendientes</p>
+            <div className="p-10 text-center bg-white rounded-xl border border-slate-200 text-slate-500">
+              <PackageCheck className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+              <p className="text-sm font-semibold text-slate-700">Sin equipos en taller</p>
             </div>
           ) : (
-            pendingRepairs.map((record) => {
+            <RepairShopBoard
+              records={pendingRepairs}
+              selectedId={openOrderId}
+              showBranch={selectedBranchId === 'all'}
+              onSelect={(record) => setOpenOrderId(openOrderId === record.id ? null : record.id)}
+              onMove={(record, delta) => void handleMoveStage(record, delta)}
+            />
+          )}
+          {pendingRepairs.map((record) => {
               const editing = editingId === record.id;
               const sinCosto = money(record.totalCost) <= 0;
               const open = openOrderId === record.id;
+              if (!open) return null;
               return (
                 <article
                   key={record.id}
-                  className={`bg-white border rounded-2xl p-4 sm:p-5 space-y-3 shadow-sm ${
-                    open ? 'border-indigo-300 ring-1 ring-indigo-100' : 'border-slate-200'
-                  }`}
+                  className="bg-white border border-[#0047AB]/30 rounded-xl p-3 space-y-3"
                 >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-extrabold text-xs rounded-lg">
+                      <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-semibold text-xs rounded-md">
                         {record.id}
                       </span>
-                      <span className="text-sm font-extrabold text-slate-900">{record.deviceModel}</span>
-                      <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
+                      <span className="text-sm font-semibold text-slate-900">{record.deviceModel}</span>
+                      <span className="text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
                         {getBranchDisplayName(record.branchId)}
                       </span>
-                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                        {repairStatusLabel(record.status)}
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                        {workStageLabel(workStageOf(record))}
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
                       <Clock className="w-3 h-3 text-slate-400" />
                       {stampRepairLabel(record.receivedAtIso, record.receivedAt)}
                     </span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 text-xs flex-wrap">
-                      <span className="font-bold text-slate-900">{record.clientName}</span>
-                      <span className="text-slate-500">{record.issueDescription}</span>
-                      <span className={sinCosto ? 'text-amber-700 font-bold' : 'text-slate-700'}>
-                        Precio {sinCosto ? 'sin capturar' : `$${formatMoney(record.totalCost)}`}
-                      </span>
-                      <span className="text-slate-700">Gastos ${formatMoney(repairInternalCost(record))}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setOpenOrderId(open ? null : record.id)}
-                      className="px-3 py-2 bg-[#0047AB] hover:bg-[#003d93] text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-                    >
-                      {open ? 'Cerrar orden' : 'Abrir orden'}
-                      <ChevronRight className={`w-3.5 h-3.5 ${open ? 'rotate-90' : ''}`} />
-                    </button>
                   </div>
 
                   {open && (
@@ -445,8 +447,7 @@ function RepairsModule({
                   )}
                 </article>
               );
-            })
-          )}
+            })}
         </div>
       )}
 

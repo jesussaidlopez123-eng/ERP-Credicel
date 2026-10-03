@@ -21,7 +21,7 @@ import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
-import { isPendingRepair, stampRepairLabel } from '../lib/repairUtils';
+import { isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
 import RepairHistoryPanel from './RepairHistoryPanel';
 
 interface RepairModalProps {
@@ -82,11 +82,14 @@ export default function RepairModal({
           r.clientPhone.includes(q)
         );
       })
-      .sort((a, b) =>
-        String(b.receivedAtIso || b.receivedAt || '').localeCompare(
+      .sort((a, b) => {
+        const aReady = workStageOf(a) === 'para_entrega' ? 0 : 1;
+        const bReady = workStageOf(b) === 'para_entrega' ? 0 : 1;
+        if (aReady !== bReady) return aReady - bReady;
+        return String(b.receivedAtIso || b.receivedAt || '').localeCompare(
           String(a.receivedAtIso || a.receivedAt || '')
-        )
-      );
+        );
+      });
   }, [repairRecords, searchFilter]);
 
   if (!isOpen) return null;
@@ -149,6 +152,7 @@ export default function RepairModal({
         advancePayment: numAdvance,
         pendingBalance,
         status: 'en_taller',
+        workStage: 'recibido',
         receivedAt: `${safeFormatDate(receivedIso)} ${safeFormatTime(receivedIso)}`,
         receivedAtIso: receivedIso,
         operatorName: currentOperator.name,
@@ -527,10 +531,6 @@ export default function RepairModal({
 
         {activeTab === 'entrega' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
-            <div className="bg-amber-50/70 border border-amber-200/80 p-3 rounded-xl text-xs text-amber-900 font-medium">
-              Cualquier equipo en taller se puede entregar. No hay que marcarlo como listo. El gasto interno
-              (refacción o mano de obra) lo captura administración después, aunque ya se haya entregado.
-            </div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -562,7 +562,10 @@ export default function RepairModal({
                         <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-extrabold text-xs rounded-lg">
                           {record.id}
                         </span>
-                        <span className="text-xs font-extrabold text-slate-900">{record.deviceModel}</span>
+                        <span className="text-xs font-semibold text-slate-900">{record.deviceModel}</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md border border-slate-200 bg-slate-50 text-slate-600">
+                          {workStageLabel(workStageOf(record))}
+                        </span>
                       </div>
                       <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
                         <Clock className="w-3 h-3 text-slate-400" />

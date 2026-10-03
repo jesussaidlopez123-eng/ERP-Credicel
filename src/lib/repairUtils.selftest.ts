@@ -4,10 +4,15 @@ import {
   isPendingRepair,
   needsRepairCostCapture,
   normalizeRepairStatus,
+  normalizeWorkStage,
   notificationVisibleToOperator,
   repairCostDueNotificationId,
   repairCostDueNotificationPlan,
-  repairStatusLabel
+  repairDaysInShop,
+  repairStatusLabel,
+  setRepairWorkStage,
+  shiftRepairWorkStage,
+  workStageOf
 } from './repairUtils';
 
 function assert(cond: unknown, msg: string) {
@@ -36,6 +41,12 @@ const pending: RepairRecord = {
   branchId: 'b-navojoa'
 };
 
+assert(normalizeWorkStage(undefined) === 'recibido', 'sin etapa empieza en recibido');
+assert(normalizeWorkStage('listo') === 'para_entrega', 'listo viejo es para recoger');
+assert(normalizeWorkStage('espera_pieza') === 'espera_pieza', 'espera pieza se conserva');
+assert(workStageOf(setRepairWorkStage(pending, 'en_proceso')) === 'en_proceso', 'se mueve al banco');
+assert(workStageOf(shiftRepairWorkStage(pending, 1)) === 'diagnostico', 'el siguiente paso es diagnóstico');
+assert(repairDaysInShop({ ...pending, receivedAtIso: '2026-10-01T12:00:00-07:00' }, '2026-10-03') === 2, 'días en taller');
 assert(isPendingRepair(pending), 'en taller está pendiente y se puede entregar');
 assert(isPendingRepair({ ...pending, status: 'listo' }), 'un listo viejo sigue entregable');
 assert(!needsRepairCostCapture(pending), 'sin entregar no pide gasto interno');

@@ -20,8 +20,8 @@ export function roleLabel(role?: string): string {
   return 'Cajero';
 }
 
-const MANAGER_MODULES: ModuleId[] = ['pos', 'inventory', 'sales', 'credicelDashboard'];
-const ADMIN_ONLY_MODULES: ModuleId[] = ['repairs', 'purchases', 'executive', 'settings'];
+const MANAGER_MODULES: ModuleId[] = ['pos', 'inventory', 'sales', 'repairs', 'credicelDashboard'];
+const ADMIN_ONLY_MODULES: ModuleId[] = ['purchases', 'executive', 'settings'];
 
 export function canOpenModule(role: string | undefined, moduleId: ModuleId): boolean {
   const normalized = normalizeRole(role);

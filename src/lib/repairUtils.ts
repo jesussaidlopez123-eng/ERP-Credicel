@@ -1,6 +1,6 @@
-import { AppNotification, RepairCostKind, RepairCostLine, RepairRecord, SaleTicket } from '../types';
+import { AppNotification, RepairCostKind, RepairCostLine, RepairRecord, RepairWorkStage, SaleTicket } from '../types';
 import { money, newUniqueId } from './ids';
-import { safeFormatDate, safeFormatTime } from './dateUtils';
+import { addCashDays, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from './dateUtils';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from './roles';
 
@@ -34,6 +34,67 @@ export function normalizeRepairStatus(status: string | undefined): RepairRecord[
   if (value === 'cancelado' || value === 'cancelada' || value === 'baja') return 'cancelado';
   // "listo" ya no existe como paso: el equipo se puede entregar en cuanto entra a taller.
   return 'en_taller';
+}
+
+export const REPAIR_WORK_STAGES: RepairWorkStage[] = [
+  'recibido',
+  'diagnostico',
+  'espera_pieza',
+  'en_proceso',
+  'para_entrega'
+];
+
+export const REPAIR_WORK_STAGE_META: Record<RepairWorkStage, { label: string; short: string }> = {
+  recibido: { label: 'Recibido', short: 'Nuevo' },
+  diagnostico: { label: 'Diagnóstico', short: 'Revisión' },
+  espera_pieza: { label: 'Espera pieza', short: 'Pieza' },
+  en_proceso: { label: 'En proceso', short: 'Banco' },
+  para_entrega: { label: 'Para recoger', short: 'Listo' }
+};
+
+export function normalizeWorkStage(
+  raw: unknown,
+  status?: string
+): RepairWorkStage {
+  const value = String(raw || '')
+    .toLowerCase()
+    .trim();
+  if ((REPAIR_WORK_STAGES as string[]).includes(value)) return value as RepairWorkStage;
+  if (value === 'listo' || value === 'ready' || value === 'para_recoger') return 'para_entrega';
+  if (normalizeRepairStatus(status) === 'entregado') return 'para_entrega';
+  return 'recibido';
+}
+
+export function workStageOf(record: RepairRecord | null | undefined): RepairWorkStage {
+  if (!record) return 'recibido';
+  return normalizeWorkStage(record.workStage, record.status);
+}
+
+export function workStageLabel(stage: RepairWorkStage | string | undefined): string {
+  return REPAIR_WORK_STAGE_META[normalizeWorkStage(stage)].label;
+}
+
+export function setRepairWorkStage(record: RepairRecord, stage: RepairWorkStage): RepairRecord {
+  return { ...record, workStage: normalizeWorkStage(stage, record.status) };
+}
+
+export function shiftRepairWorkStage(record: RepairRecord, delta: -1 | 1): RepairRecord {
+  const current = workStageOf(record);
+  const idx = REPAIR_WORK_STAGES.indexOf(current);
+  const next = REPAIR_WORK_STAGES[Math.max(0, Math.min(REPAIR_WORK_STAGES.length - 1, idx + delta))];
+  return setRepairWorkStage(record, next);
+}
+
+export function repairDaysInShop(record: RepairRecord, todayKey: string = todayCashDateKey()): number {
+  const start = safeDateIsoKey(record.receivedAtIso) || safeDateIsoKey(record.receivedAt);
+  if (!start || !todayKey) return 0;
+  let days = 0;
+  let cursor = start;
+  while (cursor < todayKey && days < 365) {
+    cursor = addCashDays(cursor, 1);
+    days += 1;
+  }
+  return days;
 }
 
 function normalizeCostKind(raw: unknown): RepairCostKind {
@@ -197,6 +258,7 @@ export function normalizeRepairRecord(
     advancePayment,
     pendingBalance,
     status: normalizeRepairStatus(raw.status),
+    workStage: normalizeWorkStage(raw.workStage, raw.status as string),
     receivedAt: String(raw.receivedAt || ''),
     deliveredAt: raw.deliveredAt ? String(raw.deliveredAt) : undefined,
     receivedAtIso: raw.receivedAtIso ? String(raw.receivedAtIso) : undefined,
@@ -290,6 +352,7 @@ export function inferRepairsFromTickets(tickets: SaleTicket[]): RepairRecord[] {
         advancePayment,
         pendingBalance: money(meta?.pendingBalance ?? prev?.pendingBalance ?? Math.max(0, totalCost - advancePayment)),
         status: 'en_taller',
+        workStage: prev?.workStage || 'recibido',
         receivedAt: meta?.receivedAt || prev?.receivedAt || '',
         receivedAtIso: prev?.receivedAtIso || ticket.timestamp,
         operatorName: ticket.operatorName || prev?.operatorName || '',
@@ -298,6 +361,7 @@ export function inferRepairsFromTickets(tickets: SaleTicket[]): RepairRecord[] {
 
       if (meta?.repairType === 'saldo_final') {
         rec.status = 'entregado';
+        rec.workStage = 'para_entrega';
         rec.pendingBalance = 0;
         rec.deliveredAt = meta.deliveredAt || prev?.deliveredAt;
         rec.deliveredAtIso = ticket.timestamp;

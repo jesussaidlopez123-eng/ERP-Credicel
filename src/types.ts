@@ -179,6 +179,14 @@ export interface CreditAccount {
 
 export type RepairCostKind = 'refaccion' | 'mano_obra' | 'otro';
 
+/** Paso de trabajo en el banco. No bloquea la entrega en caja. */
+export type RepairWorkStage =
+  | 'recibido'
+  | 'diagnostico'
+  | 'espera_pieza'
+  | 'en_proceso'
+  | 'para_entrega';
+
 /** Costo interno del taller (refacción, mano de obra). No es el precio al cliente. */
 export interface RepairCostLine {
   id: string;
@@ -200,8 +208,10 @@ export interface RepairRecord {
   totalCost: number;
   advancePayment: number;
   pendingBalance: number;
-  /** "listo" ya no se usa: se lee como en_taller para que caja pueda entregar de inmediato. */
+  /** Ciclo de caja: en taller o ya cobrado/entregado. "listo" viejo se lee como en_taller. */
   status: 'en_taller' | 'listo' | 'entregado' | 'cancelado';
+  /** Dónde va el equipo hoy en el banco. Independiente de si caja ya puede cobrar. */
+  workStage?: RepairWorkStage;
   receivedAt: string;
   deliveredAt?: string;
   /** Marcas ordenables. Las de arriba son para mostrar e imprimir. */
