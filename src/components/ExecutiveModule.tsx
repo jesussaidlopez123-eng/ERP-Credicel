@@ -16,6 +16,8 @@ import {
   X
 } from 'lucide-react';
 import { Branch, CartItem, Expense, Operator, Product, SaleTicket } from '../types';
+import CorteCategoryBreakdown from './CorteCategoryBreakdown';
+import { buildCorteCategoryBreakdown, isCancelledSale } from '../lib/corteCategories';
 import {
   COMMERCIAL_BRANCHES,
   compareBranchIds,
@@ -50,7 +52,6 @@ import {
   buildExecutiveFinance,
   emptyExecutiveFinance,
   phoneCommissionAmount,
-  phoneCommissionRate,
   type ExecutiveFinanceTotals
 } from '../lib/executiveFinance';
 import LoadMoreButton from './LoadMoreButton';
@@ -140,6 +141,8 @@ type WeekBlock = {
   totals: BranchWeekRow;
   phones: PhoneSale[];
   events: CategoryEvent[];
+  tickets: SaleTicket[];
+  weekExpenses: Expense[];
 };
 
 const OURS: { id: CategoryId; label: string; hint: string }[] = [
@@ -315,6 +318,7 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[
     const dateKeys: string[] = [];
 
     pack.tickets.forEach((ticket) => {
+      if (isCancelledSale(ticket)) return;
       const bid = normalizeBranchId(ticket.branchId);
       if (!byBranch.has(bid)) {
         byBranch.set(bid, emptyRow(bid, getBranchDisplayName(bid)));
@@ -416,7 +420,9 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[
       branches,
       totals,
       phones,
-      events
+      events,
+      tickets: pack.tickets.filter((ticket) => !isCancelledSale(ticket)),
+      weekExpenses: pack.expenses
     };
   });
 }
@@ -615,9 +621,33 @@ function WeekBoard({
   week: WeekBlock;
   onOpenCategory: (id: CategoryId) => void;
 }) {
-  const columns = [...week.branches, week.totals];
-  const ownRows = OURS;
-  const passRows = PASS;
+  const [branchId, setBranchId] = useState<string>('all');
+  const scopedTickets = useMemo(
+    () =>
+      week.tickets.filter(
+        (ticket) => branchId === 'all' || normalizeBranchId(ticket.branchId) === branchId
+      ),
+    [week.tickets, branchId]
+  );
+  const scopedExpenses = useMemo(
+    () =>
+      week.weekExpenses.filter(
+        (expense) => branchId === 'all' || normalizeBranchId(expense.branchId) === branchId
+      ),
+    [week.weekExpenses, branchId]
+  );
+  const breakdown = useMemo(
+    () => buildCorteCategoryBreakdown(scopedTickets, scopedExpenses),
+    [scopedTickets, scopedExpenses]
+  );
+  const financeRow =
+    branchId === 'all'
+      ? week.totals
+      : week.branches.find((row) => row.branchId === branchId) || week.totals;
+  const branchFilters = [
+    { id: 'all', name: 'Todas' },
+    ...week.branches.map((row) => ({ id: row.branchId, name: row.branchName }))
+  ];
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
@@ -629,170 +659,100 @@ function WeekBoard({
           </p>
           <h2 className="text-2xl font-semibold mt-1">{week.title}</h2>
           <p className="text-sm text-slate-300 mt-1">
-            Calendario {week.label}
+            Lunes a domingo · {week.label}
           </p>
           <p className="text-sm text-slate-400">{week.workedLabel}</p>
         </div>
         <div className="sm:text-right">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Utilidad</p>
           <p className={`font-mono text-3xl font-bold tabular-nums ${
-            week.totals.utilidad >= 0 ? 'text-white' : 'text-rose-300'
+            financeRow.utilidad >= 0 ? 'text-white' : 'text-rose-300'
           }`}>
-            ${peso(week.totals.utilidad)}
+            ${peso(financeRow.utilidad)}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Después de descontar lo que se retorna
+            Accesorios + taller + comisiones − gastos
           </p>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="text-left font-semibold text-slate-500 px-4 py-3 w-[28%]">Concepto</th>
-              {week.branches.map((row) => (
-                <th key={row.branchId} className="text-right font-semibold text-slate-700 px-4 py-3 w-[24%]">
-                  <span className="inline-flex items-center justify-end gap-1.5">
-                    <Store className="w-3.5 h-3.5 text-slate-400" />
-                    {row.branchName}
-                  </span>
-                  <span className="block text-[10px] font-medium text-slate-400 mt-0.5">
-                    {phoneCommissionRate(row.branchId) > 0
-                      ? `Comisión $${peso(phoneCommissionRate(row.branchId))} / celular`
-                      : 'Sin comisión'}
-                  </span>
-                </th>
-              ))}
-              <th className="text-right font-semibold text-slate-950 px-4 py-3 w-[24%] bg-slate-100">
-                Totales
-                <span className="block text-[10px] font-medium text-slate-500 mt-0.5">
-                  Matriz + Navojoa + Huatabampo
-                </span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-slate-100">
-              <td className="px-4 py-2.5 text-slate-600">Celulares vendidos</td>
-              {columns.map((row) => (
-                <td
-                  key={`${row.branchId}-phones`}
-                  className={`px-4 py-2.5 text-right font-semibold tabular-nums ${
-                    row.branchId === 'all' ? 'bg-slate-50' : ''
-                  }`}
-                >
-                  {row.phonesSold}
-                </td>
-              ))}
-            </tr>
-
-            <tr>
-              <td colSpan={columns.length + 1} className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Productos de Credicel
-              </td>
-            </tr>
-            {ownRows.map((item) => (
-              <tr
-                key={item.id}
-                className="border-b border-slate-100 hover:bg-blue-50/40 cursor-pointer"
-                onClick={() => onOpenCategory(item.id)}
-              >
-                <td className="px-4 py-2.5">
-                  <span className="flex items-center gap-2 text-slate-800 font-medium">
-                    {categoryIcon(item.id)}
-                    {item.label}
-                  </span>
-                  <span className="block text-[10px] text-slate-400 mt-0.5 pl-6">{item.hint}</span>
-                </td>
-                {columns.map((row) => (
-                  <td
-                    key={`${row.branchId}-${item.id}`}
-                    className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
-                  >
-                    <MoneyCell amount={categoryAmount(row, item.id)} minus={item.id === 'gastos'} />
-                  </td>
-                ))}
-              </tr>
-            ))}
-
-            <tr>
-              <td colSpan={columns.length + 1} className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Dinero de paso · se retorna
-              </td>
-            </tr>
-            {passRows.map((item) => (
-              <tr
-                key={item.id}
-                className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
-                onClick={() => onOpenCategory(item.id)}
-              >
-                <td className="px-4 py-2.5">
-                  <span className="flex items-center gap-2 text-slate-500 font-medium">
-                    {categoryIcon(item.id)}
-                    {item.label}
-                  </span>
-                  <span className="block text-[10px] text-slate-400 mt-0.5 pl-6">{item.hint}</span>
-                </td>
-                {columns.map((row) => (
-                  <td
-                    key={`${row.branchId}-${item.id}`}
-                    className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
-                  >
-                    <MoneyCell amount={categoryAmount(row, item.id)} muted />
-                  </td>
-                ))}
-              </tr>
-            ))}
-
-            <tr className="border-t border-slate-200 bg-white">
-              <td className="px-4 py-2.5 text-slate-600 font-medium">Suma de la semana</td>
-              {columns.map((row) => (
-                <td
-                  key={`${row.branchId}-gross`}
-                  className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-slate-50' : ''}`}
-                >
-                  <MoneyCell amount={weekGross(row)} />
-                </td>
-              ))}
-            </tr>
-            <tr className="bg-white">
-              <td className="px-4 py-2.5 text-rose-800 font-medium">(−) Se retorna</td>
-              {columns.map((row) => (
-                <td
-                  key={`${row.branchId}-paso`}
-                  className={`px-4 py-2.5 text-right ${row.branchId === 'all' ? 'bg-amber-50' : ''}`}
-                >
-                  <MoneyCell amount={row.finance.dineroPaso} minus />
-                </td>
-              ))}
-            </tr>
-            <tr className="border-t-2 border-slate-900 bg-slate-950 text-white">
-              <td className="px-4 py-3 font-semibold">
-                Utilidad
-                <span className="block text-[10px] font-medium text-slate-400 mt-0.5">
-                  Accesorios + reparaciones + comisiones − gastos
-                </span>
-              </td>
-              {columns.map((row) => (
-                <td
-                  key={`${row.branchId}-utilidad`}
-                  className={`px-4 py-3 text-right ${row.branchId === 'all' ? 'bg-slate-900' : ''}`}
-                >
-                  <span className={`font-mono text-lg font-bold tabular-nums ${
-                    row.utilidad >= 0 ? 'text-emerald-300' : 'text-rose-300'
-                  }`}>
-                    ${peso(row.utilidad)}
-                  </span>
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-1.5">
+        {branchFilters.map((branch) => (
+          <button
+            key={branch.id}
+            type="button"
+            onClick={() => setBranchId(branch.id)}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
+              branchId === branch.id
+                ? 'bg-slate-950 text-white border-slate-950'
+                : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+            }`}
+          >
+            {branch.name}
+          </button>
+        ))}
       </div>
-      <p className="px-4 py-2.5 text-[11px] text-slate-500 border-t border-slate-100 flex items-center gap-1.5">
+
+      <div className="px-4 sm:px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-2 border-b border-slate-100 bg-slate-50/70">
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Efectivo</p>
+          <p className="font-mono text-sm font-black text-slate-900">${peso(breakdown.cashSales)}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tarjeta</p>
+          <p className="font-mono text-sm font-black text-slate-900">${peso(breakdown.cardSales)}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Transferencia</p>
+          <p className="font-mono text-sm font-black text-slate-900">${peso(breakdown.transferSales)}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ventas de la semana</p>
+          <p className="font-mono text-sm font-black text-slate-900">${peso(breakdown.totalSales)}</p>
+        </div>
+      </div>
+
+      <div className="p-3 sm:p-4">
+        <CorteCategoryBreakdown
+          breakdown={breakdown}
+          caption="Misma vista que el Corte X, pero sumada de lunes a domingo."
+        />
+      </div>
+
+      <div className="px-4 sm:px-5 py-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50">
+        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suma de la semana</p>
+          <p className="font-mono text-sm font-black text-slate-900">${peso(weekGross(financeRow))}</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">(−) Se retorna</p>
+          <p className="font-mono text-sm font-black text-amber-950">−${peso(financeRow.finance.dineroPaso)}</p>
+        </div>
+        <div className="rounded-xl border border-slate-900 bg-slate-950 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Utilidad</p>
+          <p className={`font-mono text-sm font-black ${
+            financeRow.utilidad >= 0 ? 'text-emerald-300' : 'text-rose-300'
+          }`}>
+            ${peso(financeRow.utilidad)}
+          </p>
+        </div>
+      </div>
+
+      <p className="px-4 py-2.5 text-[11px] text-slate-500 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
         <History className="w-3.5 h-3.5" />
-        Toca un producto para ver el historial de esa categoría.
+        Celulares vendidos: {financeRow.phonesSold}. Toca una categoría abajo para ver el historial de otras semanas.
+        <span className="flex flex-wrap gap-1 ml-1">
+          {[...OURS, ...PASS].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onOpenCategory(item.id)}
+              className="px-2 py-0.5 rounded-md border border-slate-200 bg-white text-[10px] font-extrabold text-slate-700 hover:border-slate-400 cursor-pointer"
+            >
+              {item.label}
+            </button>
+          ))}
+        </span>
       </p>
     </section>
   );
@@ -833,7 +793,7 @@ export default function ExecutiveModule({
             Semana actual
           </h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-            Matriz, Navojoa, Huatabampo y el total. Equipos cobrados, abonos y recargas se ven en la suma y al final se descuentan: no son utilidad.
+            El mismo desglose que el Corte X (accesorios, abonos, enganches, taller, recargas y gastos), sumado de lunes a domingo. Elige sucursal o mira las tres juntas.
           </p>
         </div>
 
