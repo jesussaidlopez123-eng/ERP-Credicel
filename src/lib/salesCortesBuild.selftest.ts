@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import type { Branch, Operator, SaleTicket } from '../types';
 import { assertThreeBranchesPerDay } from './corteDayRoster.ts';
 import { branchDateKey, indexByBranchDate } from './branchDateIndex.ts';
+import { corteDayKey } from './corteDayRoster.ts';
+import { addCashDays } from './dateUtils.ts';
 import { buildCortesRoster } from './salesCortesBuild.ts';
 
 const branch: Branch = { id: 'b-navojoa', name: 'Navojoa' };
@@ -78,5 +80,13 @@ assert.equal(sept.length, 3, '1 de septiembre debe tener 3 sucursales');
 assert.equal(assertThreeBranchesPerDay(roster), true);
 assert.equal(sept.filter((r) => r.branchId === 'b-navojoa').length, 1);
 assert.equal(sept.find((r) => r.branchId === 'b-navojoa')?.id, 'SES-NAV-1');
+
+const days = [...new Set(roster.map((r) => corteDayKey(r)))].sort();
+assert.equal(days[0], '2026-09-01');
+assert.equal(days[days.length - 1], '2026-10-03');
+assert.equal(days.includes('2026-09-15'), true, '15 de septiembre no se debe perder');
+for (let cursor = '2026-09-01'; cursor <= '2026-10-03'; cursor = addCashDays(cursor, 1)) {
+  assert.equal(days.includes(cursor), true, `falta el día ${cursor}`);
+}
 
 console.log('salesCortesBuild self-test ok');

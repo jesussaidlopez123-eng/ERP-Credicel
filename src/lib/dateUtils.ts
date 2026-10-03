@@ -102,6 +102,28 @@ export function addCashDays(dateKey: string, days: number): string {
   return getHermosilloClock(new Date(noon.getTime() + days * 24 * 60 * 60 * 1000)).dateKey;
 }
 
+/** Días corridos de hoy al más viejo (o al tope de relleno). Sin huecos. */
+export function fillCashDateSpan(
+  keys: Iterable<string>,
+  todayKey: string,
+  minPadDays: number,
+  maxDays = 400
+): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayKey)) return [];
+  let oldest = addCashDays(todayKey, -Math.max(0, minPadDays));
+  for (const key of keys) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(key) && key < oldest) oldest = key;
+  }
+  const out: string[] = [];
+  let cursor = todayKey;
+  for (let i = 0; i < maxDays; i++) {
+    out.push(cursor);
+    if (cursor <= oldest) break;
+    cursor = addCashDays(cursor, -1);
+  }
+  return out;
+}
+
 /** Lunes de la semana (hora Sonora) para una fecha YYYY-MM-DD. */
 export function weekStartDateKey(dateKey: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';

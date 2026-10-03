@@ -1,13 +1,13 @@
 import type { Branch, CorteXRecord, Expense, Operator, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
-import { addCashDays, parseSafeDate, safeDateIsoKey, safeFormatDate } from './dateUtils';
+import { fillCashDateSpan, parseSafeDate, safeDateIsoKey, safeFormatDate } from './dateUtils';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from './shiftHours';
 import { money } from './ids';
 import { branchDateKey, datesFromBranchDateIndex, indexByBranchDate } from './branchDateIndex';
 import { emptyDayCorte, foldOnePerBranchPerDay } from './corteDayRoster';
 
-export const RECENT_ZERO_DAYS = 14;
-export const CORTES_VISIBLE_DAYS = 21;
+export const RECENT_ZERO_DAYS = 31;
+export const CORTES_VISIBLE_DAYS = 31;
 
 type BuildArgs = {
   cortes: CorteXRecord[];
@@ -215,16 +215,14 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
     }
   }
 
-  const dateKeys = new Set<string>([todayKey]);
-  for (let d = 1; d <= RECENT_ZERO_DAYS; d++) {
-    dateKeys.add(addCashDays(todayKey, -d));
-  }
+  const evidence = new Set<string>([todayKey]);
   for (const corte of Object.values(savedGrouped)) {
     const key = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
-    if (key) dateKeys.add(key);
+    if (key) evidence.add(key);
   }
-  for (const key of datesFromBranchDateIndex(ticketIndex)) dateKeys.add(key);
-  for (const key of datesFromBranchDateIndex(expenseIndex)) dateKeys.add(key);
+  for (const key of datesFromBranchDateIndex(ticketIndex)) evidence.add(key);
+  for (const key of datesFromBranchDateIndex(expenseIndex)) evidence.add(key);
+  const dateKeys = fillCashDateSpan(evidence, todayKey, RECENT_ZERO_DAYS);
 
   const extras: CorteXRecord[] = [];
   for (const dateKey of dateKeys) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  fillCashDateSpan,
   formatCashDateLabel,
   isoWeekAndYear,
   naturalWeekTitle,
@@ -15,6 +16,11 @@ assert.equal(naturalWeekTitle('2026-09-07'), 'Semana 37 de 2026');
 assert.deepEqual(isoWeekAndYear('2026-01-01'), { week: 1, year: 2026 });
 assert.deepEqual(isoWeekAndYear('2025-12-29'), { week: 1, year: 2026 });
 assert.equal(naturalWeekTitle('2025-12-29'), 'Semana 1 de 2026');
+
+const span = fillCashDateSpan(['2026-09-01'], '2026-10-03', 14);
+assert.equal(span[0], '2026-10-03');
+assert.equal(span[span.length - 1], '2026-09-01');
+assert.equal(span.includes('2026-09-15'), true, 'no se saltan días entre el corte viejo y hoy');
 
 assert.match(formatCashDateLabel('2026-09-10'), /10/);
 assert.equal(workedDatesLabel('', ''), 'Sin movimiento');
