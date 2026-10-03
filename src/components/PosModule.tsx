@@ -35,7 +35,7 @@ import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
 import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem, realEquipmentStockAt } from '../lib/inventoryRules';
-import { imeisAtBranch } from '../lib/imeiInventory';
+import { imeisAtBranch, looksLikeImeiScan } from '../lib/imeiInventory';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { todayCashDateKey } from '../lib/dateUtils';
 import {
@@ -319,8 +319,8 @@ function PosModule({
       return;
     }
 
-    // If string looks like a 10-15 digit IMEI but was not found:
-    if (/^\d{8,18}$/.test(queryUpper)) {
+    // IMEI (con o sin prefijo del lector) que no está en anaquel:
+    if (looksLikeImeiScan(queryUpper)) {
       setScanFeedback({
         type: 'error',
         text: `❌ BLOQUEO DE TRAZABILIDAD: El IMEI "${queryUpper}" NO coincide con ningún equipo activo en el inventario${posStockBranchId ? ` de ${currentBranch.name}` : ''}.`

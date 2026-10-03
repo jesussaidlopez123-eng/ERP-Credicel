@@ -43,6 +43,7 @@ import {
   isEquipmentProduct,
   canonicalImei,
   imeiDigits,
+  imeiForStorage,
   listHasImei,
   moveImeisOnProduct,
   normalizeImei,
@@ -286,7 +287,7 @@ function InventoryModule({
 
   const handleAssignImeisToBranch = (product: Product, rawImeis: string[], branchId: string) => {
     const dest = toInventoryBranchId(branchId);
-    const unique = rawImeis.map((im) => canonicalImei(im) || normalizeImei(im)).filter(Boolean);
+    const unique = rawImeis.map((im) => imeiForStorage(im)).filter(Boolean);
     if (unique.length === 0) return;
     const updated = addImeisToProduct(product, dest, unique);
     const branchName = ALL_BRANCHES.find((b) => b.id === dest)?.name || dest;
@@ -794,7 +795,7 @@ function InventoryModule({
 
     if (!pendingEquipmentData) return;
 
-    const finalImeis = imeiInputs.map((s) => canonicalImei(s) || normalizeImei(s)).filter(Boolean);
+    const finalImeis = imeiInputs.map((s) => imeiForStorage(s)).filter(Boolean);
 
     const { isExisting, selectedProdId, branchId, qty, name, code, costPrice, price, supplier } = pendingEquipmentData;
 

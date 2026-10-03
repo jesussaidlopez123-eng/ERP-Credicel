@@ -192,6 +192,16 @@ const incomingDirtyImei = phone({
 const noDupFormat = applyInventoryWrite(serverCleanImei, incomingDirtyImei, null);
 assert.equal(noDupFormat.stock, 1);
 assert.equal(imeisAtBranch(noDupFormat, 'b-navojoa').length, 1);
+assert.deepEqual(imeisAtBranch(noDupFormat, 'b-navojoa'), ['351299123456789']);
+
+const incomingAimC1 = phone({
+  stock: 1,
+  imeiList: [']C1351299123456789'],
+  branchImeiMap: { 'b-navojoa': [']C1351299123456789'], 'b-huatabampo': [], 'b-matriz': [] }
+});
+const keepFifteen = applyInventoryWrite(serverCleanImei, incomingAimC1, null);
+assert.deepEqual(imeisAtBranch(keepFifteen, 'b-navojoa'), ['351299123456789']);
+assert.notEqual(imeisAtBranch(keepFifteen, 'b-navojoa')[0], '135129912345678');
 
 const serverWithOrphan = phone({
   stock: 2,

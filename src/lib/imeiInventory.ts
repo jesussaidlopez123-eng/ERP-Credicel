@@ -49,6 +49,20 @@ export function imeiLuhnOk(digits?: string | null): boolean {
   return sum % 10 === 0;
 }
 
+function uniqueLuhnWindows(digits: string): string[] {
+  const found: string[] = [];
+  for (let i = 0; i + 15 <= digits.length; i++) {
+    const w = digits.slice(i, i + 15);
+    if (imeiLuhnOk(w) && !found.includes(w)) found.push(w);
+  }
+  return found;
+}
+
+/**
+ * Elige 15 dígitos cuando el lector manda de más.
+ * 16: si el primero no es IMEI y sobra un 0/1, toma los últimos 15.
+ * Más de 17: no recorta a ciegas; solo si hay una ventana Luhn única.
+ */
 function pickFifteenFromDigits(digits: string): string {
   if (digits.length === 15) return digits;
   if (digits.length < 15) return digits;
@@ -57,13 +71,19 @@ function pickFifteenFromDigits(digits: string): string {
   if (first === last) return first;
   const firstOk = imeiLuhnOk(first);
   const lastOk = imeiLuhnOk(last);
+  const windows = uniqueLuhnWindows(digits);
+
   if (digits.length === 16) {
-    if (digits[0] === '0' && lastOk && !firstOk) return last;
+    if (firstOk) return first;
+    if (lastOk && !firstOk && (digits[0] === '0' || digits[0] === '1')) return last;
     return first;
   }
-  if (lastOk && !firstOk) return last;
+
+  if (windows.length === 1) return windows[0];
   if (firstOk && !lastOk) return first;
-  return first;
+  if (lastOk && !firstOk) return last;
+  if (digits.length === 17) return first;
+  return digits;
 }
 
 /** El lector a veces manda letras, 14 o 17 dígitos; el inventario guarda 15. */
@@ -94,6 +114,32 @@ export function canonicalImei(raw?: string | null): string {
   const digits = imeiDigits(stripped);
   if (digits.length >= 14) return pickFifteenFromDigits(digits);
   return trimmed;
+}
+
+/** True si el texto parece un IMEI (con o sin prefijo AIM), no un código de accesorio. */
+export function looksLikeImeiScan(raw?: string | null): boolean {
+  return imeiDigits(stripScannerImeiPrefix(raw)).length >= 8;
+}
+
+/**
+ * Forma para guardar en anaquel. Vacío si vinieron dos IMEI pegados u otro recorte ambiguo.
+ * Un código corto (HUA111) se conserva; un IMEI de 15 no se reescribe.
+ */
+export function imeiForStorage(raw?: string | null): string {
+  const n = canonicalImei(raw);
+  if (!n) return '';
+  if (imeiDigits(n).length > 15) return '';
+  return n;
+}
+
+/**
+ * IMEI del ticket: el que ya está en el anaquel si coincide; si no, 15 dígitos limpios.
+ * Nunca deja el prefijo del lector (]C1…).
+ */
+export function resolveSaleImei(raw?: string | null, product?: Product | null): string {
+  const stored = product ? storedImeiInList(collectProductImeis(product), raw) : undefined;
+  if (stored) return stored;
+  return imeiForStorage(raw) || normalizeImei(raw);
 }
 
 export function listHasImei(list: Iterable<string> | undefined, raw?: string | null): boolean {
@@ -288,7 +334,7 @@ export function addImeisToProduct(product: Product, branchId: string, rawImeis: 
   let extras = unmappedImeis(product);
   const added: string[] = [];
   for (const raw of rawImeis) {
-    const n = canonicalImei(raw) || normalizeImei(raw);
+    const n = imeiForStorage(raw);
     if (!n) continue;
     const stored =
       storedImeiInList(
@@ -327,7 +373,7 @@ export function moveImeisOnProduct(product: Product, fromBranchId: string, toBra
   let extras = unmappedImeis(product);
   const moved: string[] = [];
   for (const raw of rawImeis) {
-    const n = canonicalImei(raw) || normalizeImei(raw);
+    const n = imeiForStorage(raw) || normalizeImei(raw);
     if (!n) continue;
     const stored =
       storedImeiInList(

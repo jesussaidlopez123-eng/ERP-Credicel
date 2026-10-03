@@ -37,6 +37,14 @@ assert.equal(looseAtNav.status === 'unassigned' ? looseAtNav.product.id : '', 'p
 const scanned = findImeiInInventory([looseOnly], ']351299123456789', 'b-navojoa');
 assert.equal(scanned.status, 'unassigned');
 
+const assignedScan: Product = {
+  ...phone,
+  imeiList: ['351299123456789'],
+  branchImeiMap: { 'b-navojoa': ['351299123456789'], 'b-huatabampo': [], 'b-matriz': [] }
+};
+const aimHit = findImeiInInventory([assignedScan], ']C1351299123456789', 'b-navojoa');
+assert.equal(aimHit.status, 'found');
+
 const adminLoose = findImeiInInventory([looseOnly], '351299123456789', 'all');
 assert.equal(adminLoose.status, 'unassigned');
 assert.equal(unassignedEquipmentCount([looseOnly]), 1);

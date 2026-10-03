@@ -7,6 +7,7 @@ import {
   applyEquipmentLote,
   emptyAccessoryLine,
   emptyEquipmentLine,
+  loteImeiFormatError,
   nextEquipmentCode,
   validateAccessoryLote,
   validateEquipmentLote
@@ -178,5 +179,17 @@ const missingImei = validateEquipmentLote(
   [{ ...emptyEquipmentLine(), productId: 'eq-a16', imeis: [] }]
 );
 assert.ok(missingImei.some((e) => e.message.includes('no tiene IMEI')));
+
+assert.equal(loteImeiFormatError(']C1351299123456789'), null);
+assert.equal(loteImeiFormatError(']A0351299123456789'), null);
+assert.ok(loteImeiFormatError('351299123456789351299123456780'));
+assert.ok(loteImeiFormatError('351299123456789351299123456789').includes('15'));
+
+const twoStuck = validateEquipmentLote(
+  [phone()],
+  [],
+  [{ ...emptyEquipmentLine(), productId: 'eq-a16', imeis: ['351299123456789352088111111111'] }]
+);
+assert.ok(twoStuck.some((e) => e.message.includes('15') || e.message.includes('escanear')));
 
 console.log('inventoryLote self-test ok');

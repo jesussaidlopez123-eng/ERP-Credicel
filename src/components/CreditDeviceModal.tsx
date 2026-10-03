@@ -20,7 +20,7 @@ import {
 import { Product, CartItemMetadata, Branch } from '../types';
 import { isAdminWorkspace } from '../data/initialBranches';
 import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
-import { collectProductImeis, imeisEqual } from '../lib/imeiInventory';
+import { canonicalImei, imeiDigits, resolveSaleImei } from '../lib/imeiInventory';
 
 interface CreditDeviceModalProps {
   isOpen: boolean;
@@ -156,11 +156,16 @@ export default function CreditDeviceModal({
   // Handle IMEI input change with auto-corroboration
   const handleImeiChange = (value: string) => {
     const cleanVal = value.toUpperCase().trim();
-    setImei(cleanVal);
+    const canon = canonicalImei(cleanVal);
+    const show =
+      imeiDigits(canon).length === 15 && (cleanVal.includes(']') || imeiDigits(cleanVal).length > 15)
+        ? canon
+        : cleanVal;
+    setImei(show);
     setValidationError(null);
 
-    if (cleanVal.length >= 8) {
-      const res = checkImeiInSystem(cleanVal);
+    if (show.length >= 8 || cleanVal.length >= 8) {
+      const res = checkImeiInSystem(show);
       if (res.found && res.product) {
         setSelectedProdId(res.product.id);
         setDeviceModel(res.product.name);
@@ -183,7 +188,7 @@ export default function CreditDeviceModal({
     e.preventDefault();
     setValidationError(null);
 
-    const cleanImei = imei.trim().toUpperCase();
+    const cleanImei = resolveSaleImei(imei);
     const totalEquipmentPrice = parseFloat(fullPriceInput) || (selectedEquipment?.price || 0);
     const engancheAmount = saleMode === 'contado' ? totalEquipmentPrice : (parseFloat(downPayment) || 0);
 
@@ -247,8 +252,7 @@ export default function CreditDeviceModal({
         clientName: clientName.trim(),
         clientPhone: clientPhone.trim(),
         deviceModel: deviceModel.trim(),
-        imei:
-          collectProductImeis(foundValidProduct).find((stored) => imeisEqual(stored, cleanImei)) || cleanImei,
+        imei: resolveSaleImei(cleanImei, foundValidProduct),
         stockBranchId: check.stockBranchId,
         downPayment: engancheAmount,
         fullPrice: totalEquipmentPrice,
@@ -504,7 +508,7 @@ export default function CreditDeviceModal({
               <input
                 type="text"
                 required
-                maxLength={18}
+                maxLength={40}
                 placeholder="Escanee o teclee IMEI"
                 value={imei}
                 onChange={(e) => handleImeiChange(e.target.value)}
