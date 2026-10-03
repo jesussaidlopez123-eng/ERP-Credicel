@@ -79,6 +79,21 @@ function pickFifteenFromDigits(digits: string): string {
     return first;
   }
 
+  // 28+ parece dos IMEI pegados: no adivinar salvo que sea el mismo repetido.
+  if (digits.length >= 28) {
+    if (digits.length % 15 === 0) {
+      let same = true;
+      for (let i = 15; i < digits.length; i += 15) {
+        if (digits.slice(i, i + 15) !== first) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return first;
+    }
+    return digits;
+  }
+
   if (windows.length === 1) return windows[0];
   if (firstOk && !lastOk) return first;
   if (lastOk && !firstOk) return last;

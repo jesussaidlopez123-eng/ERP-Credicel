@@ -81,13 +81,16 @@ assert.notEqual(typo, IMEI);
 assert.equal(canonicalImei(typo), typo);
 assert.equal(imeisEqual(IMEI, typo), false);
 
-// Dos IMEI pegados: no se toma el primero a ciegas.
+// Dos IMEI pegados: no se toma el primero a ciegas, ni el que pase Luhn.
 const stuck = `${IMEI}${IMEI_B}`;
 assert.equal(stuck.length, 30);
 assert.equal(canonicalImei(stuck), stuck);
 assert.equal(imeiForStorage(stuck), '');
 assert.ok(loteImeiFormatError(stuck));
 assert.equal(looksLikeImeiScan(stuck), true);
+const cheapStuck = `${CHEAP}352088111111111`;
+assert.equal(imeiForStorage(cheapStuck), '');
+assert.ok(loteImeiFormatError(cheapStuck));
 
 // El mismo IMEI dos veces pegado sí se puede leer (una sola ventana).
 const sameTwice = canonicalImei(`${IMEI}${IMEI}`);

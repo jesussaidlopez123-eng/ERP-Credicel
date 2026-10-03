@@ -183,7 +183,6 @@ assert.ok(missingImei.some((e) => e.message.includes('no tiene IMEI')));
 assert.equal(loteImeiFormatError(']C1351299123456789'), null);
 assert.equal(loteImeiFormatError(']A0351299123456789'), null);
 assert.ok(loteImeiFormatError('351299123456789351299123456780'));
-assert.ok(loteImeiFormatError('351299123456789351299123456789').includes('15'));
 
 const twoStuck = validateEquipmentLote(
   [phone()],
