@@ -4,27 +4,20 @@ import {
   Store, 
   Calendar, 
   Search, 
-  Filter, 
-  ChevronRight, 
   Eye, 
   Clock, 
   User, 
   Plus, 
   DollarSign, 
   Receipt, 
-  ShoppingBag, 
   TrendingDown, 
   CreditCard, 
-  Tag, 
-  Wrench, 
-  Zap, 
   Printer, 
   FileText,
   Building2,
   TrendingUp,
   Wallet,
   ShieldCheck,
-  Check,
   AlertCircle,
   Activity,
   Layers,
@@ -38,6 +31,7 @@ import {
 } from 'lucide-react';
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
 import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
 import { classifySaleItem } from '../lib/saleClassification';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
@@ -652,6 +646,24 @@ function SalesModule({
     });
   }, [aggregatedCortesList, selectedBranchId, debouncedSearch]);
 
+  const cortesByDay = useMemo(() => {
+    const groups: { dateKey: string; label: string; rows: CorteXRecord[] }[] = [];
+    for (const corte of filteredCortes) {
+      const dateKey = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
+      const last = groups[groups.length - 1];
+      if (!last || last.dateKey !== dateKey) {
+        groups.push({
+          dateKey,
+          label: formatCorteDayHeading(dateKey, todayIso),
+          rows: [corte]
+        });
+      } else {
+        last.rows.push(corte);
+      }
+    }
+    return groups;
+  }, [filteredCortes, todayIso]);
+
   // Filtered Live Tickets
   const filteredTickets = useMemo(() => {
     return safeTickets.filter(ticket => {
@@ -959,18 +971,18 @@ function SalesModule({
       {activeTab === 'cortes' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
           
-          <div className="px-5 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-600" />
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                Calendario Natural y Listado de Cortes X (1 por día por sucursal)
+          <div className="px-3 sm:px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <h2 className="text-xs font-semibold text-slate-900 truncate">
+                Días por sucursal
               </h2>
-              <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">
-                {filteredCortes.length} registros
+              <span className="bg-slate-200/80 text-slate-600 text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0">
+                {filteredCortes.length}
               </span>
             </div>
-            <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-              Muestra la sucursal, horario de apertura/cierre y estado en tiempo real
+            <p className="text-[11px] text-slate-500 hidden sm:block">
+              Sucursal, horario, total y corte
             </p>
           </div>
 
@@ -985,168 +997,92 @@ function SalesModule({
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
-              {filteredCortes.map((corte, idx) => {
-                const totalVenta = corte.totalSales || 0;
-                const totalEfectivoCaja = corte.expectedCashInDrawer || 0;
-                const totalGastos = corte.totalExpenses || 0;
-                const isZeroDay = corte.id.startsWith('CAL-ZERO');
-                const isCurrentOpenShift = corte.id.startsWith('CTX-TURNO');
-                const isAutoMidnight = (corte.timeStr || '').includes('Medianoche') || (corte.operatorName || '').includes('Medianoche');
+            <div>
+              {cortesByDay.map((day) => (
+                <div key={day.dateKey || day.label}>
+                  <div className="px-3 sm:px-4 py-1.5 bg-slate-50/90 border-y border-slate-100 text-[11px] font-semibold text-slate-500 capitalize sticky top-0 z-10">
+                    {day.label}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {day.rows.map((corte, idx) => {
+                      const totalVenta = corte.totalSales || 0;
+                      const isZeroDay = corte.id.startsWith('CAL-ZERO');
+                      const isCurrentOpenShift = corte.id.startsWith('CTX-TURNO');
+                      const hours = corteShiftHours(corte);
+                      const openRow = () => {
+                        if (isZeroDay) return;
+                        if (isCurrentOpenShift) {
+                          handleOpenLiveShiftForBranch(corte.branchId);
+                          return;
+                        }
+                        handleOpenCorteDetail(corte);
+                      };
 
-                return (
-                  <div
-                    key={corte.id || idx}
-                    onClick={() => {
-                      if (isZeroDay) return;
-                      if (isCurrentOpenShift) {
-                        handleOpenLiveShiftForBranch(corte.branchId);
-                        return;
-                      }
-                      handleOpenCorteDetail(corte);
-                    }}
-                    className={`p-4 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
-                      isZeroDay ? 'bg-slate-50/60 opacity-80' : 'hover:bg-blue-50/40 cursor-pointer'
-                    }`}
-                  >
-                    
-                    {/* Left: Branch, Folio & Date */}
-                    <div className="flex items-start sm:items-center gap-3 min-w-0">
-                      <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 transition-transform ${
-                        isZeroDay ? 'bg-slate-200 border-slate-300 text-slate-500' : (
-                          isCurrentOpenShift 
-                            ? 'bg-emerald-100 border-emerald-300 text-emerald-700 group-hover:scale-105' 
-                            : 'bg-blue-100/70 border-blue-200 text-blue-700 group-hover:scale-105'
-                        )
-                      }`}>
-                        <Store className="w-5 h-5" />
-                      </div>
-
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-black text-sm text-slate-900 truncate">
+                      return (
+                        <div
+                          key={corte.id || `${day.dateKey}-${idx}`}
+                          role={isZeroDay ? undefined : 'button'}
+                          tabIndex={isZeroDay ? undefined : 0}
+                          onClick={openRow}
+                          onKeyDown={(e) => {
+                            if (isZeroDay) return;
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openRow();
+                            }
+                          }}
+                          className={`min-h-[52px] px-3 sm:px-4 py-2 grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7.5rem_minmax(0,1fr)_6.75rem_auto] items-center gap-x-3 gap-y-0.5 ${
+                            isZeroDay
+                              ? 'bg-slate-50/50 text-slate-400'
+                              : 'hover:bg-slate-50 cursor-pointer'
+                          }`}
+                        >
+                          <span className="text-[13px] font-semibold text-slate-900 truncate flex items-center gap-1.5 min-w-0 col-start-1 row-start-1 sm:col-start-1 sm:row-start-1">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                isZeroDay
+                                  ? 'bg-slate-300'
+                                  : isCurrentOpenShift
+                                    ? 'bg-emerald-500'
+                                    : 'bg-slate-400'
+                              }`}
+                            />
                             {corte.branchName || getBranchName(corte.branchId)}
                           </span>
-                          
-                          <span className="font-mono text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                            {isZeroDay ? 'SIN ACTIVIDAD' : corte.id}
+
+                          <span className="text-[12px] text-slate-600 tabular-nums truncate col-start-1 row-start-2 sm:col-start-2 sm:row-start-1">
+                            {hours.start}
+                            <span className="text-slate-300 mx-1.5">→</span>
+                            <span className={isCurrentOpenShift ? 'text-emerald-700 font-medium' : ''}>
+                              {hours.end}
+                            </span>
+                          </span>
+
+                          <span className={`text-[13px] font-semibold tabular-nums text-right col-start-2 row-start-1 sm:col-start-3 sm:row-start-1 ${isZeroDay ? 'text-slate-400' : 'text-slate-900'}`}>
+                            ${totalVenta.toFixed(2)}
                           </span>
 
                           {isZeroDay ? (
-                            <span className="bg-slate-200 text-slate-700 border border-slate-300 text-[10px] font-black px-2 py-0.5 rounded-full">
-                              ⭕ Cerrado / Sin Apertura ($0)
-                            </span>
-                          ) : isCurrentOpenShift ? (
-                            <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                              Turno en Curso (Hoy - Tiempo Real)
-                            </span>
-                          ) : isAutoMidnight ? (
-                            <span className="bg-blue-100 text-blue-900 border border-blue-300 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <Check className="w-3 h-3 text-blue-700" />
-                              Corte Oficial (Cierre 12:00 AM)
-                            </span>
+                            <span className="text-[11px] text-slate-400 text-right col-start-2 row-start-2 sm:col-start-4 sm:row-start-1">Sin corte</span>
                           ) : (
-                            <span className="bg-slate-900 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                              Corte Guardado
-                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openRow();
+                              }}
+                              className="justify-self-end inline-flex items-center gap-0.5 text-[11px] font-semibold text-[#0047AB] hover:text-[#003d93] px-1.5 py-1 rounded-md hover:bg-blue-50 cursor-pointer col-start-2 row-start-2 sm:col-start-4 sm:row-start-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              {isCurrentOpenShift ? 'Arqueo' : 'Ver corte'}
+                            </button>
                           )}
                         </div>
-
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 font-medium">
-                          <span className="flex items-center gap-1 text-slate-700 font-bold">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            {corte.dateStr}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            {corte.timeStr || 'Horario Registrado'}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <User className="w-3.5 h-3.5 text-slate-400" />
-                            {corte.operatorName}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Middle: Categorized Subtotals */}
-                    {!isZeroDay && (
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
-                        {corte.breakdown?.accesoriosTotal ? (
-                          <span className="bg-blue-50 text-blue-900 px-2 py-1 rounded-lg border border-blue-200 flex items-center gap-1">
-                            <ShoppingBag className="w-3 h-3 text-blue-600" />
-                            Accesorios: ${corte.breakdown.accesoriosTotal.toFixed(0)}
-                          </span>
-                        ) : null}
-
-                        {corte.breakdown?.abonosTotal ? (
-                          <span className="bg-purple-50 text-purple-900 px-2 py-1 rounded-lg border border-purple-200 flex items-center gap-1">
-                            <DollarSign className="w-3 h-3 text-purple-600" />
-                            Abonos: ${corte.breakdown.abonosTotal.toFixed(0)}
-                          </span>
-                        ) : null}
-
-                        {corte.breakdown?.enganchesTotal ? (
-                          <span className="bg-amber-50 text-amber-900 px-2 py-1 rounded-lg border border-amber-200 flex items-center gap-1">
-                            <Tag className="w-3 h-3 text-amber-600" />
-                            Enganches: ${corte.breakdown.enganchesTotal.toFixed(0)}
-                          </span>
-                        ) : null}
-
-                        {corte.breakdown?.reparacionesTotal ? (
-                          <span className="bg-cyan-50 text-cyan-900 px-2 py-1 rounded-lg border border-cyan-200 flex items-center gap-1">
-                            <Wrench className="w-3 h-3 text-cyan-600" />
-                            Taller: ${corte.breakdown.reparacionesTotal.toFixed(0)}
-                          </span>
-                        ) : null}
-
-                        {corte.breakdown?.recargasTotal ? (
-                          <span className="bg-emerald-50 text-emerald-900 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
-                            <Zap className="w-3 h-3 text-emerald-600" />
-                            Recargas: ${corte.breakdown.recargasTotal.toFixed(0)}
-                          </span>
-                        ) : null}
-
-                        {totalGastos > 0 ? (
-                          <span className="bg-rose-50 text-rose-900 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1">
-                            <TrendingDown className="w-3 h-3 text-rose-600" />
-                            Gastos: -${totalGastos.toFixed(0)}
-                          </span>
-                        ) : null}
-                      </div>
-                    )}
-
-                    {/* Right: Amounts & View Button */}
-                    <div className="flex items-center justify-between md:justify-end gap-4 shrink-0 border-t md:border-t-0 pt-2 md:pt-0">
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Turno / Día</span>
-                        <span className="text-base font-black text-slate-900 font-mono block">
-                          ${totalVenta.toFixed(2)} <span className="text-[10px] text-slate-500 font-normal">MXN</span>
-                        </span>
-                        {!isZeroDay && (
-                          <span className="text-[10px] font-bold text-emerald-700 block">
-                            Caja: ${totalEfectivoCaja.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-
-                      {!isZeroDay && (
-                        <button
-                          type="button"
-                          className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 group-hover:bg-blue-600 text-white text-xs font-black rounded-xl transition-colors shrink-0 shadow-2xs cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>{isCurrentOpenShift ? 'Arqueo en Vivo' : 'Ver Corte'}</span>
-                          <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                        </button>
-                      )}
-                    </div>
-
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
 
