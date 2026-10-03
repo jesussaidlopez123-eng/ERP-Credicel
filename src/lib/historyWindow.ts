@@ -1,8 +1,19 @@
 import { addCashDays, safeDateIsoKey } from './dateUtils';
 
-/** Al abrir Ventas y cortes se pide historial hasta esta ventana. */
+/** Ventana de cortes que se pide en segundo plano al abrir Ventas y cortes. */
 export const SALES_HISTORY_DAYS = 180;
 export const SALES_HISTORY_MAX_PAGES = 10;
+
+/** Cede el hilo para que el módulo no se congele entre páginas de historial. */
+export function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => resolve(), { timeout: 80 });
+      return;
+    }
+    requestAnimationFrame(() => resolve());
+  });
+}
 
 export function oldestDateKey(rows: { timestamp?: string; dateStr?: string }[]): string {
   let oldest = '';

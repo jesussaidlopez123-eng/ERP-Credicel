@@ -68,7 +68,8 @@ import { safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUti
 import {
   SALES_HISTORY_DAYS,
   SALES_HISTORY_MAX_PAGES,
-  historyWindowReached
+  historyWindowReached,
+  yieldToUi
 } from '../lib/historyWindow';
 import { money, newUniqueId } from '../lib/ids';
 import {
@@ -213,6 +214,8 @@ export default function Dashboard({
   const expensesHasMoreRef = useRef(true);
   const cortesHasMoreRef = useRef(true);
   const historyBackfillRef = useRef(false);
+  const activeModuleRef = useRef(activeModule);
+  activeModuleRef.current = activeModule;
   const [movementsHasMore, setMovementsHasMore] = useState(true);
   const [repairsHasMore, setRepairsHasMore] = useState(true);
   const corteInFlightRef = useRef(false);
@@ -438,7 +441,7 @@ export default function Dashboard({
     if (extra.length > 0) {
       const next = sortByTimestampDesc(mergeByIdKeep(salesTicketsRef.current, extra));
       salesTicketsRef.current = next;
-      setSalesTickets(next);
+      startTransition(() => setSalesTickets(next));
       scheduleSaveCachedList('sales', next);
     }
     const done = extra.length < HISTORY_PAGE;
@@ -460,7 +463,7 @@ export default function Dashboard({
     if (extra.length > 0) {
       const next = sortByTimestampDesc(mergeByIdKeep(expensesRef.current, extra));
       expensesRef.current = next;
-      setExpenses(next);
+      startTransition(() => setExpenses(next));
       scheduleSaveCachedList('expenses', next);
     }
     const done = extra.length < HISTORY_PAGE;
@@ -482,7 +485,7 @@ export default function Dashboard({
     if (extra.length > 0) {
       const next = sortByTimestampDesc(mergeByIdKeep(cortesRef.current, extra));
       cortesRef.current = next;
-      setCortesX(next);
+      startTransition(() => setCortesX(next));
       scheduleSaveCachedList('cortes', next);
     }
     const done = extra.length < HISTORY_PAGE;
@@ -531,46 +534,30 @@ export default function Dashboard({
 
   const ensureSalesHistoryWindow = useCallback(async () => {
     if (historyBackfillRef.current) return;
+    if (activeModuleRef.current !== 'sales') return;
     historyBackfillRef.current = true;
-    setHistoryBusy('cortes');
     const today = todayCashDateKey();
     try {
       for (let page = 0; page < SALES_HISTORY_MAX_PAGES; page++) {
-        const cortesOk = historyWindowReached(cortesRef.current, today, SALES_HISTORY_DAYS);
-        const salesOk = historyWindowReached(salesTicketsRef.current, today, SALES_HISTORY_DAYS);
-        const expensesOk = historyWindowReached(expensesRef.current, today, SALES_HISTORY_DAYS);
-        if (cortesOk && salesOk && expensesOk) break;
-
-        let progressed = false;
-        if (!cortesOk && cortesHasMoreRef.current) {
-          const result = await pullOlderCortes();
-          progressed = progressed || result.added > 0;
-          if (result.done && result.added === 0 && !progressed) {
-            /* no more cortes */
-          }
-        }
-        if (!salesOk && salesHasMoreRef.current) {
-          const result = await pullOlderSales();
-          progressed = progressed || result.added > 0;
-        }
-        if (!expensesOk && expensesHasMoreRef.current) {
-          const result = await pullOlderExpenses();
-          progressed = progressed || result.added > 0;
-        }
-        if (!progressed) break;
+        if (activeModuleRef.current !== 'sales') break;
+        if (historyWindowReached(cortesRef.current, today, SALES_HISTORY_DAYS)) break;
+        if (!cortesHasMoreRef.current) break;
+        const result = await pullOlderCortes();
+        if (result.added === 0) break;
+        await yieldToUi();
       }
     } catch (err) {
       console.warn('[Historial] ventana de ventas:', err);
     } finally {
       historyBackfillRef.current = false;
-      setHistoryBusy(null);
     }
-  }, [pullOlderCortes, pullOlderSales, pullOlderExpenses]);
+  }, [pullOlderCortes]);
 
   useEffect(() => {
     if (!liveHistoryReady) return;
+    if (activeModule !== 'sales') return;
     void ensureSalesHistoryWindow();
-  }, [liveHistoryReady, ensureSalesHistoryWindow]);
+  }, [liveHistoryReady, activeModule, ensureSalesHistoryWindow]);
 
   const loadOlderMovements = useCallback(async () => {
     if (historyBusy) return;

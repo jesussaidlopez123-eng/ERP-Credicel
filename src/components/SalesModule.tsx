@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, lazy } from 'react';
+import React, { useState, useMemo, useEffect, lazy, startTransition } from 'react';
 import { 
   Calculator, 
   Store, 
@@ -32,12 +32,10 @@ import {
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
-import { foldOnePerBranchPerDay } from '../lib/corteDayRoster';
-import { formatMoney, money, ticketFolioLabel } from '../lib/ids';
-import { classifySaleItem } from '../lib/saleClassification';
+import { buildCortesRoster, CORTES_VISIBLE_DAYS, todayBranchStats } from '../lib/salesCortesBuild';
+import { ticketFolioLabel } from '../lib/ids';
 import { deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
-import { isAfterCashClose, isPrematureAutoCorteRecord } from '../lib/shiftHours';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
@@ -132,6 +130,9 @@ function SalesModule({
   // Ticket list filters
   const [ticketDateFilter, setTicketDateFilter] = useState<'all' | 'today' | 'custom'>('today');
   const [ticketPaymentFilter, setTicketPaymentFilter] = useState<string>('all');
+  const [visibleDayCount, setVisibleDayCount] = useState(CORTES_VISIBLE_DAYS);
+  const [visibleTicketCount, setVisibleTicketCount] = useState(80);
+  const [visibleExpenseCount, setVisibleExpenseCount] = useState(80);
 
   const todayIso = todayCashDateKey();
 
@@ -164,413 +165,42 @@ function SalesModule({
     if (fresh) setSelectedCorte(fresh);
   }, [safeCortesX, selectedCorte?.id]);
 
-  // List of active physical commercial sales branches to monitor (strictly fixed canonical order)
-  const monitoredBranches = useMemo(() => COMMERCIAL_BRANCHES, []);
+  const openingFund = (branchId: string) => openingFundForBranch(branchId, branchCashFunds);
 
-
-  // Live branch state calculation (Today's Real-time Pulse)
   const branchLiveStats = useMemo(() => {
-    return monitoredBranches.map(branch => {
-      const todayTickets = safeTickets.filter(t => 
-        safeDateIsoKey(t.timestamp) === todayIso && normalizeBranchId(t.branchId) === branch.id
-      );
-      const openTickets = todayTickets.filter(t => !t.corteXId);
-
-      const todayExpenses = safeExpenses.filter(e => 
-        safeDateIsoKey(e.timestamp || e.date) === todayIso && normalizeBranchId(e.branchId) === branch.id
-      );
-      const openExpenses = todayExpenses.filter(e => !e.corteXId);
-
-      let cashSales = 0;
-      let cardSales = 0;
-      let transferSales = 0;
-      let totalSales = 0;
-
-      todayTickets.forEach(t => {
-        const amt = t.total || 0;
-        totalSales += amt;
-        if (t.paymentMethod === 'Efectivo') cashSales += amt;
-        else if (t.paymentMethod === 'Tarjeta') cardSales += amt;
-        else if (t.paymentMethod === 'Transferencia') transferSales += amt;
-      });
-
-      let totalExpenses = 0;
-      todayExpenses.forEach(e => {
-        totalExpenses += (e.amount || 0);
-      });
-
-      let openCashSales = 0;
-      openTickets.forEach(t => {
-        if (t.paymentMethod === 'Efectivo') openCashSales += (t.total || 0);
-      });
-
-      let openExpensesAmt = 0;
-      openExpenses.forEach(e => {
-        openExpensesAmt += (e.amount || 0);
-      });
-
-      const initialCashFund = openingFundForBranch(branch.id, branchCashFunds);
-
-      const expectedCashInDrawer = initialCashFund + openCashSales - openExpensesAmt;
-
-      // Operator name in turn
-      let currentShiftOperator = todayTickets[todayTickets.length - 1]?.operatorName || '';
+    const stats = todayBranchStats(safeTickets, safeExpenses, todayIso, openingFund);
+    return stats.map((bStat) => {
+      let currentShiftOperator = bStat.currentShiftOperator;
       try {
-        const shiftLoginKey = `erp_shift_login_${branch.id}_${todayIso}`;
-        const savedLogin = localStorage.getItem(shiftLoginKey);
+        const savedLogin = localStorage.getItem(`erp_shift_login_${bStat.branchId}_${todayIso}`);
         if (savedLogin) {
           const parsed = JSON.parse(savedLogin);
           if (parsed?.operatorName) currentShiftOperator = parsed.operatorName;
         }
-      } catch {}
-
-      if (!currentShiftOperator && branch.id === currentBranch.id) {
+      } catch {
+        /* ignore */
+      }
+      if ((!currentShiftOperator || currentShiftOperator === 'Operador en Turno') && bStat.branchId === currentBranch.id) {
         currentShiftOperator = currentOperator.name;
       }
-
-      const hasActivityToday = todayTickets.length > 0 || todayExpenses.length > 0;
-
-      return {
-        branchId: branch.id,
-        branchName: branch.name,
-        hasActivityToday,
-        todayTicketsCount: todayTickets.length,
-        openTicketsCount: openTickets.length,
-        todayExpensesCount: todayExpenses.length,
-        totalSales: money(totalSales),
-        cashSales: money(cashSales),
-        cardSales: money(cardSales),
-        transferSales: money(transferSales),
-        totalExpenses: money(totalExpenses),
-        initialCashFund,
-        expectedCashInDrawer: money(expectedCashInDrawer),
-        currentShiftOperator: currentShiftOperator || 'Operador en Turno',
-        hasOpenShift: openTickets.length > 0 || openExpenses.length > 0 || hasActivityToday
-      };
+      return { ...bStat, currentShiftOperator };
     });
-  }, [monitoredBranches, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]);
+  }, [safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]);
 
-  // Build Official Cortes X List + Open/Historical Shifts for all active branches across natural days
-  const aggregatedCortesList = useMemo(() => {
-    const savedGrouped: Record<string, CorteXRecord> = {};
-    const suppressedPrematureCorteIds = new Set<string>();
-    
-    safeCortesX.forEach((corte) => {
-      if (!corte) return;
-      const normBId = normalizeBranchId(corte.branchId);
-      if (!hasCashTill(normBId)) return;
-      const dateKey = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
-      if (isPrematureAutoCorteRecord(corte)) {
-        suppressedPrematureCorteIds.add(corte.id);
-        if (corte.sesion_caja_id) suppressedPrematureCorteIds.add(corte.sesion_caja_id);
-        return;
-      }
-      const groupKey = `${normBId}_${dateKey}`;
-      const normalizedCorte: CorteXRecord = {
-        ...corte,
-        branchId: normBId,
-        branchName: getBranchName(normBId),
-        dateStr: safeFormatDate(parseSafeDate(dateKey))
-      };
-      const prev = savedGrouped[groupKey];
-      if (!prev || (normalizedCorte.timestamp || '') > (prev.timestamp || '')) {
-        savedGrouped[groupKey] = normalizedCorte;
-      }
-    });
+  const aggregatedCortesList = useMemo(
+    () =>
+      buildCortesRoster({
+        cortes: safeCortesX,
+        tickets: safeTickets,
+        expenses: safeExpenses,
+        todayKey: todayIso,
+        currentBranch,
+        currentOperator,
+        openingFund
+      }),
+    [safeCortesX, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]
+  );
 
-    // Fallback: Reconstruct Cortes X from tickets/expenses that have corteXId if missing from cortesX collection
-    const cortesIdSet = new Set(safeCortesX.map(c => c.id));
-    const orphanCorteMap: Record<string, { branchId: string; tickets: SaleTicket[]; expenses: Expense[]; maxTimestamp: string }> = {};
-
-    safeTickets.forEach(t => {
-      const normBId = normalizeBranchId(t.branchId);
-      if (!hasCashTill(normBId)) return;
-      if (t.corteXId && !cortesIdSet.has(t.corteXId)) {
-        if (!orphanCorteMap[t.corteXId]) {
-          orphanCorteMap[t.corteXId] = { branchId: normBId, tickets: [], expenses: [], maxTimestamp: t.timestamp };
-        }
-        orphanCorteMap[t.corteXId].tickets.push(t);
-        if (t.timestamp > orphanCorteMap[t.corteXId].maxTimestamp) {
-          orphanCorteMap[t.corteXId].maxTimestamp = t.timestamp;
-        }
-      }
-    });
-
-    safeExpenses.forEach(e => {
-      const normBId = normalizeBranchId(e.branchId);
-      if (!hasCashTill(normBId)) return;
-      if (e.corteXId && !cortesIdSet.has(e.corteXId)) {
-        if (!orphanCorteMap[e.corteXId]) {
-          orphanCorteMap[e.corteXId] = { branchId: normBId, tickets: [], expenses: [], maxTimestamp: e.timestamp || new Date().toISOString() };
-        }
-        orphanCorteMap[e.corteXId].expenses.push(e);
-      }
-    });
-
-    Object.entries(orphanCorteMap).forEach(([corteId, data]) => {
-      const dKey = safeDateIsoKey(data.maxTimestamp);
-      if (dKey === todayIso && !isAfterCashClose()) {
-        suppressedPrematureCorteIds.add(corteId);
-        return;
-      }
-      const groupKey = `${data.branchId}_${dKey}`;
-      if (!savedGrouped[groupKey]) {
-        let cash = 0, card = 0, transfer = 0;
-        data.tickets.forEach(t => {
-          if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
-          if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
-          if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
-        });
-        const totalExp = data.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-        const totalSales = cash + card + transfer;
-        const targetDate = parseSafeDate(dKey);
-
-        savedGrouped[groupKey] = {
-          id: corteId,
-          timestamp: data.maxTimestamp,
-          dateStr: safeFormatDate(targetDate),
-          timeStr: 'Corte Recuperado',
-          branchId: data.branchId,
-          branchName: getBranchName(data.branchId),
-          operatorName: data.tickets[0]?.operatorName || 'Cajero',
-          initialCashFund: 0,
-          cashSales: cash,
-          cardSales: card,
-          transferSales: transfer,
-          totalSales,
-          totalExpenses: totalExp,
-          netIncome: totalSales - totalExp,
-          expectedCashInDrawer: cash - totalExp,
-          ticketIds: data.tickets.map(t => t.id),
-          expenseIds: data.expenses.map(e => e.id),
-          ticketsSnapshot: data.tickets,
-          expensesSnapshot: data.expenses,
-          breakdown: { accesoriosTotal: totalSales, accesoriosCount: data.tickets.length, abonosTotal: 0, abonosCount: 0, enganchesTotal: 0, enganchesCount: 0, reparacionesTotal: 0, reparacionesCount: 0, recargasTotal: 0, recargasCount: 0 }
-        };
-      }
-    });
-
-    const officialList = Object.values(savedGrouped);
-
-    // Recopilar todas las fechas naturales con actividad, garantizando hoy, ayer (domingo) y los últimos 14 días
-    const dateKeysSet = new Set<string>();
-    dateKeysSet.add(todayIso);
-
-    // Garantizar que ayer (domingo) y los últimos 14 días naturales siempre existan en el registro
-    const now = new Date();
-    for (let d = 1; d <= 14; d++) {
-      const pastDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - d, 12, 0, 0);
-      dateKeysSet.add(safeDateIsoKey(pastDay));
-    }
-
-    safeCortesX.forEach(c => {
-      const normBId = normalizeBranchId(c.branchId);
-      if (!hasCashTill(normBId)) return;
-      const dKey = safeDateIsoKey(c.timestamp) || safeDateIsoKey(c.dateStr);
-      if (dKey) dateKeysSet.add(dKey);
-    });
-
-    safeTickets.forEach(t => {
-      const normBId = normalizeBranchId(t.branchId);
-      if (!hasCashTill(normBId)) return;
-      const dKey = safeDateIsoKey(t.timestamp);
-      if (dKey) dateKeysSet.add(dKey);
-    });
-
-    safeExpenses.forEach(e => {
-      const normBId = normalizeBranchId(e.branchId);
-      if (!hasCashTill(normBId)) return;
-      const dKey = safeDateIsoKey(e.timestamp || e.date);
-      if (dKey) dateKeysSet.add(dKey);
-    });
-
-    const openShiftsList: CorteXRecord[] = [];
-    const pastReconciledList: CorteXRecord[] = [];
-    const zeroDaysList: CorteXRecord[] = [];
-
-    // Process each natural day
-    dateKeysSet.forEach(dateIso => {
-      monitoredBranches.forEach(branch => {
-        const groupKey = `${branch.id}_${dateIso}`;
-
-        // 1. TODAY's Live Shift: Handle active turnos without duplicating already-closed cortes
-        if (dateIso === todayIso) {
-          const branchTodayTickets = safeTickets.filter(t => 
-            safeDateIsoKey(t.timestamp) === dateIso && normalizeBranchId(t.branchId) === branch.id
-          );
-          const openTickets = branchTodayTickets.filter(
-            (t) => !t.corteXId || suppressedPrematureCorteIds.has(t.corteXId)
-          );
-
-          const branchTodayExpenses = safeExpenses.filter(e => 
-            safeDateIsoKey(e.timestamp || e.date) === dateIso && normalizeBranchId(e.branchId) === branch.id
-          );
-          const openExpenses = branchTodayExpenses.filter(
-            (e) => !e.corteXId || suppressedPrematureCorteIds.has(e.corteXId)
-          );
-
-          // Verificar si ya existe un corte cerrado registrado para hoy en esta sucursal
-          const closedCortesToday = officialList.filter(c => 
-            normalizeBranchId(c.branchId) === branch.id && 
-            (safeDateIsoKey(c.timestamp) === todayIso || safeDateIsoKey(c.dateStr) === todayIso) &&
-            !isPrematureAutoCorteRecord(c)
-          );
-
-          if (closedCortesToday.length > 0) {
-            return;
-          }
-
-          const ticketsToCount = openTickets.length > 0 ? openTickets : branchTodayTickets;
-          const expensesToCount = openExpenses.length > 0 ? openExpenses : branchTodayExpenses;
-
-          let cash = 0, card = 0, transfer = 0;
-          let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
-
-          ticketsToCount.forEach(t => {
-            if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
-            if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
-            if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
-
-            (t.items || []).forEach(item => {
-              const tot = item.totalPrice || 0;
-              const qty = item.quantity || 1;
-              const key = classifySaleItem(item);
-              if (key === 'abonos') { aboTot += tot; aboCnt += qty; }
-              else if (key === 'enganches') { engTot += tot; engCnt += qty; }
-              else if (key === 'reparaciones') { repTot += tot; repCnt += qty; }
-              else if (key === 'recargas') { recTot += tot; recCnt += qty; }
-              else { accTot += tot; accCnt += qty; }
-            });
-          });
-
-          const totalExp = expensesToCount.reduce((sum, e) => sum + (e.amount || 0), 0);
-          const totalSales = cash + card + transfer;
-          const targetDate = parseSafeDate(dateIso);
-
-          const initialCashFund = openingFundForBranch(branch.id, branchCashFunds);
-
-          let shiftLoginTime = '09:00 AM';
-          let loggedOperatorName = '';
-          try {
-            const shiftLoginKey = `erp_shift_login_${branch.id}_${dateIso}`;
-            const savedLogin = localStorage.getItem(shiftLoginKey);
-            if (savedLogin) {
-              const parsedLogin = JSON.parse(savedLogin);
-              if (parsedLogin?.time) shiftLoginTime = parsedLogin.time;
-              if (parsedLogin?.operatorName) loggedOperatorName = parsedLogin.operatorName;
-            }
-          } catch {}
-
-          openShiftsList.push({
-            id: `CTX-TURNO-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`,
-            timestamp: `${dateIso}T23:00:00-07:00`,
-            dateStr: safeFormatDate(targetDate),
-            timeStr: `Inicia: ${shiftLoginTime} (Turno en Vivo / Tiempo Real)`,
-            branchId: branch.id,
-            branchName: branch.name,
-            operatorName: loggedOperatorName || branchTodayTickets[0]?.operatorName || (branch.id === currentBranch.id ? currentOperator.name : 'Turno Activo (Hoy)'),
-            initialCashFund,
-            cashSales: cash,
-            cardSales: card,
-            transferSales: transfer,
-            totalSales,
-            totalExpenses: totalExp,
-            netIncome: totalSales - totalExp,
-            expectedCashInDrawer: initialCashFund + cash - totalExp,
-            ticketIds: ticketsToCount.map(t => t.id),
-            expenseIds: expensesToCount.map(e => e.id),
-            ticketsSnapshot: ticketsToCount,
-            expensesSnapshot: expensesToCount,
-            breakdown: { accesoriosTotal: accTot, accesoriosCount: accCnt, abonosTotal: aboTot, abonosCount: aboCnt, enganchesTotal: engTot, enganchesCount: engCnt, reparacionesTotal: repTot, reparacionesCount: repCnt, recargasTotal: recTot, recargasCount: recCnt }
-          });
-          return;
-        }
-
-        // 2. PAST DAYS: If official corte saved for this branch & date, keep it
-        if (savedGrouped[groupKey]) return;
-
-        const branchTickets = safeTickets.filter(t => safeDateIsoKey(t.timestamp) === dateIso && normalizeBranchId(t.branchId) === branch.id);
-        const branchExpenses = safeExpenses.filter(e => safeDateIsoKey(e.timestamp || e.date) === dateIso && normalizeBranchId(e.branchId) === branch.id);
-
-        let cash = 0, card = 0, transfer = 0;
-        let accTot = 0, accCnt = 0, aboTot = 0, aboCnt = 0, engTot = 0, engCnt = 0, repTot = 0, repCnt = 0, recTot = 0, recCnt = 0;
-
-        branchTickets.forEach(t => {
-          if (t.paymentMethod === 'Efectivo') cash += (t.total || 0);
-          if (t.paymentMethod === 'Tarjeta') card += (t.total || 0);
-          if (t.paymentMethod === 'Transferencia') transfer += (t.total || 0);
-
-          (t.items || []).forEach(item => {
-            const tot = item.totalPrice || 0;
-            const qty = item.quantity || 1;
-            const key = classifySaleItem(item);
-            if (key === 'abonos') { aboTot += tot; aboCnt += qty; }
-            else if (key === 'enganches') { engTot += tot; engCnt += qty; }
-            else if (key === 'reparaciones') { repTot += tot; repCnt += qty; }
-            else if (key === 'recargas') { recTot += tot; recCnt += qty; }
-            else { accTot += tot; accCnt += qty; }
-          });
-        });
-
-        const totalExp = branchExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-        const totalSales = cash + card + transfer;
-        const hasActivity = branchTickets.length > 0 || branchExpenses.length > 0;
-        const targetDate = parseSafeDate(dateIso);
-
-        if (hasActivity) {
-          // Días pasados con actividad sin corte manual: Reconciliados y asegurados con su desglose oficial
-          pastReconciledList.push({
-            id: `CTX_${branch.id}_${dateIso}`,
-            timestamp: `${dateIso}T23:00:00-07:00`,
-            dateStr: safeFormatDate(targetDate),
-            timeStr: 'Cierre Oficial de Turno',
-            branchId: branch.id,
-            branchName: branch.name,
-            operatorName: branchTickets[0]?.operatorName || 'Cajero en Turno',
-            initialCashFund: 0,
-            cashSales: cash,
-            cardSales: card,
-            transferSales: transfer,
-            totalSales,
-            totalExpenses: totalExp,
-            netIncome: totalSales - totalExp,
-            expectedCashInDrawer: cash - totalExp,
-            ticketIds: branchTickets.map(t => t.id),
-            expenseIds: branchExpenses.map(e => e.id),
-            ticketsSnapshot: branchTickets,
-            expensesSnapshot: branchExpenses,
-            breakdown: { accesoriosTotal: accTot, accesoriosCount: accCnt, abonosTotal: aboTot, abonosCount: aboCnt, enganchesTotal: engTot, enganchesCount: engCnt, reparacionesTotal: repTot, reparacionesCount: repCnt, recargasTotal: recTot, recargasCount: recCnt }
-          });
-        } else {
-          // Días pasados sin movimientos: Cerrados sin actividad
-          zeroDaysList.push({
-            id: `CAL-ZERO-${branch.id.replace('b-', '').toUpperCase()}-${dateIso}`,
-            timestamp: `${dateIso}T12:00:00-07:00`,
-            dateStr: safeFormatDate(targetDate),
-            timeStr: 'Cerrado / Sin Actividad (No se laboró)',
-            branchId: branch.id,
-            branchName: branch.name,
-            operatorName: 'Sin Movimientos',
-            initialCashFund: 0,
-            cashSales: 0,
-            cardSales: 0,
-            transferSales: 0,
-            totalSales: 0,
-            totalExpenses: 0,
-            netIncome: 0,
-            expectedCashInDrawer: 0,
-            ticketIds: [],
-            expenseIds: [],
-            breakdown: { accesoriosTotal: 0, accesoriosCount: 0, abonosTotal: 0, abonosCount: 0, enganchesTotal: 0, enganchesCount: 0, reparacionesTotal: 0, reparacionesCount: 0, recargasTotal: 0, recargasCount: 0 }
-          });
-        }
-      });
-    });
-
-    return foldOnePerBranchPerDay([...openShiftsList, ...officialList, ...pastReconciledList, ...zeroDaysList]);
-  }, [safeCortesX, safeTickets, safeExpenses, monitoredBranches, todayIso, currentBranch, currentOperator, activeCashSession, branchCashFunds]);
-
-  // Filtered Cortes list
   const filteredCortes = useMemo(() => {
     return aggregatedCortesList.filter(corte => {
       const normBId = normalizeBranchId(corte.branchId);
@@ -579,11 +209,12 @@ function SalesModule({
       }
       if (debouncedSearch.trim()) {
         const q = debouncedSearch.toLowerCase();
-        const matchesFolio = (corte.id || '').toLowerCase().includes(q);
-        const matchesBranch = (corte.branchName || '').toLowerCase().includes(q);
-        const matchesOperator = (corte.operatorName || '').toLowerCase().includes(q);
-        const matchesDate = (corte.dateStr || '').toLowerCase().includes(q);
-        return matchesFolio || matchesBranch || matchesOperator || matchesDate;
+        return (
+          (corte.id || '').toLowerCase().includes(q) ||
+          (corte.branchName || '').toLowerCase().includes(q) ||
+          (corte.operatorName || '').toLowerCase().includes(q) ||
+          (corte.dateStr || '').toLowerCase().includes(q)
+        );
       }
       return true;
     });
@@ -668,6 +299,28 @@ function SalesModule({
     }).sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
   }, [safeExpenses, selectedBranchId, ticketDateFilter, debouncedSearch, todayIso]);
 
+  useEffect(() => {
+    setVisibleDayCount(CORTES_VISIBLE_DAYS);
+    setVisibleTicketCount(80);
+    setVisibleExpenseCount(80);
+  }, [selectedBranchId, debouncedSearch, ticketDateFilter, ticketPaymentFilter]);
+
+  const visibleCortesByDay = useMemo(
+    () => cortesByDay.slice(0, visibleDayCount),
+    [cortesByDay, visibleDayCount]
+  );
+  const visibleTickets = useMemo(
+    () => filteredTickets.slice(0, visibleTicketCount),
+    [filteredTickets, visibleTicketCount]
+  );
+  const visibleExpenses = useMemo(
+    () => filteredExpenses.slice(0, visibleExpenseCount),
+    [filteredExpenses, visibleExpenseCount]
+  );
+
+  const switchTab = (id: typeof activeTab) => {
+    startTransition(() => setActiveTab(id));
+  };
 
   // Summary Metrics
   const summaryMetrics = useMemo(() => {
@@ -849,7 +502,7 @@ function SalesModule({
             <button
               key={id}
               type="button"
-              onClick={() => setActiveTab(id)}
+              onClick={() => switchTab(id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
                 activeTab === id
                   ? 'bg-[#0047AB] text-white'
@@ -958,7 +611,7 @@ function SalesModule({
             </div>
           ) : (
             <div>
-              {cortesByDay.map((day) => (
+              {visibleCortesByDay.map((day) => (
                 <div key={day.dateKey || day.label}>
                   <div className="px-3 sm:px-4 py-1.5 bg-slate-50/90 border-y border-slate-100 text-[11px] font-semibold text-slate-500 capitalize sticky top-0 z-10">
                     {day.label}
@@ -1048,11 +701,16 @@ function SalesModule({
 
           <div className="px-3 sm:px-4 py-2 border-t border-slate-100 text-[11px] text-slate-500">
             {historyBusy === 'cortes'
-              ? 'Traemos el historial de la nube (hasta 6 meses). Los días vacíos recientes se listan para que se vea si no se laboró.'
+              ? 'Cargando días anteriores en segundo plano…'
               : historySpan.realCount === 0
                 ? 'Aún no hay cortes cargados. Si la nube tiene historial, use el botón de abajo.'
-                : `Hay ${historySpan.realCount} turnos en pantalla${historySpan.oldest ? ` desde ${formatCashDateLabel(historySpan.oldest)}` : ''}.`}
+                : `Hay ${historySpan.realCount} turnos${historySpan.oldest ? ` desde ${formatCashDateLabel(historySpan.oldest)}` : ''}. Se muestran ${Math.min(visibleDayCount, cortesByDay.length)} de ${cortesByDay.length} días.`}
           </div>
+          <LoadMoreButton
+            hasMore={visibleDayCount < cortesByDay.length}
+            onClick={() => setVisibleDayCount((n) => n + CORTES_VISIBLE_DAYS)}
+            label="Ver más días en pantalla"
+          />
           <LoadMoreButton
             hasMore={cortesHasMore}
             loading={historyBusy === 'cortes'}
@@ -1097,7 +755,7 @@ function SalesModule({
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filteredTickets.map((ticket, idx) => {
+              {visibleTickets.map((ticket, idx) => {
                 const isToday = safeDateIsoKey(ticket.timestamp) === todayIso;
                 const itemsCount = (ticket.items || []).reduce((acc, it) => acc + (it.quantity || 1), 0);
 
@@ -1200,6 +858,11 @@ function SalesModule({
           )}
 
           <LoadMoreButton
+            hasMore={visibleTicketCount < filteredTickets.length}
+            onClick={() => setVisibleTicketCount((n) => n + 80)}
+            label="Ver más tickets en pantalla"
+          />
+          <LoadMoreButton
             hasMore={salesHasMore}
             loading={historyBusy === 'sales'}
             onClick={onLoadOlderSales}
@@ -1243,7 +906,7 @@ function SalesModule({
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {filteredExpenses.map((expense, idx) => {
+              {visibleExpenses.map((expense, idx) => {
                 const isToday = safeDateIsoKey(expense.timestamp || expense.date) === todayIso;
 
                 return (
@@ -1300,6 +963,11 @@ function SalesModule({
             </div>
           )}
 
+          <LoadMoreButton
+            hasMore={visibleExpenseCount < filteredExpenses.length}
+            onClick={() => setVisibleExpenseCount((n) => n + 80)}
+            label="Ver más gastos en pantalla"
+          />
           <LoadMoreButton
             hasMore={expensesHasMore}
             loading={historyBusy === 'expenses'}
