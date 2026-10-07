@@ -1,7 +1,13 @@
-import type { AppNotification, RepairRecord } from '../types';
+import type { AppNotification, RepairRecord, SaleTicket } from '../types';
 import {
+  assembleRepairRecords,
   buildRepairCostDueNotification,
+  combineRepairRecords,
+  findPendingDuplicate,
+  foldRepairDuplicates,
+  inferRepairsFromTickets,
   isPendingRepair,
+  mergeRepairSources,
   needsRepairCostCapture,
   normalizeRepairStatus,
   normalizeWorkStage,
@@ -9,6 +15,7 @@ import {
   repairCostDueNotificationId,
   repairCostDueNotificationPlan,
   repairDaysInShop,
+  repairFingerprint,
   repairStatusLabel,
   setRepairWorkStage,
   shiftRepairWorkStage,
@@ -145,5 +152,86 @@ assert(
   notificationVisibleToOperator(stockNotice, { role: 'cashier', branchId: 'b-navojoa', operatorId: 'op-1' }),
   'caja sí ve un pedido de surtido de su sucursal'
 );
+
+const twinA: RepairRecord = {
+  ...pending,
+  id: 'REP-0310-K3M01',
+  clientPhone: '6441234567',
+  deviceModel: 'Moto G06',
+  receivedAtIso: '2026-10-03T10:00:00-07:00',
+  workStage: 'en_proceso',
+  totalCost: 800,
+  deviceId: 'caja-nav'
+};
+const twinB: RepairRecord = {
+  ...pending,
+  id: 'REP-0310-K3M02',
+  clientPhone: '644-123-4567',
+  deviceModel: 'moto g06',
+  receivedAtIso: '2026-10-03T10:05:00-07:00',
+  workStage: 'recibido'
+};
+assert(
+  repairFingerprint(twinA) === repairFingerprint(twinB),
+  'el mismo celular el mismo día comparte huella aunque cambie el folio'
+);
+assert(findPendingDuplicate([twinA], twinB)?.id === 'REP-0310-K3M01', 'detecta el alta duplicada');
+assert(
+  findPendingDuplicate([twinA], { ...twinB, receivedAtIso: '2026-10-04T09:00:00-07:00' })?.id ===
+    'REP-0310-K3M01',
+  'si sigue en taller no se recibe otra vez al día siguiente'
+);
+const folded = foldRepairDuplicates([twinA, twinB]);
+assert(folded.length === 1, 'el tablero no muestra dos fichas del mismo equipo');
+assert(folded[0].id === 'REP-0310-K3M01', 'se queda el folio que ya iba en el banco');
+assert(workStageOf(folded[0]) === 'en_proceso', 'no se regresa a recibido');
+
+const deliveredOfficial: RepairRecord = {
+  ...twinA,
+  status: 'entregado',
+  workStage: 'para_entrega',
+  deliveredAtIso: '2026-10-03T18:00:00-07:00'
+};
+const ghostFromTicket: RepairRecord = { ...twinB, status: 'en_taller', workStage: 'recibido' };
+const noGhost = assembleRepairRecords([ghostFromTicket], [deliveredOfficial]);
+assert(noGhost.length === 1, 'un ticket viejo no revive el equipo ya entregado');
+assert(noGhost[0].status === 'entregado', 'la entrega gana contra el snapshot en taller');
+
+const inferredOver = combineRepairRecords(deliveredOfficial, {
+  ...deliveredOfficial,
+  status: 'en_taller',
+  workStage: 'recibido',
+  deliveredAtIso: undefined
+});
+assert(inferredOver.status === 'entregado', 'reconstruir desde anticipo no borra la entrega');
+assert(inferredOver.deliveredAtIso === deliveredOfficial.deliveredAtIso, 'se conserva la marca de entrega');
+
+const fromCancelled = inferRepairsFromTickets([
+  {
+    id: 'TCK-X',
+    timestamp: '2026-10-03T10:00:00-07:00',
+    branchId: 'b-navojoa',
+    operatorName: 'Caja',
+    total: 0,
+    paymentMethod: 'Efectivo',
+    estado: 'CANCELADA',
+    items: [
+      {
+        product: { id: 'p', code: 'R', name: 'Recepción', category: 'servicio', price: 0, stock: 1 },
+        quantity: 1,
+        unitPrice: 0,
+        totalPrice: 0,
+        metadata: { repairId: 'REP-GHOST', clientPhone: '6440000000', deviceModel: 'A15', repairType: 'anticipo' }
+      }
+    ]
+  } as SaleTicket
+]);
+assert(fromCancelled.length === 0, 'un ticket cancelado no inventa ficha de taller');
+
+const laterName = mergeRepairSources(
+  [{ ...pending, clientName: 'ana' }],
+  [{ ...pending, clientName: 'Ana Guadalupe' }]
+);
+assert(laterName[0].clientName === 'Ana Guadalupe', 'el nombre de la ficha posterior se conserva');
 
 console.log('repairUtils.selftest ok');

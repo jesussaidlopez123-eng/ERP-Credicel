@@ -21,7 +21,7 @@ import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
-import { isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
+import { findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
 import RepairHistoryPanel from './RepairHistoryPanel';
 
 interface RepairModalProps {
@@ -132,6 +132,20 @@ export default function RepairModal({
 
     if (numAdvance > numTotal) {
       setFormError('El anticipo no puede ser mayor que el costo total.');
+      return;
+    }
+
+    const alreadyInShop = findPendingDuplicate(repairRecords, {
+      id: '',
+      branchId: currentBranch.id,
+      clientPhone: clientPhone.trim(),
+      deviceModel: deviceModel.trim(),
+      receivedAtIso: trustedIso()
+    });
+    if (alreadyInShop) {
+      setFormError(
+        `Este equipo ya está en taller con folio ${alreadyInShop.id}. Entrégalo o dalo de baja; no lo des de alta otra vez.`
+      );
       return;
     }
 

@@ -115,13 +115,15 @@ import { allocateFolio, clearFolioLeaseCooldown, warmUpFolios } from '../lib/fol
 import { ensureDailyBackup } from '../lib/dailyBackup';
 import { observeTrustedIso, trustedIso } from '../lib/clockGuard';
 import {
+  assembleRepairRecords,
+  findPendingDuplicate,
   inferRepairsFromTickets,
   isPendingRepair,
   loadLegacyRepairRecords,
-  mergeRepairSources,
   notificationVisibleToOperator,
   repairCostDueNotificationId,
-  repairCostDueNotificationPlan
+  repairCostDueNotificationPlan,
+  repairFingerprint
 } from '../lib/repairUtils';
 import {
   agendaNotificationPlan,
@@ -386,7 +388,7 @@ export default function Dashboard({
         }
         setRepairRecords((prev) => {
           const fromCloud = keepIfCloudEmpty(records, prev);
-          const next = mergeRepairSources(
+          const next = assembleRepairRecords(
             loadLegacyRepairRecords(),
             prev,
             localOnlyRef.current.repairs,
@@ -596,7 +598,7 @@ export default function Dashboard({
       if (extra.length < HISTORY_PAGE) setRepairsHasMore(false);
       if (extra.length > 0) {
         setRepairRecords((prev) => {
-          const next = mergeRepairSources(prev, extra);
+          const next = assembleRepairRecords(prev, extra);
           scheduleSaveCachedList('repairs', next);
           return next;
         });
@@ -670,7 +672,7 @@ export default function Dashboard({
         const legacy = loadLegacyRepairRecords();
         if (repairs.length > 0 || legacy.length > 0) {
           setRepairRecords((prev) => {
-            const next = mergeRepairSources(legacy, repairs, prev);
+            const next = assembleRepairRecords(legacy, repairs, prev);
             saveCachedList('repairs', next);
             return next;
           });
@@ -1388,7 +1390,7 @@ export default function Dashboard({
     if (inferred.length === 0) return;
 
     setRepairRecords((prev) => {
-      const next = mergeRepairSources(inferred, prev);
+      const next = assembleRepairRecords(inferred, prev);
       const prevIds = new Set(prev.map((r) => r.id));
       if (next.length === prev.length && next.every((r) => prevIds.has(r.id))) return prev;
       saveCachedList('repairs', next);
@@ -1398,9 +1400,20 @@ export default function Dashboard({
     if (!repairsCloudReady) return;
     const cloudIds = cloudRepairIdsRef.current;
     if (!cloudIds) return;
+    const current = repairRecordsRef.current;
     inferred.forEach((rec) => {
       if (!isPendingRepair(rec)) return;
       if (cloudIds.has(rec.id) || rescuedRepairIdsRef.current.has(rec.id)) return;
+      const existing = current.find((row) => row.id === rec.id);
+      if (existing && !isPendingRepair(existing)) return;
+      if (findPendingDuplicate(current, rec)) return;
+      const inferredFp = repairFingerprint(rec);
+      if (
+        inferredFp &&
+        current.some((row) => !isPendingRepair(row) && repairFingerprint(row) === inferredFp)
+      ) {
+        return;
+      }
       rescuedRepairIdsRef.current.add(rec.id);
       void persistRepairRecord(rec).catch((err) =>
         console.warn('[Taller] No se pudo rescatar la ficha', rec.id, err)

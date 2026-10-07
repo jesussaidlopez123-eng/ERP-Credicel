@@ -277,10 +277,155 @@ export function normalizeRepairRecord(
   };
 }
 
+function repairStatusRank(status: RepairRecord['status'] | string | undefined): number {
+  const value = normalizeRepairStatus(status);
+  if (value === 'cancelado') return 3;
+  if (value === 'entregado') return 2;
+  return 1;
+}
+
+function repairStageRank(stage: RepairWorkStage | string | undefined): number {
+  const idx = REPAIR_WORK_STAGES.indexOf(normalizeWorkStage(stage));
+  return idx < 0 ? 0 : idx;
+}
+
+function mergeRepairCostLines(
+  a?: RepairCostLine[],
+  b?: RepairCostLine[]
+): RepairCostLine[] | undefined {
+  if (!a?.length) return b?.length ? b : a ?? b;
+  if (!b?.length) return a;
+  const map = new Map<string, RepairCostLine>();
+  for (const line of [...a, ...b]) {
+    if (!line?.id) continue;
+    map.set(line.id, line);
+  }
+  return Array.from(map.values());
+}
+
+function mergeRepairCostUpdates(
+  a?: RepairRecord['costUpdates'],
+  b?: RepairRecord['costUpdates']
+): RepairRecord['costUpdates'] {
+  const rows = [...(a || []), ...(b || [])];
+  if (rows.length === 0) return a ?? b;
+  const seen = new Set<string>();
+  const out: NonNullable<RepairRecord['costUpdates']> = [];
+  for (const row of rows) {
+    const key = `${row.at}|${row.by}|${row.previousTotal}|${row.newTotal}|${row.note || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+/** Une dos fichas del mismo folio: gana el ciclo más avanzado, no el snapshot más nuevo. */
+export function combineRepairRecords(prev: RepairRecord, incoming: RepairRecord): RepairRecord {
+  const status =
+    repairStatusRank(incoming.status) >= repairStatusRank(prev.status) ? incoming.status : prev.status;
+  const workStage =
+    status === 'entregado'
+      ? 'para_entrega'
+      : repairStageRank(incoming.workStage) >= repairStageRank(prev.workStage)
+        ? workStageOf(incoming)
+        : workStageOf(prev);
+  return {
+    ...prev,
+    ...incoming,
+    id: incoming.id || prev.id,
+    status,
+    workStage,
+    costLines: mergeRepairCostLines(prev.costLines, incoming.costLines),
+    costUpdates: mergeRepairCostUpdates(prev.costUpdates, incoming.costUpdates),
+    deliveredAt: incoming.deliveredAt || prev.deliveredAt,
+    deliveredAtIso: incoming.deliveredAtIso || prev.deliveredAtIso,
+    deliveredByName: incoming.deliveredByName || prev.deliveredByName,
+    deliveryTicketId: incoming.deliveryTicketId || prev.deliveryTicketId,
+    cancelledAt: incoming.cancelledAt || prev.cancelledAt,
+    cancelledByName: incoming.cancelledByName || prev.cancelledByName,
+    cancelReason: incoming.cancelReason || prev.cancelReason,
+    passcodePattern: incoming.passcodePattern || prev.passcodePattern,
+    issueDescription: incoming.issueDescription || prev.issueDescription,
+    deviceId: incoming.deviceId || prev.deviceId,
+    deviceLabel: incoming.deviceLabel || prev.deviceLabel
+  };
+}
+
+export function repairPhoneDigits(phone: string | undefined): string {
+  return String(phone || '').replace(/\D/g, '');
+}
+
+export function repairDeviceKey(model: string | undefined): string {
+  return String(model || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+export function repairReceivedKey(
+  record: Partial<Pick<RepairRecord, 'receivedAtIso' | 'receivedAt'>>
+): string {
+  return (
+    safeDateIsoKey(record.receivedAtIso) ||
+    safeDateIsoKey(record.receivedAt) ||
+    String(record.receivedAtIso || record.receivedAt || '').slice(0, 10)
+  );
+}
+
+/** Sucursal + teléfono + equipo. Un celular que sigue en taller no se da de alta otra vez. */
+export function repairShopIdentity(
+  record: Pick<RepairRecord, 'branchId' | 'clientPhone' | 'deviceModel'>
+): string {
+  const phone = repairPhoneDigits(record.clientPhone);
+  const device = repairDeviceKey(record.deviceModel);
+  if (!phone || !device) return '';
+  return `${normalizeBranchId(record.branchId)}|${phone}|${device}`;
+}
+
+/** Misma sucursal + teléfono + equipo + día de recepción. */
+export function repairFingerprint(
+  record: Pick<RepairRecord, 'branchId' | 'clientPhone' | 'deviceModel'> &
+    Partial<Pick<RepairRecord, 'receivedAtIso' | 'receivedAt'>>
+): string {
+  const identity = repairShopIdentity(record);
+  if (!identity) return '';
+  return `${identity}|${repairReceivedKey(record)}`;
+}
+
+function repairCompleteness(record: RepairRecord): number {
+  let n = 0;
+  if (record.passcodePattern) n += 1;
+  if (record.issueDescription) n += 1;
+  if (record.deviceId) n += 2;
+  if (money(record.totalCost) > 0) n += 1;
+  if (record.costLines?.length) n += 2;
+  if (workStageOf(record) !== 'recibido') n += 2;
+  if (!isPendingRepair(record)) n += 3;
+  return n;
+}
+
+function preferRepairRecord(a: RepairRecord, b: RepairRecord): RepairRecord {
+  if (repairStatusRank(b.status) !== repairStatusRank(a.status)) {
+    return repairStatusRank(b.status) > repairStatusRank(a.status) ? b : a;
+  }
+  if (repairStageRank(b.workStage) !== repairStageRank(a.workStage)) {
+    return repairStageRank(b.workStage) > repairStageRank(a.workStage) ? b : a;
+  }
+  if (repairCompleteness(b) !== repairCompleteness(a)) {
+    return repairCompleteness(b) > repairCompleteness(a) ? b : a;
+  }
+  const ta = a.receivedAtIso || '';
+  const tb = b.receivedAtIso || '';
+  if (ta && tb && ta !== tb) return ta < tb ? a : b;
+  return a.id <= b.id ? a : b;
+}
+
 /**
- * Fuentes más a la derecha ganan en el mismo folio.
- * Un folio que solo existe en una fuente anterior (p. ej. un pendiente
- * rescatado de un ticket) no se tira.
+ * Fuentes más a la derecha actualizan datos, pero no bajan un folio
+ * ya entregado o cancelado, ni tiran costos internos.
  */
 export function mergeRepairSources(...lists: Array<RepairRecord[] | undefined>): RepairRecord[] {
   const map = new Map<string, RepairRecord>();
@@ -290,21 +435,73 @@ export function mergeRepairSources(...lists: Array<RepairRecord[] | undefined>):
       const rec = normalizeRepairRecord(raw as RepairRecord & Record<string, unknown>);
       if (!rec) continue;
       const prev = map.get(rec.id);
-      map.set(
-        rec.id,
-        prev
-          ? {
-              ...prev,
-              ...rec,
-              id: rec.id,
-              costUpdates: rec.costUpdates ?? prev.costUpdates,
-              costLines: rec.costLines ?? prev.costLines
-            }
-          : rec
-      );
+      map.set(rec.id, prev ? combineRepairRecords(prev, rec) : rec);
     }
   }
   return Array.from(map.values());
+}
+
+/**
+ * Un mismo celular a veces queda con dos folios: el oficial y uno reconstruido
+ * del ticket, o un segundo alta si la recepción se reintentó. Se deja una ficha.
+ */
+export function foldRepairDuplicates(records: RepairRecord[]): RepairRecord[] {
+  const unique = mergeRepairSources(records);
+  const leftover: RepairRecord[] = [];
+  const pendingByShop = new Map<string, RepairRecord[]>();
+
+  for (const rec of unique) {
+    if (!isPendingRepair(rec)) {
+      leftover.push(rec);
+      continue;
+    }
+    const identity = repairShopIdentity(rec);
+    if (!identity) {
+      leftover.push(rec);
+      continue;
+    }
+    const group = pendingByShop.get(identity) || [];
+    group.push(rec);
+    pendingByShop.set(identity, group);
+  }
+
+  const closedFingerprints = new Set(
+    leftover.map((row) => repairFingerprint(row)).filter(Boolean)
+  );
+
+  for (const group of pendingByShop.values()) {
+    const winner = group.reduce((best, row) => {
+      const pick = preferRepairRecord(best, row);
+      const other = pick.id === best.id ? row : best;
+      return combineRepairRecords(other, pick);
+    });
+    const fp = repairFingerprint(winner);
+    if (fp && closedFingerprints.has(fp)) continue;
+    leftover.push(winner);
+  }
+
+  return leftover;
+}
+
+export function assembleRepairRecords(...lists: Array<RepairRecord[] | undefined>): RepairRecord[] {
+  return foldRepairDuplicates(mergeRepairSources(...lists));
+}
+
+export function findPendingDuplicate(
+  records: RepairRecord[],
+  candidate: Pick<RepairRecord, 'branchId' | 'clientPhone' | 'deviceModel'> &
+    Partial<Pick<RepairRecord, 'id' | 'receivedAtIso' | 'receivedAt'>>
+): RepairRecord | null {
+  const identity = repairShopIdentity(candidate);
+  if (!identity) return null;
+  return (
+    records.find(
+      (row) =>
+        isPendingRepair(row) &&
+        row.id !== (candidate.id || '') &&
+        repairShopIdentity(row) === identity
+    ) || null
+  );
 }
 
 export function loadLegacyRepairRecords(): RepairRecord[] {
@@ -333,6 +530,7 @@ export function inferRepairsFromTickets(tickets: SaleTicket[]): RepairRecord[] {
   const ordered = tickets.slice().sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
 
   for (const ticket of ordered) {
+    if (ticket.estado === 'CANCELADA') continue;
     for (const item of ticket.items || []) {
       const meta = item.metadata;
       const id = String(meta?.repairId || '').trim();
@@ -351,15 +549,19 @@ export function inferRepairsFromTickets(tickets: SaleTicket[]): RepairRecord[] {
         totalCost,
         advancePayment,
         pendingBalance: money(meta?.pendingBalance ?? prev?.pendingBalance ?? Math.max(0, totalCost - advancePayment)),
-        status: 'en_taller',
+        status: prev?.status || 'en_taller',
         workStage: prev?.workStage || 'recibido',
         receivedAt: meta?.receivedAt || prev?.receivedAt || '',
         receivedAtIso: prev?.receivedAtIso || ticket.timestamp,
         operatorName: ticket.operatorName || prev?.operatorName || '',
-        branchId: normalizeBranchId(ticket.branchId || prev?.branchId)
+        branchId: normalizeBranchId(ticket.branchId || prev?.branchId),
+        deliveredAt: prev?.deliveredAt,
+        deliveredAtIso: prev?.deliveredAtIso,
+        deliveredByName: prev?.deliveredByName,
+        deliveryTicketId: prev?.deliveryTicketId
       };
 
-      if (meta?.repairType === 'saldo_final') {
+      if (meta?.repairType === 'saldo_final' || meta?.repairType === 'pago_total') {
         rec.status = 'entregado';
         rec.workStage = 'para_entrega';
         rec.pendingBalance = 0;
@@ -369,7 +571,7 @@ export function inferRepairsFromTickets(tickets: SaleTicket[]): RepairRecord[] {
         rec.deliveryTicketId = ticket.folio || ticket.id;
       }
 
-      byId.set(id, rec);
+      byId.set(id, prev ? combineRepairRecords(prev, rec) : rec);
     }
   }
 
