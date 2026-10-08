@@ -6,7 +6,7 @@ import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_REPAIR_PRICES } from '../data/initialRepairPrices';
 import { INITIAL_OPERATORS } from '../data/initialOperators';
 import { ALL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
-import { canOpenModule, defaultModuleForRole, normalizeRole } from '../lib/roles';
+import { canOpenModule, defaultModuleForOperator, normalizeRole } from '../lib/roles';
 import { Bell, CalendarDays, Menu, Megaphone } from 'lucide-react';
 import {
   subscribeToProducts,
@@ -170,7 +170,7 @@ export default function Dashboard({
   onUpdateOperators = () => {},
   onLogout 
 }: DashboardProps) {
-  const [activeModule, setActiveModule] = useState<ModuleId>(() => defaultModuleForRole(currentOperator.role));
+  const [activeModule, setActiveModule] = useState<ModuleId>(() => defaultModuleForOperator(currentOperator));
   const [repairsFocusCostDue, setRepairsFocusCostDue] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -611,9 +611,9 @@ export default function Dashboard({
   }, [historyBusy, repairRecords]);
 
   const handleModuleChange = useCallback((id: ModuleId) => {
-    if (!canOpenModule(currentOperator.role, id)) return;
+    if (!canOpenModule(currentOperator, id)) return;
     startTransition(() => setActiveModule(id));
-  }, [currentOperator.role]);
+  }, [currentOperator]);
 
   // Cola de envío: lo capturado aquí sube solo, en orden y con reintentos.
   useEffect(() => startOutboxWorker(), []);
@@ -966,10 +966,10 @@ export default function Dashboard({
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name, onLogout]);
 
   useEffect(() => {
-    if (!canOpenModule(currentOperator.role, activeModule)) {
-      setActiveModule(defaultModuleForRole(currentOperator.role));
+    if (!canOpenModule(currentOperator, activeModule)) {
+      setActiveModule(defaultModuleForOperator(currentOperator));
     }
-  }, [currentOperator.role, activeModule]);
+  }, [currentOperator, activeModule]);
 
   // Inventory Movement Recording Helper
   const handleRecordInventoryMovement = (movementData: Omit<InventoryMovement, 'id' | 'timestamp'> | InventoryMovement) => {
@@ -1866,7 +1866,7 @@ export default function Dashboard({
   );
 
   const unreadCount = visibleNotifications.length;
-  const canUseAgenda = canOpenModule(currentOperator.role, 'credicelDashboard');
+  const canUseAgenda = canOpenModule(currentOperator, 'credicelDashboard');
   const agendaDueCount = useMemo(
     () => agendaTasks.filter((task) => isAgendaTaskDue(task, agendaClock)).length,
     [agendaTasks, agendaClock]
@@ -1982,7 +1982,7 @@ export default function Dashboard({
 
   // Render Module Content based on activeModule
   const renderModuleContent = () => {
-    if (!canOpenModule(currentOperator.role, activeModule)) {
+    if (!canOpenModule(currentOperator, activeModule)) {
       return null;
     }
     switch (activeModule) {

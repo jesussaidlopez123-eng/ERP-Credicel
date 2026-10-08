@@ -71,7 +71,7 @@ La app queda en `http://127.0.0.1:43127`.
 
 Los operadores y contraseñas viven en **Usuarios** (Firestore). No hay usuarios de demostración en producción.
 
-Roles: **Administrador** (todo el menú), **Encargado** (notas, punto de venta, inventario, ventas y cortes) y **Cajero** (solo punto de venta).
+Roles: **Administrador** (todo el menú), **Encargado** (notas, punto de venta, inventario, ventas y cortes) y **Cajero** (solo punto de venta). Un administrador puede **cambiar la sucursal** de un usuario y **marcar a qué módulos entra**. Si no se eligen módulos, se usan los del rol. Usuarios queda solo para administradores. Si el usuario tiene más de una sucursal, la elige al iniciar sesión.
 
 ## Scripts
 

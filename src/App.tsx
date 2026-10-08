@@ -4,8 +4,8 @@ import Login from './components/Login';
 import { ModuleLoading } from './components/LazyWhen';
 import { Branch, Operator } from './types';
 import { getStoredOperators, saveStoredOperators, INITIAL_OPERATORS } from './data/initialOperators';
-import { ADMIN_WORKSPACE, ALL_BRANCHES, hasCashTill } from './data/initialBranches';
-import { normalizeRole } from './lib/roles';
+import { ALL_BRANCHES, hasCashTill } from './data/initialBranches';
+import { resolveOperatorWorkspace } from './lib/roles';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -51,6 +51,23 @@ export default function App() {
 
   const currentOperatorRef = useRef<Operator | null>(currentOperator);
   currentOperatorRef.current = currentOperator;
+  const currentBranchRef = useRef<Branch | null>(currentBranch);
+  currentBranchRef.current = currentBranch;
+
+  const persistSession = (operator: Operator, branch: Branch) => {
+    setCurrentOperator(operator);
+    setCurrentBranch(branch);
+    try {
+      const saved = localStorage.getItem(SESSION_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : {};
+      localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({ ...parsed, authenticated: true, branch, operator })
+      );
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeToOperators((firestoreOps) => {
@@ -62,19 +79,10 @@ export default function App() {
         if (current) {
           const matched = firestoreOps.find((o) => o.id === current.id);
           if (matched) {
-            setCurrentOperator(matched);
-            try {
-              const saved = localStorage.getItem(SESSION_STORAGE_KEY);
-              if (saved) {
-                const parsed = JSON.parse(saved);
-                localStorage.setItem(
-                  SESSION_STORAGE_KEY,
-                  JSON.stringify({ ...parsed, operator: matched })
-                );
-              }
-            } catch {
-              // ignore
-            }
+            persistSession(
+              matched,
+              resolveOperatorWorkspace(matched, currentBranchRef.current, ALL_BRANCHES)
+            );
           }
         }
       }
@@ -154,25 +162,19 @@ export default function App() {
       }
     }
 
-    // If current operator was modified, update currentOperator in state & localStorage
     if (currentOperator) {
       const updatedSelf = newOperators.find((op) => op.id === currentOperator.id);
       if (updatedSelf) {
-        setCurrentOperator(updatedSelf);
-        try {
-          localStorage.setItem(
-            SESSION_STORAGE_KEY,
-            JSON.stringify({ authenticated: true, branch: currentBranch, operator: updatedSelf })
-          );
-        } catch {
-          // ignore
-        }
+        persistSession(
+          updatedSelf,
+          resolveOperatorWorkspace(updatedSelf, currentBranch, ALL_BRANCHES)
+        );
       }
     }
   };
 
   const handleLogin = (branch: Branch, operator: Operator) => {
-    const workspace = normalizeRole(operator.role) === 'admin' ? ADMIN_WORKSPACE : branch;
+    const workspace = resolveOperatorWorkspace(operator, branch, ALL_BRANCHES);
     setCurrentBranch(workspace);
     setCurrentOperator(operator);
     setIsAuthenticated(true);

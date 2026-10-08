@@ -22,8 +22,16 @@ import {
   Zap,
   Check
 } from 'lucide-react';
-import { Operator, Branch } from '../types';
+import { Operator, Branch, ModuleId } from '../types';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import {
+  MODULE_OPTIONS,
+  defaultModulesForRole,
+  moduleLabel,
+  normalizeRole,
+  resolvedModuleIds,
+  sanitizeModuleIds
+} from '../lib/roles';
 
 interface SettingsModuleProps {
   operators: Operator[];
@@ -54,6 +62,7 @@ export default function SettingsModule({
   const [formConfirmPassword, setFormConfirmPassword] = useState('');
   const [formRole, setFormRole] = useState<'admin' | 'manager' | 'cashier'>('cashier');
   const [formBranchIds, setFormBranchIds] = useState<string[]>([]);
+  const [formModuleIds, setFormModuleIds] = useState<ModuleId[]>(() => defaultModulesForRole('cashier'));
   const [showFormPassword, setShowFormPassword] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -109,8 +118,11 @@ export default function SettingsModule({
     setTimeout(() => setTestPrintFeedback(null), 4000);
   };
 
-  // Check if logged-in user is the Main Admin (Admin Principal)
-  const isMainAdmin = currentOperator.isMainAdmin || currentOperator.id === 'o1' || (currentOperator.role === 'admin' && currentOperator.username === 'admin');
+  const canManageUsers = normalizeRole(currentOperator.role) === 'admin';
+  const isMainAdmin =
+    currentOperator.isMainAdmin ||
+    currentOperator.id === 'o1' ||
+    (currentOperator.role === 'admin' && currentOperator.username === 'admin');
 
   // Toggle reveal password for a specific operator in table
   const togglePasswordVisibility = (opId: string) => {
@@ -129,6 +141,7 @@ export default function SettingsModule({
     setFormConfirmPassword('');
     setFormRole('cashier');
     setFormBranchIds(currentBranch.id === 'all' ? [] : [currentBranch.id]);
+    setFormModuleIds(defaultModulesForRole('cashier'));
     setShowFormPassword(false);
     setModalError(null);
     setIsUserModalOpen(true);
@@ -147,9 +160,23 @@ export default function SettingsModule({
         .map((id) => normalizeBranchId(id))
         .filter((id) => id && id !== 'all')
     );
+    setFormModuleIds(resolvedModuleIds(op));
     setShowFormPassword(false);
     setModalError(null);
     setIsUserModalOpen(true);
+  };
+
+  const toggleFormBranch = (branchId: string) => {
+    setFormBranchIds((prev) =>
+      prev.includes(branchId) ? prev.filter((id) => id !== branchId) : [...prev, branchId]
+    );
+  };
+
+  const toggleFormModule = (moduleId: ModuleId) => {
+    if (moduleId === 'settings' && formRole !== 'admin') return;
+    setFormModuleIds((prev) =>
+      prev.includes(moduleId) ? prev.filter((id) => id !== moduleId) : [...prev, moduleId]
+    );
   };
 
   // Open Change Password Modal
@@ -203,12 +230,17 @@ export default function SettingsModule({
     }
 
     if (formRole !== 'admin' && formBranchIds.length === 0) {
-      setModalError('Seleccione al menos una sucursal permitida para este operador.');
+      setModalError('Seleccione al menos una sucursal para este operador.');
+      return;
+    }
+
+    const cleanModuleIds = sanitizeModuleIds(formModuleIds, formRole);
+    if (cleanModuleIds.length === 0) {
+      setModalError('Seleccione al menos un módulo al que este usuario pueda entrar.');
       return;
     }
 
     if (editingOperator) {
-      // Update
       const updatedList = operators.map((op) => {
         if (op.id === editingOperator.id) {
           return {
@@ -218,13 +250,13 @@ export default function SettingsModule({
             password: cleanPassword,
             role: formRole,
             branchIds: formBranchIds,
+            moduleIds: cleanModuleIds,
           };
         }
         return op;
       });
       onUpdateOperators(updatedList);
     } else {
-      // Create New
       const newOp: Operator = {
         id: `op-${Date.now()}`,
         name: cleanName,
@@ -232,6 +264,7 @@ export default function SettingsModule({
         password: cleanPassword,
         role: formRole,
         branchIds: formBranchIds,
+        moduleIds: cleanModuleIds,
         isMainAdmin: false,
         createdAt: new Date().toISOString().split('T')[0],
       };
@@ -320,18 +353,17 @@ export default function SettingsModule({
         </div>
 
         <div className="flex items-center gap-2 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700">
-          <ShieldCheck className={`w-4 h-4 ${isMainAdmin ? 'text-emerald-400' : 'text-amber-400'}`} />
+          <ShieldCheck className={`w-4 h-4 ${canManageUsers ? 'text-emerald-400' : 'text-amber-400'}`} />
           <span className="text-xs font-semibold text-white">
-            {isMainAdmin ? 'Edición' : 'Solo lectura'}
+            {canManageUsers ? 'Administrador' : 'Solo lectura'}
           </span>
         </div>
       </div>
 
-      {/* RESTRICTION WARNING IF NOT MAIN ADMIN */}
-      {!isMainAdmin && (
+      {!canManageUsers && (
         <div className="px-3 py-2 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-amber-900">
           <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
-          <h4 className="font-semibold text-xs text-amber-950">Solo consulta</h4>
+          <h4 className="font-semibold text-xs text-amber-950">Solo un administrador puede cambiar sucursal o módulos.</h4>
         </div>
       )}
 
@@ -363,8 +395,7 @@ export default function SettingsModule({
           </select>
         </div>
 
-        {/* Create Button (Only for Admin Principal) */}
-        {isMainAdmin && (
+        {canManageUsers && (
           <button
             onClick={handleOpenCreateModal}
             className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
@@ -395,8 +426,9 @@ export default function SettingsModule({
                 <th className="px-4 py-3.5">Nombre de Usuario (Login)</th>
                 <th className="px-4 py-3.5">Rol de Sistema</th>
                 <th className="px-4 py-3.5">Sucursal Asignada</th>
+                <th className="px-4 py-3.5">Módulos</th>
                 <th className="px-4 py-3.5">Contraseña de Acceso</th>
-                {isMainAdmin && <th className="px-4 py-3.5 text-center">Acciones Administrador</th>}
+                {canManageUsers && <th className="px-4 py-3.5 text-center">Acciones</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -451,10 +483,13 @@ export default function SettingsModule({
                       </span>
                     </td>
 
-                    {/* Assigned Branch */}
                     <td className="px-4 py-3.5">
                       <div className="flex flex-wrap gap-1 items-center">
-                        {op.branchIds && op.branchIds.length > 0 ? (
+                        {op.role === 'admin' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-800 text-[11px] font-black rounded-lg border border-slate-200">
+                            Administración
+                          </span>
+                        ) : op.branchIds && op.branchIds.length > 0 ? (
                           op.branchIds.map((bId) => {
                             const name = getBranchDisplayName(bId);
                             return (
@@ -473,6 +508,24 @@ export default function SettingsModule({
                       </div>
                     </td>
 
+                    <td className="px-4 py-3.5">
+                      <div className="flex flex-wrap gap-1 items-center max-w-[220px]">
+                        {resolvedModuleIds(op).slice(0, 3).map((id) => (
+                          <span
+                            key={id}
+                            className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md border border-slate-200"
+                          >
+                            {moduleLabel(id)}
+                          </span>
+                        ))}
+                        {resolvedModuleIds(op).length > 3 && (
+                          <span className="text-[10px] font-bold text-slate-500">
+                            +{resolvedModuleIds(op).length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
                     {/* Password View/Hide */}
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
@@ -480,7 +533,7 @@ export default function SettingsModule({
                           {isRevealed ? (op.password || '123') : '••••••••'}
                         </span>
                         
-                        {isMainAdmin && (
+                        {canManageUsers && (
                           <button
                             onClick={() => togglePasswordVisibility(op.id)}
                             className="p-1 text-slate-500 hover:text-slate-900 transition-colors"
@@ -493,7 +546,7 @@ export default function SettingsModule({
                     </td>
 
                     {/* Admin Actions */}
-                    {isMainAdmin && (
+                    {canManageUsers && (
                       <td className="px-4 py-3.5 text-center">
                         <div className="flex items-center justify-center gap-1.5">
                           <button
@@ -531,7 +584,7 @@ export default function SettingsModule({
 
               {filteredOperators.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-slate-400 font-medium">
+                  <td colSpan={7} className="text-center py-8 text-slate-400 font-medium">
                     No se encontraron usuarios con el criterio de búsqueda.
                   </td>
                 </tr>
@@ -697,7 +750,7 @@ export default function SettingsModule({
       {/* CREATE / EDIT USER MODAL */}
       {isUserModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -796,36 +849,46 @@ export default function SettingsModule({
                 </div>
               </div>
 
-              {/* Role Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Rol y Nivel de Permisos *
+                  Rol *
                 </label>
                 <select
                   value={formRole}
-                  onChange={(e) => setFormRole(e.target.value as any)}
+                  onChange={(e) => {
+                    const next = e.target.value as 'admin' | 'manager' | 'cashier';
+                    setFormRole(next);
+                    setFormModuleIds(defaultModulesForRole(next));
+                  }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                 >
-                  <option value="cashier">Cajero / Vendedor (Acceso restringido solo al Punto de Venta)</option>
-                  <option value="manager">Encargado de sucursal (Inventario y Ventas y cortes)</option>
-                  <option value="admin">Administrador (Acceso Total a todos los módulos)</option>
+                  <option value="cashier">Cajero / Vendedor</option>
+                  <option value="manager">Encargado de sucursal</option>
+                  <option value="admin">Administrador</option>
                 </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  El rol sugiere módulos. Debajo puede quitar o agregar los que este usuario sí va a usar.
+                </p>
               </div>
 
-              {/* Branch Assignment */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold text-slate-700">
-                    Sucursal Asignada (Acceso Automático) *
+                    Sucursal{formRole === 'admin' ? ' (opcional)' : ' *'}
                   </label>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <Building2 className="w-3 h-3 text-blue-600" />
-                    Asignación Automática
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFormBranchIds(allBranches.map((b) => b.id))}
+                    className="text-[10px] font-bold text-blue-700 hover:underline"
+                  >
+                    Las tres
+                  </button>
                 </div>
                 
                 <p className="text-[11px] text-slate-500 mb-2">
-                  El usuario ingresará directamente a esta sucursal sin necesidad de seleccionarla en la pantalla de acceso.
+                  {formRole === 'admin'
+                    ? 'El administrador entra a Administración. Las sucursales sirven si más adelante deja de ser admin.'
+                    : 'Puede marcar una o varias. Si hay más de una, el usuario las elige al iniciar sesión.'}
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
@@ -835,10 +898,7 @@ export default function SettingsModule({
                       <button
                         type="button"
                         key={branch.id}
-                        onClick={() => {
-                          // Allow setting single primary branch or toggling
-                          setFormBranchIds([branch.id]);
-                        }}
+                        onClick={() => toggleFormBranch(branch.id)}
                         className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer text-left ${
                           isChecked 
                             ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-600/20' 
@@ -851,6 +911,54 @@ export default function SettingsModule({
                         </div>
                         {isChecked && (
                           <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    Módulos permitidos *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setFormModuleIds(defaultModulesForRole(formRole))}
+                    className="text-[10px] font-bold text-blue-700 hover:underline"
+                  >
+                    Según el rol
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Solo verá en el menú lo que marque aquí. Usuarios queda para administradores.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  {MODULE_OPTIONS.map((mod) => {
+                    const locked = mod.id === 'settings' && formRole !== 'admin';
+                    const isChecked = !locked && formModuleIds.includes(mod.id);
+                    return (
+                      <button
+                        type="button"
+                        key={mod.id}
+                        disabled={locked}
+                        onClick={() => toggleFormModule(mod.id)}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all text-left ${
+                          locked
+                            ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                            : isChecked
+                              ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm cursor-pointer'
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 cursor-pointer'
+                        }`}
+                      >
+                        <span>{mod.label}</span>
+                        {locked ? (
+                          <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        ) : isChecked ? (
+                          <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-400">Off</span>
                         )}
                       </button>
                     );

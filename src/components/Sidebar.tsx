@@ -48,7 +48,7 @@ export default function Sidebar({
     { id: 'settings', label: 'Usuarios', icon: <Settings className="w-4 h-4" /> },
   ];
 
-  const menuItems = allMenuItems.filter((item) => canOpenModule(currentOperator.role, item.id));
+  const menuItems = allMenuItems.filter((item) => canOpenModule(currentOperator, item.id));
   const roleText = roleLabel(currentOperator.role);
 
   return (

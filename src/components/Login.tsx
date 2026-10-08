@@ -149,11 +149,17 @@ export default function Login({
                 >
                   {safeOperators.map((op) => {
                     const isAdminOp = normalizeRole(op.role) === 'admin';
-                    const opBranch = safeBranches.find((b) => op.branchIds?.includes(b.id)) || safeBranches[0];
+                    const branchNames = (op.branchIds || [])
+                      .map((id) => getBranchDisplayName(id))
+                      .filter((name) => name && name !== 'Administración');
                     return (
                       <option key={op.id} value={op.id}>
                         {op.name} ({roleLabel(op.role)})
-                        {isAdminOp ? ' — Administración' : ` — ${getBranchDisplayName(opBranch?.id)}`}
+                        {isAdminOp
+                          ? ' — Administración'
+                          : branchNames.length
+                            ? ` — ${branchNames.join(', ')}`
+                            : ''}
                       </option>
                     );
                   })}

@@ -3,6 +3,8 @@ export interface Branch {
   name: string;
 }
 
+export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'repairs' | 'executive' | 'credicelDashboard' | 'settings';
+
 export interface Operator {
   id: string;
   name: string;
@@ -10,11 +12,11 @@ export interface Operator {
   password?: string;
   branchIds: string[];
   role: 'admin' | 'cashier' | 'manager';
+  /** Módulos que este usuario puede abrir. Si falta, se usan los del rol. */
+  moduleIds?: ModuleId[];
   isMainAdmin?: boolean;
   createdAt?: string;
 }
-
-export type ModuleId = 'pos' | 'inventory' | 'purchases' | 'sales' | 'repairs' | 'executive' | 'credicelDashboard' | 'settings';
 
 export type NoticeUrgency = 'normal' | 'urgente';
 
