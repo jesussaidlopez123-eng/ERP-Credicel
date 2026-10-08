@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Product, CartItemMetadata, Branch } from '../types';
 import { isAdminWorkspace } from '../data/initialBranches';
+import ProductSearchSelect from './ProductSearchSelect';
 import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
 import { canonicalImei, imeiDigits, resolveSaleImei } from '../lib/imeiInventory';
 
@@ -360,21 +361,17 @@ export default function CreditDeviceModal({
                   {availableEquipos.length} modelos en stock
                 </span>
               </label>
-              <select
+              <ProductSearchSelect
+                products={availableEquipos}
                 value={selectedProdId}
-                onChange={(e) => handleSelectModelChange(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-slate-600 focus:outline-none"
-              >
-                <option value="">-- Seleccionar modelo disponible en inventario --</option>
-                {availableEquipos.map((eq) => {
-                  const bStock = getBranchStockQty(eq, activeBranchId);
-                  return (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} - ${eq.price ? eq.price.toFixed(2) : '0.00'} (Stock: {bStock})
-                    </option>
-                  );
-                })}
-              </select>
+                onChange={handleSelectModelChange}
+                placeholder="Escribe el modelo o elige de la lista…"
+                emptyLabel="No hay modelos en stock"
+                getLabel={(eq) =>
+                  `${eq.name} - $${eq.price ? eq.price.toFixed(2) : '0.00'} (Stock: ${getBranchStockQty(eq, activeBranchId)})`
+                }
+                focusClassName="focus:ring-2 focus:ring-slate-600"
+              />
             </div>
           ) : (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center gap-2">

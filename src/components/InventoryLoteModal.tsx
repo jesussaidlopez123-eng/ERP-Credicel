@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { InventoryMovement, Product, SaleTicket } from '../types';
 import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
+import ProductSearchSelect from './ProductSearchSelect';
 import { accessoryStockAt } from '../lib/accessoryInventory';
 import { imeisAtBranch } from '../lib/imeiInventory';
 import {
@@ -267,10 +268,11 @@ export default function InventoryLoteModal({
                           </button>
                         )}
                       </div>
-                      <select
+                      <ProductSearchSelect
+                        products={catalog}
                         value={line.isNew ? '__nuevo__' : line.productId}
-                        onChange={(e) => {
-                          if (e.target.value === '__nuevo__') {
+                        onChange={(id) => {
+                          if (id === '__nuevo__') {
                             setEqLines((prev) =>
                               prev.map((row) =>
                                 row.key === line.key
@@ -289,19 +291,15 @@ export default function InventoryLoteModal({
                             );
                             return;
                           }
-                          fillExistingEq(line.key, e.target.value);
+                          fillExistingEq(line.key, id);
                         }}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white"
-                      >
-                        <option value="">Modelo existente…</option>
-                        {catalog.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            [{p.code}] {p.name}
-                            {branchId ? ` · ${getBranchDisplayName(branchId)} ${imeisAtBranch(p, branchId).length}` : ''}
-                          </option>
-                        ))}
-                        <option value="__nuevo__">+ Registrar modelo nuevo en este renglón</option>
-                      </select>
+                        placeholder="Escribe el modelo o elige de la lista…"
+                        emptyLabel="No hay modelos de equipo"
+                        getLabel={(p) =>
+                          `[${p.code}] ${p.name}${branchId ? ` · ${getBranchDisplayName(branchId)} ${imeisAtBranch(p, branchId).length}` : ''}`
+                        }
+                        extraOptions={[{ id: '__nuevo__', label: '+ Registrar modelo nuevo en este renglón' }]}
+                      />
                       {line.isNew && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           <input
@@ -420,10 +418,11 @@ export default function InventoryLoteModal({
                         )}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-[1fr_7rem] gap-2">
-                        <select
+                        <ProductSearchSelect
+                          products={catalog}
                           value={line.isNew ? '__nuevo__' : line.productId}
-                          onChange={(e) => {
-                            if (e.target.value === '__nuevo__') {
+                          onChange={(id) => {
+                            if (id === '__nuevo__') {
                               setAccLines((prev) =>
                                 prev.map((row) =>
                                   row.key === line.key
@@ -442,19 +441,15 @@ export default function InventoryLoteModal({
                               );
                               return;
                             }
-                            fillExistingAcc(line.key, e.target.value);
+                            fillExistingAcc(line.key, id);
                           }}
-                          className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white"
-                        >
-                          <option value="">Accesorio existente…</option>
-                          {catalog.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              [{p.code}] {p.name}
-                              {branchId ? ` · ${getBranchDisplayName(branchId)} ${accessoryStockAt(p, branchId)}` : ''}
-                            </option>
-                          ))}
-                          <option value="__nuevo__">+ Registrar accesorio nuevo en este renglón</option>
-                        </select>
+                          placeholder="Escribe el accesorio o elige de la lista…"
+                          emptyLabel="No hay accesorios"
+                          getLabel={(p) =>
+                            `[${p.code}] ${p.name}${branchId ? ` · ${getBranchDisplayName(branchId)} ${accessoryStockAt(p, branchId)}` : ''}`
+                          }
+                          extraOptions={[{ id: '__nuevo__', label: '+ Registrar accesorio nuevo en este renglón' }]}
+                        />
                         <input
                           type="number"
                           min={1}

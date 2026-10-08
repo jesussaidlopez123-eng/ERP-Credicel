@@ -60,6 +60,7 @@ import {
 } from '../lib/accessoryInventory';
 import { isVirtualPosProduct, unassignedEquipmentCount } from '../lib/inventoryRules';
 import LazyWhen from './LazyWhen';
+import ProductSearchSelect from './ProductSearchSelect';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
 import { normalizeRole } from '../lib/roles';
@@ -1846,27 +1847,22 @@ function InventoryModule({
                     {ingresarProductLocked && ingresarSelectedProdId ? (
                       renderLockedProductCard(ingresarSelectedProdId, 'emerald')
                     ) : (
-                      <select
+                      <ProductSearchSelect
+                        products={tabProducts}
                         value={ingresarSelectedProdId}
-                        onChange={(e) => setIngresarSelectedProdId(e.target.value)}
-                        required
-                        className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-emerald-600"
-                      >
-                        <option value="">
-                          {tabProducts.length === 0
-                            ? activeInventoryTab === 'equipo'
-                              ? 'No hay modelos de equipo registrados'
-                              : 'No hay accesorios registrados'
-                            : activeInventoryTab === 'equipo'
-                              ? 'Seleccionar modelo…'
-                              : 'Seleccionar accesorio…'}
-                        </option>
-                        {tabProducts.map(p => (
-                          <option key={p.id} value={p.id}>
-                            [{p.code}] {p.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setIngresarSelectedProdId}
+                        placeholder={
+                          activeInventoryTab === 'equipo'
+                            ? 'Escribe el modelo o elige de la lista…'
+                            : 'Escribe el accesorio o elige de la lista…'
+                        }
+                        emptyLabel={
+                          activeInventoryTab === 'equipo'
+                            ? 'No hay modelos de equipo registrados'
+                            : 'No hay accesorios registrados'
+                        }
+                        focusClassName="focus:ring-2 focus:ring-emerald-600"
+                      />
                     )}
                   </div>
                 </>
@@ -2145,25 +2141,18 @@ function InventoryModule({
                 {transferSelectedProdId ? (
                   renderLockedProductCard(transferSelectedProdId, 'blue')
                 ) : (
-                  <select
+                  <ProductSearchSelect
+                    products={tabProducts}
                     value={transferSelectedProdId}
-                    onChange={(e) => setTransferSelectedProdId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-600"
-                  >
-                    <option value="">
-                      {tabProducts.length === 0
-                        ? 'No hay elementos disponibles para transferir'
-                        : activeInventoryTab === 'equipo'
-                          ? 'Seleccionar modelo…'
-                          : 'Seleccionar accesorio…'}
-                    </option>
-                    {tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setTransferSelectedProdId}
+                    placeholder={
+                      activeInventoryTab === 'equipo'
+                        ? 'Escribe el modelo o elige de la lista…'
+                        : 'Escribe el accesorio o elige de la lista…'
+                    }
+                    emptyLabel="No hay elementos disponibles para transferir"
+                    focusClassName="focus:ring-2 focus:ring-blue-600"
+                  />
                 )}
               </div>
 
@@ -2277,25 +2266,18 @@ function InventoryModule({
                 {ajustarSelectedProdId ? (
                   renderLockedProductCard(ajustarSelectedProdId, 'amber')
                 ) : (
-                  <select
+                  <ProductSearchSelect
+                    products={tabProducts}
                     value={ajustarSelectedProdId}
-                    onChange={(e) => setAjustarSelectedProdId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-amber-600"
-                  >
-                    <option value="">
-                      {tabProducts.length === 0
-                        ? 'No hay elementos disponibles para ajustar'
-                        : activeInventoryTab === 'equipo'
-                          ? 'Seleccionar modelo…'
-                          : 'Seleccionar accesorio…'}
-                    </option>
-                    {tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setAjustarSelectedProdId}
+                    placeholder={
+                      activeInventoryTab === 'equipo'
+                        ? 'Escribe el modelo o elige de la lista…'
+                        : 'Escribe el accesorio o elige de la lista…'
+                    }
+                    emptyLabel="No hay elementos disponibles para ajustar"
+                    focusClassName="focus:ring-2 focus:ring-amber-600"
+                  />
                 )}
               </div>
 
@@ -2438,25 +2420,18 @@ function InventoryModule({
                 {priceSelectedProdId ? (
                   renderLockedProductCard(priceSelectedProdId, 'indigo')
                 ) : (
-                  <select
+                  <ProductSearchSelect
+                    products={tabProducts}
                     value={priceSelectedProdId}
-                    onChange={(e) => handleSelectProductForPriceChange(e.target.value)}
-                    required
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 bg-white focus:ring-2 focus:ring-indigo-600"
-                  >
-                    <option value="">
-                      {tabProducts.length === 0
-                        ? 'No hay artículos disponibles'
-                        : activeInventoryTab === 'equipo'
-                          ? 'Seleccionar modelo…'
-                          : 'Seleccionar accesorio…'}
-                    </option>
-                    {tabProducts.map(p => (
-                      <option key={p.id} value={p.id}>
-                        [{p.code}] {p.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={handleSelectProductForPriceChange}
+                    placeholder={
+                      activeInventoryTab === 'equipo'
+                        ? 'Escribe el modelo o elige de la lista…'
+                        : 'Escribe el accesorio o elige de la lista…'
+                    }
+                    emptyLabel="No hay artículos disponibles"
+                    focusClassName="focus:ring-2 focus:ring-indigo-600"
+                  />
                 )}
               </div>
 
