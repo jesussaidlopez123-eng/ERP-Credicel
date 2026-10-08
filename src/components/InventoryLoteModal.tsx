@@ -176,8 +176,8 @@ export default function InventoryLoteModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-4">
-        <div className={`flex items-center justify-between px-5 py-4 text-white ${isEquipo ? 'bg-blue-900' : 'bg-emerald-800'}`}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-visible animate-in fade-in zoom-in-95 duration-150 my-4">
+        <div className={`flex items-center justify-between px-5 py-4 text-white rounded-t-2xl ${isEquipo ? 'bg-blue-900' : 'bg-emerald-800'}`}>
           <div className="flex items-center gap-2 min-w-0">
             <Package className="w-5 h-5 shrink-0 text-amber-300" />
             <div className="min-w-0">
@@ -249,7 +249,7 @@ export default function InventoryLoteModal({
             </div>
           )}
 
-          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto overflow-x-hidden pr-1">
             {isEquipo
               ? eqLines.map((line, idx) => {
                   const prod = catalog.find((p) => p.id === line.productId);
@@ -271,6 +271,7 @@ export default function InventoryLoteModal({
                       <ProductSearchSelect
                         products={catalog}
                         value={line.isNew ? '__nuevo__' : line.productId}
+                        autoFocus={idx === 0}
                         onChange={(id) => {
                           if (id === '__nuevo__') {
                             setEqLines((prev) =>
@@ -293,7 +294,7 @@ export default function InventoryLoteModal({
                           }
                           fillExistingEq(line.key, id);
                         }}
-                        placeholder="Escribe el modelo o elige de la lista…"
+                        placeholder="Escribe el modelo o unas letras…"
                         emptyLabel="No hay modelos de equipo"
                         getLabel={(p) =>
                           `[${p.code}] ${p.name}${branchId ? ` · ${getBranchDisplayName(branchId)} ${imeisAtBranch(p, branchId).length}` : ''}`

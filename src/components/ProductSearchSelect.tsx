@@ -15,6 +15,7 @@ interface ProductSearchSelectProps {
   getLabel?: (product: Product) => string;
   extraOptions?: ExtraOption[];
   focusClassName?: string;
+  autoFocus?: boolean;
 }
 
 export default function ProductSearchSelect({
@@ -26,7 +27,8 @@ export default function ProductSearchSelect({
   disabled = false,
   getLabel = productPickLabel,
   extraOptions = [],
-  focusClassName = 'focus:ring-2 focus:ring-blue-600'
+  focusClassName = 'focus:ring-2 focus:ring-blue-600',
+  autoFocus = false
 }: ProductSearchSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +56,12 @@ export default function ProductSearchSelect({
     ...filtered.map((p) => ({ id: p.id, label: getLabel(p) })),
     ...extras
   ];
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    inputRef.current?.focus();
+    setOpen(true);
+  }, [autoFocus]);
 
   useEffect(() => {
     if (!open) return;
@@ -121,7 +129,7 @@ export default function ProductSearchSelect({
       {open && (products.length > 0 || extraOptions.length > 0) && (
         <ul
           role="listbox"
-          className="absolute z-[70] left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg"
+          className="relative z-10 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-sm"
         >
           {rows.length === 0 ? (
             <li className="px-3 py-2.5 text-xs text-slate-500">Ningún modelo coincide con “{query}”.</li>

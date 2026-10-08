@@ -592,7 +592,7 @@ function InventoryModule({
 
   const handleOpenNuevoProducto = () => {
     resetIngresarFields();
-    setIngresarMode('nuevo');
+    setIngresarMode('existente');
     setIsIngresarModalOpen(true);
   };
 
@@ -1795,9 +1795,9 @@ function InventoryModule({
       {/* VENTANA EMERGENTE 1: INGRESAR (MODELO, CANTIDAD Y SUCURSAL) */}
       {isIngresarModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-visible animate-in fade-in zoom-in-95 duration-150">
             
-            <div className={`flex items-center justify-between px-6 py-4 text-white ${activeInventoryTab === 'equipo' ? 'bg-blue-900' : 'bg-emerald-800'}`}>
+            <div className={`flex items-center justify-between px-6 py-4 text-white rounded-t-2xl ${activeInventoryTab === 'equipo' ? 'bg-blue-900' : 'bg-emerald-800'}`}>
               <div className="flex items-center gap-2">
                 <PlusCircle className="w-5 h-5 text-emerald-300" />
                 <h3 className="font-extrabold text-base">
@@ -1851,10 +1851,11 @@ function InventoryModule({
                         products={tabProducts}
                         value={ingresarSelectedProdId}
                         onChange={setIngresarSelectedProdId}
+                        autoFocus
                         placeholder={
                           activeInventoryTab === 'equipo'
-                            ? 'Escribe el modelo o elige de la lista…'
-                            : 'Escribe el accesorio o elige de la lista…'
+                            ? 'Escribe el modelo o unas letras…'
+                            : 'Escribe el accesorio o unas letras…'
                         }
                         emptyLabel={
                           activeInventoryTab === 'equipo'
@@ -2117,7 +2118,7 @@ function InventoryModule({
       {/* VENTANA EMERGENTE 2: TRANSFERIR (SUC ORIGEN, SUC DESTINO, MODELO Y CANTIDAD) */}
       {isTransferModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-visible animate-in fade-in zoom-in-95 duration-150">
             
             <div className="flex items-center justify-between px-6 py-4 bg-blue-900 text-white">
               <div className="flex items-center gap-2">
@@ -2145,6 +2146,7 @@ function InventoryModule({
                     products={tabProducts}
                     value={transferSelectedProdId}
                     onChange={setTransferSelectedProdId}
+                    autoFocus
                     placeholder={
                       activeInventoryTab === 'equipo'
                         ? 'Escribe el modelo o elige de la lista…'
@@ -2242,7 +2244,7 @@ function InventoryModule({
       {/* VENTANA EMERGENTE 3: AJUSTAR (MODELO, CANTIDAD, UBICACIÓN/SUCURSAL Y MOTIVO DE MERMA) */}
       {isAjustarModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-visible animate-in fade-in zoom-in-95 duration-150">
             
             <div className="flex items-center justify-between px-6 py-4 bg-amber-700 text-white">
               <div className="flex items-center gap-2">
@@ -2270,6 +2272,7 @@ function InventoryModule({
                     products={tabProducts}
                     value={ajustarSelectedProdId}
                     onChange={setAjustarSelectedProdId}
+                    autoFocus
                     placeholder={
                       activeInventoryTab === 'equipo'
                         ? 'Escribe el modelo o elige de la lista…'
@@ -2396,7 +2399,7 @@ function InventoryModule({
       {/* VENTANA EMERGENTE 4: CAMBIAR PRECIOS (COSTO DE COMPRA Y PRECIO DE VENTA) */}
       {isPriceModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-visible animate-in fade-in zoom-in-95 duration-150">
             
             <div className="flex items-center justify-between px-6 py-4 bg-indigo-900 text-white">
               <div className="flex items-center gap-2">
@@ -2424,6 +2427,7 @@ function InventoryModule({
                     products={tabProducts}
                     value={priceSelectedProdId}
                     onChange={handleSelectProductForPriceChange}
+                    autoFocus
                     placeholder={
                       activeInventoryTab === 'equipo'
                         ? 'Escribe el modelo o elige de la lista…'
