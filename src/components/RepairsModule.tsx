@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Ban,
-  Clock,
-  Phone,
-  Search,
-  Smartphone,
-  Store,
-  User,
-  X
-} from 'lucide-react';
-import { Branch, Operator, RepairRecord, RepairWorkStage } from '../types';
+import { Ban, Clock, Phone, Search, Smartphone, Store, User, X } from 'lucide-react';
+import { Branch, Operator, RepairRecord } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
@@ -18,15 +9,10 @@ import {
   applyRepairCost,
   hasRefaccionCost,
   isPendingRepair,
-  markRepairReadyForDelivery,
   matchesRepairSearch,
   needsRepairCostCapture,
-  REPAIR_WORK_STAGE_META,
-  REPAIR_WORK_STAGES,
   repairDaysInShop,
-  setRepairWorkStage,
-  stampRepairLabel,
-  workStageOf
+  stampRepairLabel
 } from '../lib/repairUtils';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
 import { CancelRepairDialog } from './RepairHistoryPanel';
@@ -46,12 +32,8 @@ interface RepairsModuleProps {
   onFocusCostDueConsumed?: () => void;
 }
 
-const BOARD_COLUMNS: RepairWorkStage[] = [...REPAIR_WORK_STAGES];
-
-function boardColumnOf(record: RepairRecord): RepairWorkStage | null {
-  if (needsRepairCostCapture(record)) return 'costo_refaccion';
-  if (!isPendingRepair(record)) return null;
-  return workStageOf(record);
+function isCostQueue(record: RepairRecord): boolean {
+  return isPendingRepair(record) || needsRepairCostCapture(record);
 }
 
 function RepairsModule({
@@ -99,40 +81,30 @@ function RepairsModule({
     });
   }, [repairRecords, selectedBranchId]);
 
-  const boardRecords = useMemo(() => {
+  const orders = useMemo(() => {
     return scopedRecords
-      .filter((r) => boardColumnOf(r) !== null)
+      .filter(isCostQueue)
       .filter((r) => matchesRepairSearch(r, debouncedSearch))
-      .sort((a, b) =>
-        String(b.receivedAtIso || b.receivedAt || '').localeCompare(
+      .sort((a, b) => {
+        const aMissing = hasRefaccionCost(a) ? 1 : 0;
+        const bMissing = hasRefaccionCost(b) ? 1 : 0;
+        if (aMissing !== bMissing) return aMissing - bMissing;
+        return String(b.receivedAtIso || b.receivedAt || '').localeCompare(
           String(a.receivedAtIso || a.receivedAt || '')
-        )
-      );
+        );
+      });
   }, [scopedRecords, debouncedSearch]);
-
-  const columns = useMemo(
-    () =>
-      BOARD_COLUMNS.map((stage) => ({
-        stage,
-        rows: boardRecords.filter((r) => boardColumnOf(r) === stage)
-      })),
-    [boardRecords]
-  );
 
   const openOrder = useMemo(
     () => scopedRecords.find((r) => r.id === openOrderId) || null,
     [scopedRecords, openOrderId]
   );
 
-  const pendingStats = useMemo(() => {
-    const allPending = scopedRecords.filter(isPendingRepair);
+  const stats = useMemo(() => {
+    const pending = scopedRecords.filter(isPendingRepair);
     return {
-      enTaller: allPending.length,
-      sinRefaccion:
-        allPending.filter((r) => !hasRefaccionCost(r)).length +
-        scopedRecords.filter(needsRepairCostCapture).length,
-      listos: allPending.filter((r) => workStageOf(r) === 'para_entrega').length,
-      saldo: allPending.reduce((sum, r) => sum + money(r.pendingBalance), 0)
+      enTaller: pending.length,
+      sinPieza: pending.filter((r) => !hasRefaccionCost(r)).length + scopedRecords.filter(needsRepairCostCapture).length
     };
   }, [scopedRecords]);
 
@@ -147,36 +119,19 @@ function RepairsModule({
 
   if (!isAdmin && !isManager) return null;
 
-  const persist = async (record: RepairRecord) => {
+  const handleSavePrice = async (record: RepairRecord) => {
+    if (savingId) return;
     setSavingId(record.id);
     setActionError(null);
     try {
-      await onUpdateRepairRecord(record);
+      await onUpdateRepairRecord(
+        applyRepairCost(record, parseFloat(priceDraft), currentOperator.name, trustedIso())
+      );
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'No se pudo guardar la orden.');
+      setActionError(err instanceof Error ? err.message : 'Escribe el costo del cliente.');
     } finally {
       setSavingId(null);
     }
-  };
-
-  const handleMove = async (record: RepairRecord, stage: RepairWorkStage) => {
-    if (savingId) return;
-    await persist(setRepairWorkStage(record, stage));
-  };
-
-  const handleSavePrice = async (record: RepairRecord) => {
-    if (savingId) return;
-    try {
-      const updated = applyRepairCost(record, parseFloat(priceDraft), currentOperator.name, trustedIso());
-      await persist(updated);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Escribe el precio al cliente.');
-    }
-  };
-
-  const handleReady = async (record: RepairRecord) => {
-    if (savingId) return;
-    await persist(markRepairReadyForDelivery(record));
   };
 
   const handleConfirmCancel = async () => {
@@ -190,23 +145,13 @@ function RepairsModule({
   return (
     <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
       <div className={`bg-white rounded-xl border border-slate-200 ${embedded ? 'p-2.5' : 'p-3'}`}>
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-          <div>
-            <h1 className="text-sm font-semibold text-slate-900">Órdenes de taller</h1>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Caja recibe y entrega. Aquí solo se captura el costo de la pieza y se puede ajustar el precio al cliente.
-            </p>
-          </div>
-          <div className="grid grid-cols-4 gap-2 w-full sm:w-auto">
-            <Stat label="En taller" value={String(pendingStats.enTaller)} />
-            <Stat
-              label="Sin pieza"
-              value={String(pendingStats.sinRefaccion)}
-              accent={pendingStats.sinRefaccion > 0}
-            />
-            <Stat label="Listos" value={String(pendingStats.listos)} />
-            <Stat label="Saldo" value={`$${formatMoney(pendingStats.saldo)}`} />
-          </div>
+        <h1 className="text-sm font-semibold text-slate-900">Costos de taller</h1>
+        <p className="text-[11px] text-slate-500 mt-0.5">
+          El punto de venta registra el equipo y lo entrega. Aquí solo se agrega el costo de la pieza o se modifica el costo del cliente.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2 max-w-sm">
+          <Stat label="En taller" value={String(stats.enTaller)} />
+          <Stat label="Sin pieza" value={String(stats.sinPieza)} accent={stats.sinPieza > 0} />
         </div>
       </div>
 
@@ -238,61 +183,183 @@ function RepairsModule({
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {columns.map(({ stage, rows }) => {
-          const meta = REPAIR_WORK_STAGE_META[stage];
-          return (
-            <section
-              key={stage}
-              className="min-w-[16.5rem] w-[16.5rem] sm:flex-1 sm:min-w-[14rem] bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shrink-0"
+      {orders.length === 0 ? (
+        <div className="p-10 text-center bg-white rounded-xl border border-slate-200 text-slate-500">
+          <p className="text-sm font-semibold text-slate-700">Sin órdenes en taller</p>
+          <p className="text-[11px] mt-1">Las altas nuevas se hacen en el punto de venta.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {orders.map((record) => {
+            const selected = openOrderId === record.id;
+            const days = repairDaysInShop(record);
+            const missingPart = !hasRefaccionCost(record);
+            return (
+              <article
+                key={record.id}
+                className={`bg-white border rounded-xl ${selected ? 'border-[#0047AB]/40' : 'border-slate-200'}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenOrderId(selected ? null : record.id)}
+                  className="w-full text-left px-3 py-2.5 cursor-pointer"
+                >
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 bg-slate-900 text-amber-400 font-mono font-semibold text-xs rounded-md">
+                        {record.id}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-900">{record.deviceModel}</span>
+                      {selectedBranchId === 'all' && (
+                        <span className="text-[10px] font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
+                          {getBranchDisplayName(record.branchId)}
+                        </span>
+                      )}
+                      {missingPart && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                          Sin pieza
+                        </span>
+                      )}
+                      {needsRepairCostCapture(record) && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                          Entregado en caja · falta pieza
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      {days}d · {stampRepairLabel(record.receivedAtIso, record.receivedAt)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {record.clientName} · {record.clientPhone} · {record.issueDescription || '—'}
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Cliente ${formatMoney(record.totalCost)} · Anticipo ${formatMoney(record.advancePayment)} · Saldo $
+                    {formatMoney(record.pendingBalance)}
+                  </p>
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {openOrder && (
+        <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <header className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Costos de la orden</p>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                <span className="font-mono text-sm font-semibold text-slate-900">{openOrder.id}</span>
+                <span className="text-sm font-semibold text-slate-800">{openOrder.deviceModel}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpenOrderId(null)}
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+              aria-label="Cerrar"
             >
-              <header className="px-2.5 py-2 border-b border-slate-200 flex items-center justify-between gap-2">
-                <h2 className="text-[12px] font-semibold text-slate-800">{meta.label}</h2>
-                <span className="text-[10px] font-semibold text-slate-500 tabular-nums">{rows.length}</span>
-              </header>
-              <div className="p-1.5 space-y-1.5 min-h-[10rem]">
-                {rows.length === 0 ? (
-                  <p className="text-[11px] text-slate-400 px-1 py-8 text-center">Sin órdenes</p>
-                ) : (
-                  rows.map((record) => (
-                    <OrderCard
-                      key={record.id}
-                      record={record}
-                      selected={openOrderId === record.id}
-                      showBranch={selectedBranchId === 'all'}
-                      onSelect={() => setOpenOrderId(openOrderId === record.id ? null : record.id)}
+              <X className="w-4 h-4" />
+            </button>
+          </header>
+
+          <div className="px-4 py-3 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+              <Info icon={<User className="w-3.5 h-3.5" />} label="Cliente" value={`${openOrder.clientName} · ${openOrder.clientPhone}`} />
+              <Info icon={<Smartphone className="w-3.5 h-3.5" />} label="Falla" value={openOrder.issueDescription || '—'} />
+              <Info icon={<Phone className="w-3.5 h-3.5" />} label="Contraseña" value={openOrder.passcodePattern || '—'} />
+              <Info
+                icon={<Clock className="w-3.5 h-3.5" />}
+                label="Recibido en caja"
+                value={`${stampRepairLabel(openOrder.receivedAtIso, openOrder.receivedAt)} · ${openOrder.operatorName}`}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                  Costo del cliente
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Se puede cambiar. El saldo que vea caja al entregar se recalcula con el anticipo ya cobrado.
+                </p>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <label className="block text-slate-500 mb-1">Costo</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={priceDraft}
+                      onChange={(e) => setPriceDraft(e.target.value)}
+                      disabled={!isPendingRepair(openOrder)}
+                      className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:bg-slate-50"
                     />
-                  ))
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-1">Anticipo</p>
+                    <p className="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-emerald-700">
+                      ${formatMoney(openOrder.advancePayment)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-1">Saldo</p>
+                    <p className="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-black text-amber-800">
+                      ${formatMoney(Math.max(0, money(parseFloat(priceDraft) || 0) - money(openOrder.advancePayment)))}
+                    </p>
+                  </div>
+                </div>
+                {isPendingRepair(openOrder) && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleSavePrice(openOrder)}
+                      disabled={savingId === openOrder.id}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                    >
+                      Guardar costo del cliente
+                    </button>
+                  </div>
                 )}
               </div>
-            </section>
-          );
-        })}
-      </div>
 
-      {openOrder ? (
-        <WorkOrder
-          record={openOrder}
-          operatorName={currentOperator.name}
-          busy={savingId === openOrder.id}
-          priceDraft={priceDraft}
-          error={actionError}
-          onPriceDraft={setPriceDraft}
-          onClose={() => setOpenOrderId(null)}
-          onMove={(stage) => void handleMove(openOrder, stage)}
-          onSavePrice={() => void handleSavePrice(openOrder)}
-          onUpdate={onUpdateRepairRecord}
-          onReady={() => void handleReady(openOrder)}
-          onCancel={() => {
-            setCancelTarget(openOrder);
-            setCancelReason('');
-          }}
-          canCancel={Boolean(onCancelRepairRecord && isAdmin && isPendingRepair(openOrder))}
-        />
-      ) : (
-        <p className="text-[11px] text-slate-500 px-1">
-          Toca una orden para capturar la pieza o cambiar el precio al cliente. Recibir y entregar se hace en el punto de venta.
-        </p>
+              <RepairCostLinesEditor
+                record={openOrder}
+                operatorName={currentOperator.name}
+                onUpdate={onUpdateRepairRecord}
+                busy={savingId === openOrder.id}
+                allowedKinds={['refaccion']}
+              />
+            </div>
+
+            {actionError && (
+              <p className="text-xs font-semibold text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
+                {actionError}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
+              <p className="text-[11px] text-slate-500">
+                Recibir y entregar el equipo es en el punto de venta.
+              </p>
+              {onCancelRepairRecord && isAdmin && isPendingRepair(openOrder) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancelTarget(openOrder);
+                    setCancelReason('');
+                  }}
+                  className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  Dar de baja
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
       )}
 
       {cancelTarget && (
@@ -305,256 +372,6 @@ function RepairsModule({
         />
       )}
     </div>
-  );
-}
-
-function OrderCard({
-  record,
-  selected,
-  showBranch,
-  onSelect
-}: {
-  record: RepairRecord;
-  selected: boolean;
-  showBranch: boolean;
-  onSelect: () => void;
-}) {
-  const days = repairDaysInShop(record);
-  const missingPart = !hasRefaccionCost(record);
-  const deliveredOpen = needsRepairCostCapture(record);
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full text-left rounded-lg border bg-white px-2.5 py-2 space-y-1 cursor-pointer ${
-        selected ? 'border-[#0047AB] ring-1 ring-[#0047AB]/25' : 'border-slate-200'
-      }`}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <span className="font-mono text-[10px] font-semibold text-slate-800">{record.id}</span>
-        <span
-          className={`inline-flex items-center gap-0.5 text-[10px] font-semibold ${
-            days >= 7 ? 'text-rose-700' : days >= 3 ? 'text-amber-700' : 'text-slate-500'
-          }`}
-        >
-          <Clock className="w-3 h-3" />
-          {days}d
-        </span>
-      </div>
-      <p className="text-[13px] font-semibold text-slate-900 truncate">{record.deviceModel}</p>
-      <p className="text-[11px] text-slate-500 truncate">{record.clientName}</p>
-      <p className="text-[11px] text-slate-600 truncate">{record.issueDescription || '—'}</p>
-      <div className="flex items-center justify-between gap-1 pt-0.5">
-        <span className="text-[10px] text-slate-500 truncate">
-          {showBranch ? getBranchDisplayName(record.branchId) : ''}
-          {deliveredOpen ? (showBranch ? ' · ' : '') + 'Entregado, falta pieza' : ''}
-        </span>
-        <span
-          className={`text-[11px] font-semibold tabular-nums ${
-            money(record.pendingBalance) > 0 ? 'text-amber-800' : 'text-slate-500'
-          }`}
-        >
-          {money(record.pendingBalance) > 0
-            ? `Saldo $${formatMoney(record.pendingBalance)}`
-            : money(record.totalCost) > 0
-              ? 'Pagado'
-              : 'Sin precio'}
-        </span>
-      </div>
-      {missingPart && (
-        <span className="inline-block text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-          Sin refacción
-        </span>
-      )}
-    </button>
-  );
-}
-
-function WorkOrder({
-  record,
-  operatorName,
-  busy,
-  priceDraft,
-  error,
-  onPriceDraft,
-  onClose,
-  onMove,
-  onSavePrice,
-  onUpdate,
-  onReady,
-  onCancel,
-  canCancel
-}: {
-  record: RepairRecord;
-  operatorName: string;
-  busy: boolean;
-  priceDraft: string;
-  error: string | null;
-  onPriceDraft: (value: string) => void;
-  onClose: () => void;
-  onMove: (stage: RepairWorkStage) => void;
-  onSavePrice: () => void;
-  onUpdate: (record: RepairRecord) => void | Promise<void>;
-  onReady: () => void;
-  onCancel: () => void;
-  canCancel: boolean;
-}) {
-  const stage = workStageOf(record);
-  const pending = isPendingRepair(record);
-  const deliveredOpen = needsRepairCostCapture(record);
-
-  return (
-    <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <header className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Orden de servicio</p>
-          <div className="flex items-center gap-2 flex-wrap mt-0.5">
-            <span className="font-mono text-sm font-semibold text-slate-900">{record.id}</span>
-            <span className="text-sm font-semibold text-slate-800">{record.deviceModel}</span>
-            <span className="text-[10px] font-semibold text-slate-600 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md">
-              {getBranchDisplayName(record.branchId)}
-            </span>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
-          aria-label="Cerrar orden"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </header>
-
-      <div className="px-4 py-3 space-y-4">
-        <ol className="grid grid-cols-3 gap-1.5">
-          {BOARD_COLUMNS.map((id, index) => {
-            const current = BOARD_COLUMNS.indexOf(stage);
-            const done = !pending && !deliveredOpen ? true : index <= current;
-            const active = pending || deliveredOpen ? id === stage : false;
-            return (
-              <li key={id}>
-                <button
-                  type="button"
-                  disabled={!pending || busy}
-                  onClick={() => onMove(id)}
-                  className={`w-full text-left rounded-lg border px-2.5 py-2 cursor-pointer disabled:cursor-default ${
-                    active
-                      ? 'border-[#0047AB] bg-[#0047AB]/5'
-                      : done
-                        ? 'border-emerald-200 bg-emerald-50/60'
-                        : 'border-slate-200 bg-slate-50'
-                  }`}
-                >
-                  <p className="text-[10px] font-semibold text-slate-500">{index + 1}</p>
-                  <p className="text-[12px] font-semibold text-slate-900">{REPAIR_WORK_STAGE_META[id].label}</p>
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-          <Info icon={<User className="w-3.5 h-3.5" />} label="Cliente" value={`${record.clientName} · ${record.clientPhone}`} />
-          <Info icon={<Smartphone className="w-3.5 h-3.5" />} label="Equipo / falla" value={`${record.deviceModel} · ${record.issueDescription || '—'}`} />
-          <Info icon={<Phone className="w-3.5 h-3.5" />} label="Contraseña" value={record.passcodePattern || '—'} />
-          <Info
-            icon={<Clock className="w-3.5 h-3.5" />}
-            label="Recibido"
-            value={`${stampRepairLabel(record.receivedAtIso, record.receivedAt)} · ${record.operatorName}`}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <div className="rounded-xl border border-slate-200 p-3 space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Precio al cliente</p>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <div>
-                <label className="block text-slate-500 mb-1">Total</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={priceDraft}
-                  onChange={(e) => onPriceDraft(e.target.value)}
-                  disabled={!pending}
-                  className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:bg-slate-50"
-                />
-              </div>
-              <div>
-                <p className="text-slate-500 mb-1">Anticipo</p>
-                <p className="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-emerald-700">
-                  ${formatMoney(record.advancePayment)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500 mb-1">Saldo</p>
-                <p className="px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg font-black text-amber-800">
-                  ${formatMoney(Math.max(0, money(parseFloat(priceDraft) || 0) - money(record.advancePayment)))}
-                </p>
-              </div>
-            </div>
-            {pending && (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={onSavePrice}
-                  disabled={busy}
-                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-lg text-[11px] font-bold cursor-pointer"
-                >
-                  Guardar precio
-                </button>
-              </div>
-            )}
-          </div>
-
-          <RepairCostLinesEditor
-            record={record}
-            operatorName={operatorName}
-            onUpdate={onUpdate}
-            busy={busy}
-            allowedKinds={['refaccion']}
-          />
-        </div>
-
-        {error && (
-          <p className="text-xs font-semibold text-amber-950 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
-            {error}
-          </p>
-        )}
-
-        <div className="flex flex-wrap items-center justify-end gap-2 pt-1 border-t border-slate-100">
-          {canCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-            >
-              <Ban className="w-3.5 h-3.5" />
-              Dar de baja
-            </button>
-          )}
-          {pending && stage !== 'para_entrega' && (
-            <button
-              type="button"
-              onClick={onReady}
-              disabled={busy}
-              className="px-3 py-2 border border-slate-300 text-slate-800 hover:bg-slate-50 font-bold text-xs rounded-xl cursor-pointer disabled:opacity-60"
-            >
-              Marcar listo para caja
-            </button>
-          )}
-          {pending && (
-            <p className="text-[11px] text-slate-500">
-              {money(record.pendingBalance) > 0
-                ? `Saldo $${formatMoney(record.pendingBalance)}. La entrega se hace en el punto de venta.`
-                : 'Sin saldo. Caja entrega el equipo en el punto de venta.'}
-            </p>
-          )}
-        </div>
-      </div>
-    </section>
   );
 }
 

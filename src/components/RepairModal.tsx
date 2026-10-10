@@ -376,9 +376,9 @@ export default function RepairModal({
           <div className="flex items-center gap-2.5">
             <Wrench className="w-6 h-6 text-amber-200" />
             <div>
-              <h3 className="font-bold text-base">Servicio Técnico & Reparaciones</h3>
+              <h3 className="font-bold text-base">Taller en caja</h3>
               <p className="text-[11px] text-amber-100">
-                Caja recibe y entrega. El costo de la pieza se captura en Reparaciones.
+                Aquí se registra el equipo y se entrega. El costo de la pieza o del cliente se captura en Reparaciones.
               </p>
             </div>
           </div>
