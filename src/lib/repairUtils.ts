@@ -43,9 +43,9 @@ export const REPAIR_WORK_STAGES: RepairWorkStage[] = [
 ];
 
 export const REPAIR_WORK_STAGE_META: Record<RepairWorkStage, { label: string; short: string }> = {
-  recibido: { label: 'Recepción', short: 'Nuevo' },
-  costo_refaccion: { label: 'Costo de refacción', short: 'Refacción' },
-  para_entrega: { label: 'Entrega', short: 'Entregar' }
+  recibido: { label: 'En taller', short: 'Nuevo' },
+  costo_refaccion: { label: 'En reparación', short: 'Pieza' },
+  para_entrega: { label: 'Listo', short: 'Listo' }
 };
 
 const MID_SHOP_STAGES = new Set([
