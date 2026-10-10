@@ -2082,7 +2082,6 @@ export default function Dashboard({
             repairRecords={repairRecords}
             currentBranch={currentBranch}
             currentOperator={currentOperator}
-            onAddRepairRecord={stableAddRepairRecord}
             onUpdateRepairRecord={stableUpdateRepairRecord}
             onCancelRepairRecord={stableCancelRepairRecord}
             onLoadOlderRepairs={loadOlderRepairs}

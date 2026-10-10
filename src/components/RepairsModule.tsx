@@ -4,15 +4,9 @@ import {
   CheckCircle2,
   Clock,
   DollarSign,
-  FileText,
-  Lock,
   PackageCheck,
-  Phone,
   Search,
-  Smartphone,
-  Store,
-  User,
-  Wrench
+  Store
 } from 'lucide-react';
 import { Branch, Operator, RepairRecord } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
@@ -20,9 +14,7 @@ import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
-import { allocateRepairFolio } from '../lib/folioAllocator';
 import {
-  findPendingDuplicate,
   hasRefaccionCost,
   isPendingRepair,
   markRepairDelivered,
@@ -42,7 +34,6 @@ interface RepairsModuleProps {
   currentBranch: Branch;
   currentOperator: Operator;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
-  onAddRepairRecord?: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
   embedded?: boolean;
   onLoadOlderRepairs?: () => void;
@@ -52,14 +43,13 @@ interface RepairsModuleProps {
   onFocusCostDueConsumed?: () => void;
 }
 
-type TabId = 'recepcion' | 'refaccion' | 'entrega';
+type TabId = 'refaccion' | 'entrega';
 
 function RepairsModule({
   repairRecords,
   currentBranch,
   currentOperator,
   onUpdateRepairRecord,
-  onAddRepairRecord,
   onCancelRepairRecord,
   embedded = false,
   focusCostDue = false,
@@ -68,7 +58,7 @@ function RepairsModule({
   const role = normalizeRole(currentOperator.role);
   const isAdmin = role === 'admin';
   const isManager = role === 'manager';
-  const [activeTab, setActiveTab] = useState<TabId>('recepcion');
+  const [activeTab, setActiveTab] = useState<TabId>('refaccion');
   const [selectedBranchId, setSelectedBranchId] = useState<string>(
     hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : 'all'
   );
@@ -80,18 +70,6 @@ function RepairsModule({
   const [cancelReason, setCancelReason] = useState('');
   const [deliverError, setDeliverError] = useState<string | null>(null);
 
-  const [clientName, setClientName] = useState('');
-  const [clientPhone, setClientPhone] = useState('');
-  const [deviceModel, setDeviceModel] = useState('');
-  const [passcodePattern, setPasscodePattern] = useState('');
-  const [issueDescription, setIssueDescription] = useState('');
-  const [totalCost, setTotalCost] = useState('');
-  const [receiveBranchId, setReceiveBranchId] = useState(
-    hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : ''
-  );
-  const [formError, setFormError] = useState<string | null>(null);
-  const [savingReception, setSavingReception] = useState(false);
-
   useEffect(() => {
     if (!focusCostDue) return;
     setActiveTab('refaccion');
@@ -100,9 +78,7 @@ function RepairsModule({
 
   useEffect(() => {
     if (isManager && !isAdmin) {
-      const id = normalizeBranchId(currentBranch.id);
-      setSelectedBranchId(id);
-      setReceiveBranchId(id);
+      setSelectedBranchId(normalizeBranchId(currentBranch.id));
     }
   }, [isManager, isAdmin, currentBranch.id]);
 
@@ -150,89 +126,6 @@ function RepairsModule({
   }, [scopedRecords]);
 
   if (!isAdmin && !isManager) return null;
-
-  const resetReceptionForm = () => {
-    setClientName('');
-    setClientPhone('');
-    setDeviceModel('');
-    setPasscodePattern('');
-    setIssueDescription('');
-    setTotalCost('');
-    setFormError(null);
-  };
-
-  const handleReceptionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!onAddRepairRecord || savingReception) return;
-    setFormError(null);
-
-    const branchId = receiveBranchId || (hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : '');
-    if (!branchId || !hasCashTill(branchId)) {
-      setFormError('Elija la sucursal donde se recibe el equipo.');
-      return;
-    }
-    if (!clientName.trim()) {
-      setFormError('Falta el nombre del cliente.');
-      return;
-    }
-    if (!clientPhone.trim() || clientPhone.replace(/\D/g, '').length < 10) {
-      setFormError('El teléfono de contacto debe traer 10 dígitos.');
-      return;
-    }
-    if (!deviceModel.trim()) {
-      setFormError('Falta el modelo o marca del equipo.');
-      return;
-    }
-    if (!issueDescription.trim()) {
-      setFormError('Falta describir la falla o el servicio.');
-      return;
-    }
-
-    const alreadyInShop = findPendingDuplicate(repairRecords, {
-      id: '',
-      branchId,
-      clientPhone: clientPhone.trim(),
-      deviceModel: deviceModel.trim(),
-      receivedAtIso: trustedIso()
-    });
-    if (alreadyInShop) {
-      setFormError(
-        `Este equipo ya está en taller con folio ${alreadyInShop.id}. Entrégalo o dalo de baja; no lo des de alta otra vez.`
-      );
-      return;
-    }
-
-    const numTotal = money(parseFloat(totalCost) || 0);
-    setSavingReception(true);
-    try {
-      const receivedIso = trustedIso();
-      const folioId = await allocateRepairFolio(branchId, receivedIso);
-      const newRepair: RepairRecord = {
-        id: folioId,
-        clientName: clientName.trim(),
-        clientPhone: clientPhone.trim(),
-        deviceModel: deviceModel.trim(),
-        passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
-        issueDescription: issueDescription.trim(),
-        totalCost: numTotal,
-        advancePayment: 0,
-        pendingBalance: numTotal,
-        status: 'en_taller',
-        workStage: 'recibido',
-        receivedAt: `${safeFormatDate(receivedIso)} ${safeFormatTime(receivedIso)}`,
-        receivedAtIso: receivedIso,
-        operatorName: currentOperator.name,
-        branchId
-      };
-      await onAddRepairRecord(newRepair);
-      resetReceptionForm();
-      setOpenOrderId(folioId);
-    } catch {
-      setFormError('No se pudo registrar la recepción. No entregues el celular sin folio; inténtalo de nuevo.');
-    } finally {
-      setSavingReception(false);
-    }
-  };
 
   const handleDeliver = async (record: RepairRecord) => {
     if (savingId) return;
@@ -301,7 +194,6 @@ function RepairsModule({
 
         <div className="tool-seg mt-3">
           {([
-            ['recepcion', 'Recepción', pendingStats.enTaller],
             ['refaccion', 'Costo de refacción', pendingStats.sinRefaccion],
             ['entrega', 'Entrega', pendingStats.enTaller]
           ] as Array<[TabId, string, number]>).map(([id, label, count]) => (
@@ -311,9 +203,7 @@ function RepairsModule({
               data-active={activeTab === id}
               onClick={() => setActiveTab(id)}
             >
-              {id === 'recepcion' ? (
-                <Wrench className="w-3.5 h-3.5" />
-              ) : id === 'refaccion' ? (
+              {id === 'refaccion' ? (
                 <DollarSign className="w-3.5 h-3.5" />
               ) : (
                 <PackageCheck className="w-3.5 h-3.5" />
@@ -354,123 +244,6 @@ function RepairsModule({
           />
         </div>
       </div>
-
-      {activeTab === 'recepcion' && onAddRepairRecord && !embedded && (
-        <form
-          onSubmit={(e) => void handleReceptionSubmit(e)}
-          className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3"
-        >
-          <h2 className="text-sm font-semibold text-slate-900">Recibir equipo</h2>
-          <p className="text-[11px] text-slate-500">
-            El folio queda en taller al guardar. Si hay anticipo, cóbralo en el punto de venta.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(!hasCashTill(currentBranch.id) || selectedBranchId === 'all') && (
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Sucursal que recibe *</label>
-                <select
-                  value={receiveBranchId}
-                  onChange={(e) => setReceiveBranchId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="">Elegir sucursal…</option>
-                  {COMMERCIAL_BRANCHES.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <User className="w-3.5 h-3.5 text-slate-400" />
-                Cliente *
-              </label>
-              <input
-                type="text"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <Phone className="w-3.5 h-3.5 text-slate-400" />
-                Teléfono (10 dígitos) *
-              </label>
-              <input
-                type="tel"
-                maxLength={10}
-                value={clientPhone}
-                onChange={(e) => setClientPhone(e.target.value.replace(/\D/g, ''))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <Smartphone className="w-3.5 h-3.5 text-slate-400" />
-                Modelo *
-              </label>
-              <input
-                type="text"
-                value={deviceModel}
-                onChange={(e) => setDeviceModel(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                Contraseña / patrón
-              </label>
-              <input
-                type="text"
-                value={passcodePattern}
-                onChange={(e) => setPasscodePattern(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                <FileText className="w-3.5 h-3.5 text-slate-400" />
-                Falla o servicio *
-              </label>
-              <textarea
-                rows={2}
-                value={issueDescription}
-                onChange={(e) => setIssueDescription(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Precio al cliente (opcional)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={totalCost}
-                onChange={(e) => setTotalCost(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-          {formError && (
-            <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-              {formError}
-            </p>
-          )}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={savingReception}
-              className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
-            >
-              {savingReception ? 'Guardando…' : 'Registrar recepción'}
-            </button>
-          </div>
-        </form>
-      )}
 
       {activeTab === 'refaccion' && pendingStats.sinRefaccion > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3">
