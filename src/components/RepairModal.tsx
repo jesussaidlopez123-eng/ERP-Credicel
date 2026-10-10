@@ -378,7 +378,7 @@ export default function RepairModal({
             <div>
               <h3 className="font-bold text-base">Servicio Técnico & Reparaciones</h3>
               <p className="text-[11px] text-amber-100">
-                Recepción, entrega e historial de equipos de clientes
+                Recepción, costo de refacción y entrega
               </p>
             </div>
           </div>

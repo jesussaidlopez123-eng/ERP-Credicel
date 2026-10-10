@@ -1,5 +1,6 @@
 import type { AppNotification, RepairRecord, SaleTicket } from '../types';
 import {
+  addRepairCostLine,
   assembleRepairRecords,
   buildRepairCostDueNotification,
   combineRepairRecords,
@@ -7,6 +8,7 @@ import {
   foldRepairDuplicates,
   inferRepairsFromTickets,
   isPendingRepair,
+  markRepairDelivered,
   mergeRepairSources,
   needsRepairCostCapture,
   normalizeRepairStatus,
@@ -49,10 +51,11 @@ const pending: RepairRecord = {
 };
 
 assert(normalizeWorkStage(undefined) === 'recibido', 'sin etapa empieza en recibido');
-assert(normalizeWorkStage('listo') === 'para_entrega', 'listo viejo es para recoger');
-assert(normalizeWorkStage('espera_pieza') === 'espera_pieza', 'espera pieza se conserva');
-assert(workStageOf(setRepairWorkStage(pending, 'en_proceso')) === 'en_proceso', 'se mueve al banco');
-assert(workStageOf(shiftRepairWorkStage(pending, 1)) === 'diagnostico', 'el siguiente paso es diagnóstico');
+assert(normalizeWorkStage('listo') === 'para_entrega', 'listo viejo es para entrega');
+assert(normalizeWorkStage('espera_pieza') === 'costo_refaccion', 'espera pieza pasa a costo de refacción');
+assert(normalizeWorkStage('diagnostico') === 'costo_refaccion', 'diagnóstico viejo es costo de refacción');
+assert(workStageOf(setRepairWorkStage(pending, 'costo_refaccion')) === 'costo_refaccion', 'se mueve a refacción');
+assert(workStageOf(shiftRepairWorkStage(pending, 1)) === 'costo_refaccion', 'el siguiente paso es costo de refacción');
 assert(repairDaysInShop({ ...pending, receivedAtIso: '2026-10-01T12:00:00-07:00' }, '2026-10-03') === 2, 'días en taller');
 assert(isPendingRepair(pending), 'en taller está pendiente y se puede entregar');
 assert(isPendingRepair({ ...pending, status: 'listo' }), 'un listo viejo sigue entregable');
@@ -159,7 +162,7 @@ const twinA: RepairRecord = {
   clientPhone: '6441234567',
   deviceModel: 'Moto G06',
   receivedAtIso: '2026-10-03T10:00:00-07:00',
-  workStage: 'en_proceso',
+  workStage: 'costo_refaccion',
   totalCost: 800,
   deviceId: 'caja-nav'
 };
@@ -184,7 +187,7 @@ assert(
 const folded = foldRepairDuplicates([twinA, twinB]);
 assert(folded.length === 1, 'el tablero no muestra dos fichas del mismo equipo');
 assert(folded[0].id === 'REP-0310-K3M01', 'se queda el folio que ya iba en el banco');
-assert(workStageOf(folded[0]) === 'en_proceso', 'no se regresa a recibido');
+assert(workStageOf(folded[0]) === 'costo_refaccion', 'no se regresa a recibido');
 
 const deliveredOfficial: RepairRecord = {
   ...twinA,
@@ -233,5 +236,25 @@ const laterName = mergeRepairSources(
   [{ ...pending, clientName: 'Ana Guadalupe' }]
 );
 assert(laterName[0].clientName === 'Ana Guadalupe', 'el nombre de la ficha posterior se conserva');
+
+const withPart = addRepairCostLine(pending, {
+  kind: 'refaccion',
+  concept: 'Display',
+  amount: 350,
+  at: '2026-10-03T12:00:00-07:00',
+  by: 'Taller'
+});
+assert(workStageOf(withPart) === 'costo_refaccion', 'al capturar refacción sale de recepción');
+assert(withPart.costLines?.[0]?.kind === 'refaccion', 'el gasto queda como refacción');
+
+const paid: RepairRecord = { ...pending, pendingBalance: 0, totalCost: 0 };
+const delivered = markRepairDelivered(paid, 'Caja', '2026-10-03T18:00:00-07:00', '03/10/2026 6:00 p.m.');
+assert(delivered.status === 'entregado', 'sin saldo se entrega desde el módulo');
+try {
+  markRepairDelivered(pending, 'Caja', '2026-10-03T18:00:00-07:00', '03/10/2026');
+  assert(false, 'con saldo no se entrega desde el módulo');
+} catch (err) {
+  assert(err instanceof Error && err.message.includes('punto de venta'), 'manda a cobrar en caja');
+}
 
 console.log('repairUtils.selftest ok');

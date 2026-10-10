@@ -973,6 +973,7 @@ function PosModule({
                 repairRecords={boardRepairRecords}
                 currentBranch={currentBranch}
                 currentOperator={currentOperator}
+                onAddRepairRecord={onAddRepairRecord}
                 onUpdateRepairRecord={onUpdateRepairRecord}
                 onCancelRepairRecord={onCancelRepairRecord}
               />

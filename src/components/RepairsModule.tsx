@@ -1,34 +1,39 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Ban,
+  CheckCircle2,
   Clock,
   DollarSign,
-  History,
+  FileText,
+  Lock,
   PackageCheck,
-  Pencil,
+  Phone,
   Search,
+  Smartphone,
   Store,
+  User,
   Wrench
 } from 'lucide-react';
 import { Branch, Operator, RepairRecord } from '../types';
-import { COMMERCIAL_BRANCHES, getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
+import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
+import { allocateRepairFolio } from '../lib/folioAllocator';
 import {
-  applyRepairCost,
+  findPendingDuplicate,
+  hasRefaccionCost,
   isPendingRepair,
+  markRepairDelivered,
+  markRepairReadyForDelivery,
   matchesRepairSearch,
   needsRepairCostCapture,
-  repairInternalCost,
-  shiftRepairWorkStage,
   stampRepairLabel,
   workStageLabel,
   workStageOf
 } from '../lib/repairUtils';
-import RepairWeekRegisterPanel from './RepairWeekRegister';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
-import RepairShopBoard from './RepairShopBoard';
 import { CancelRepairDialog } from './RepairHistoryPanel';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -37,6 +42,7 @@ interface RepairsModuleProps {
   currentBranch: Branch;
   currentOperator: Operator;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
+  onAddRepairRecord?: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
   embedded?: boolean;
   onLoadOlderRepairs?: () => void;
@@ -46,46 +52,57 @@ interface RepairsModuleProps {
   onFocusCostDueConsumed?: () => void;
 }
 
-type TabId = 'tablero' | 'historial';
+type TabId = 'recepcion' | 'refaccion' | 'entrega';
 
 function RepairsModule({
   repairRecords,
   currentBranch,
   currentOperator,
   onUpdateRepairRecord,
+  onAddRepairRecord,
   onCancelRepairRecord,
   embedded = false,
-  onLoadOlderRepairs,
-  repairsHasMore = false,
-  repairsLoading = false,
   focusCostDue = false,
   onFocusCostDueConsumed
 }: RepairsModuleProps) {
   const role = normalizeRole(currentOperator.role);
   const isAdmin = role === 'admin';
   const isManager = role === 'manager';
-  const [activeTab, setActiveTab] = useState<TabId>('tablero');
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<TabId>('recepcion');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(
+    hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : 'all'
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 160);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [costDraft, setCostDraft] = useState('');
-  const [costNote, setCostNote] = useState('');
-  const [costError, setCostError] = useState<string | null>(null);
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
-  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+  const [deliverError, setDeliverError] = useState<string | null>(null);
+
+  const [clientName, setClientName] = useState('');
+  const [clientPhone, setClientPhone] = useState('');
+  const [deviceModel, setDeviceModel] = useState('');
+  const [passcodePattern, setPasscodePattern] = useState('');
+  const [issueDescription, setIssueDescription] = useState('');
+  const [totalCost, setTotalCost] = useState('');
+  const [receiveBranchId, setReceiveBranchId] = useState(
+    hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : ''
+  );
+  const [formError, setFormError] = useState<string | null>(null);
+  const [savingReception, setSavingReception] = useState(false);
 
   useEffect(() => {
     if (!focusCostDue) return;
-    setActiveTab('historial');
+    setActiveTab('refaccion');
     onFocusCostDueConsumed?.();
   }, [focusCostDue, onFocusCostDueConsumed]);
 
   useEffect(() => {
     if (isManager && !isAdmin) {
-      setSelectedBranchId(normalizeBranchId(currentBranch.id));
+      const id = normalizeBranchId(currentBranch.id);
+      setSelectedBranchId(id);
+      setReceiveBranchId(id);
     }
   }, [isManager, isAdmin, currentBranch.id]);
 
@@ -107,49 +124,150 @@ function RepairsModule({
       );
   }, [scopedRecords, debouncedSearch]);
 
+  const refaccionQueue = useMemo(() => {
+    const open = scopedRecords.filter(
+      (r) =>
+        (isPendingRepair(r) || needsRepairCostCapture(r)) && matchesRepairSearch(r, debouncedSearch)
+    );
+    return open.sort((a, b) => {
+      const aMissing = hasRefaccionCost(a) ? 1 : 0;
+      const bMissing = hasRefaccionCost(b) ? 1 : 0;
+      if (aMissing !== bMissing) return aMissing - bMissing;
+      return String(b.receivedAtIso || b.receivedAt || '').localeCompare(
+        String(a.receivedAtIso || a.receivedAt || '')
+      );
+    });
+  }, [scopedRecords, debouncedSearch]);
+
   const pendingStats = useMemo(() => {
     const allPending = scopedRecords.filter(isPendingRepair);
-    const sinCosto = allPending.filter((r) => money(r.totalCost) <= 0).length;
-    const sinGasto = scopedRecords.filter(needsRepairCostCapture).length;
-    const saldo = allPending.reduce((sum, r) => sum + money(r.pendingBalance), 0);
     return {
       enTaller: allPending.length,
-      sinCosto,
-      sinGasto,
-      saldo
+      sinRefaccion: allPending.filter((r) => !hasRefaccionCost(r)).length +
+        scopedRecords.filter(needsRepairCostCapture).length,
+      saldo: allPending.reduce((sum, r) => sum + money(r.pendingBalance), 0)
     };
   }, [scopedRecords]);
 
-  const openCostEditor = (record: RepairRecord) => {
-    setEditingId(record.id);
-    setCostDraft(record.totalCost > 0 ? String(record.totalCost) : '');
-    setCostNote('');
-    setCostError(null);
+  if (!isAdmin && !isManager) return null;
+
+  const resetReceptionForm = () => {
+    setClientName('');
+    setClientPhone('');
+    setDeviceModel('');
+    setPasscodePattern('');
+    setIssueDescription('');
+    setTotalCost('');
+    setFormError(null);
   };
 
-  const handleSaveCost = async (record: RepairRecord) => {
-    if (savingId) return;
-    setCostError(null);
-    const parsed = parseFloat(costDraft);
-    if (!Number.isFinite(parsed)) {
-      setCostError('Escribe el precio al cliente.');
+  const handleReceptionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddRepairRecord || savingReception) return;
+    setFormError(null);
+
+    const branchId = receiveBranchId || (hasCashTill(currentBranch.id) ? normalizeBranchId(currentBranch.id) : '');
+    if (!branchId || !hasCashTill(branchId)) {
+      setFormError('Elija la sucursal donde se recibe el equipo.');
       return;
     }
-    try {
-      const updated = applyRepairCost(
-        record,
-        parsed,
-        currentOperator.name,
-        trustedIso(),
-        costNote
+    if (!clientName.trim()) {
+      setFormError('Falta el nombre del cliente.');
+      return;
+    }
+    if (!clientPhone.trim() || clientPhone.replace(/\D/g, '').length < 10) {
+      setFormError('El teléfono de contacto debe traer 10 dígitos.');
+      return;
+    }
+    if (!deviceModel.trim()) {
+      setFormError('Falta el modelo o marca del equipo.');
+      return;
+    }
+    if (!issueDescription.trim()) {
+      setFormError('Falta describir la falla o el servicio.');
+      return;
+    }
+
+    const alreadyInShop = findPendingDuplicate(repairRecords, {
+      id: '',
+      branchId,
+      clientPhone: clientPhone.trim(),
+      deviceModel: deviceModel.trim(),
+      receivedAtIso: trustedIso()
+    });
+    if (alreadyInShop) {
+      setFormError(
+        `Este equipo ya está en taller con folio ${alreadyInShop.id}. Entrégalo o dalo de baja; no lo des de alta otra vez.`
       );
+      return;
+    }
+
+    const numTotal = money(parseFloat(totalCost) || 0);
+    setSavingReception(true);
+    try {
+      const receivedIso = trustedIso();
+      const folioId = await allocateRepairFolio(branchId, receivedIso);
+      const newRepair: RepairRecord = {
+        id: folioId,
+        clientName: clientName.trim(),
+        clientPhone: clientPhone.trim(),
+        deviceModel: deviceModel.trim(),
+        passcodePattern: passcodePattern.trim() || 'Sin contraseña / Desbloqueado',
+        issueDescription: issueDescription.trim(),
+        totalCost: numTotal,
+        advancePayment: 0,
+        pendingBalance: numTotal,
+        status: 'en_taller',
+        workStage: 'recibido',
+        receivedAt: `${safeFormatDate(receivedIso)} ${safeFormatTime(receivedIso)}`,
+        receivedAtIso: receivedIso,
+        operatorName: currentOperator.name,
+        branchId
+      };
+      await onAddRepairRecord(newRepair);
+      resetReceptionForm();
+      setOpenOrderId(folioId);
+    } catch {
+      setFormError('No se pudo registrar la recepción. No entregues el celular sin folio; inténtalo de nuevo.');
+    } finally {
+      setSavingReception(false);
+    }
+  };
+
+  const handleDeliver = async (record: RepairRecord) => {
+    if (savingId) return;
+    setDeliverError(null);
+    if (money(record.pendingBalance) > 0) {
+      setDeliverError('Cobra el saldo en el punto de venta. El equipo se marca entregado cuando el cobro queda hecho.');
+      setOpenOrderId(record.id);
+      return;
+    }
+    const nowIso = trustedIso();
+    try {
       setSavingId(record.id);
-      await onUpdateRepairRecord(updated);
-      setEditingId(null);
-      setCostDraft('');
-      setCostNote('');
+      await onUpdateRepairRecord(
+        markRepairDelivered(
+          record,
+          currentOperator.name,
+          nowIso,
+          `${safeFormatDate(nowIso)} ${safeFormatTime(nowIso)}`
+        )
+      );
+      setOpenOrderId(null);
     } catch (err) {
-      setCostError(err instanceof Error ? err.message : 'No se pudo guardar el costo.');
+      setDeliverError(err instanceof Error ? err.message : 'No se pudo entregar el equipo.');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleReadyForDelivery = async (record: RepairRecord) => {
+    if (savingId) return;
+    setSavingId(record.id);
+    try {
+      await onUpdateRepairRecord(markRepairReadyForDelivery(record));
+      setActiveTab('entrega');
+      setOpenOrderId(record.id);
     } finally {
       setSavingId(null);
     }
@@ -162,11 +280,7 @@ function RepairsModule({
     setCancelReason('');
   };
 
-  if (!isAdmin && !isManager) return null;
-
-  const handleMoveStage = async (record: RepairRecord, delta: -1 | 1) => {
-    await onUpdateRepairRecord(shiftRepairWorkStage(record, delta));
-  };
+  const listForTab = activeTab === 'refaccion' ? refaccionQueue : pendingRepairs;
 
   return (
     <div className={embedded ? 'space-y-3' : 'space-y-4 pb-12'}>
@@ -175,28 +289,21 @@ function RepairsModule({
           <h1 className="text-sm font-semibold text-slate-900">Taller</h1>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           <SummaryCard label="En taller" value={String(pendingStats.enTaller)} />
           <SummaryCard
-            label="Sin precio"
-            value={String(pendingStats.sinCosto)}
-            accent={pendingStats.sinCosto > 0 ? 'amber' : 'slate'}
+            label="Sin refacción"
+            value={String(pendingStats.sinRefaccion)}
+            accent={pendingStats.sinRefaccion > 0 ? 'amber' : 'slate'}
           />
-          <SummaryCard
-            label="Sin gasto interno"
-            value={String(pendingStats.sinGasto)}
-            accent={pendingStats.sinGasto > 0 ? 'amber' : 'slate'}
-          />
-          <SummaryCard
-            label="Saldo por cobrar"
-            value={`$${formatMoney(pendingStats.saldo)}`}
-          />
+          <SummaryCard label="Saldo por cobrar" value={`$${formatMoney(pendingStats.saldo)}`} />
         </div>
 
         <div className="tool-seg mt-3">
           {([
-            ['tablero', 'Tablero', pendingStats.enTaller],
-            ['historial', 'Historial', scopedRecords.filter((r) => !isPendingRepair(r)).length]
+            ['recepcion', 'Recepción', pendingStats.enTaller],
+            ['refaccion', 'Costo de refacción', pendingStats.sinRefaccion],
+            ['entrega', 'Entrega', pendingStats.enTaller]
           ] as Array<[TabId, string, number]>).map(([id, label, count]) => (
             <button
               key={id}
@@ -204,7 +311,13 @@ function RepairsModule({
               data-active={activeTab === id}
               onClick={() => setActiveTab(id)}
             >
-              {id === 'tablero' ? <Wrench className="w-3.5 h-3.5" /> : <History className="w-3.5 h-3.5" />}
+              {id === 'recepcion' ? (
+                <Wrench className="w-3.5 h-3.5" />
+              ) : id === 'refaccion' ? (
+                <DollarSign className="w-3.5 h-3.5" />
+              ) : (
+                <PackageCheck className="w-3.5 h-3.5" />
+              )}
               {label}
               <span className="text-[10px] text-slate-500">{count}</span>
             </button>
@@ -221,7 +334,7 @@ function RepairsModule({
             onChange={(e) => setSelectedBranchId(e.target.value)}
             className="w-full sm:w-64 bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
           >
-            <option value="all">Todas las sucursales</option>
+            {isAdmin && <option value="all">Todas las sucursales</option>}
             {COMMERCIAL_BRANCHES.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
@@ -230,57 +343,172 @@ function RepairsModule({
           </select>
         </div>
 
-        {activeTab === 'tablero' && (
-          <div className="relative w-full sm:flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar por folio, cliente, teléfono o modelo…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-            />
-          </div>
-        )}
+        <div className="relative w-full sm:flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Buscar por folio, cliente, teléfono o modelo…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          />
+        </div>
       </div>
 
-      {pendingStats.sinGasto > 0 && (
-        <button
-          type="button"
-          onClick={() => setActiveTab('historial')}
-          className="w-full text-left bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3 cursor-pointer hover:bg-amber-100"
+      {activeTab === 'recepcion' && onAddRepairRecord && !embedded && (
+        <form
+          onSubmit={(e) => void handleReceptionSubmit(e)}
+          className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3"
         >
-          <p className="text-xs font-semibold text-amber-950">
-            {pendingStats.sinGasto} entrega{pendingStats.sinGasto === 1 ? '' : 's'} sin gasto interno
+          <h2 className="text-sm font-semibold text-slate-900">Recibir equipo</h2>
+          <p className="text-[11px] text-slate-500">
+            El folio queda en taller al guardar. Si hay anticipo, cóbralo en el punto de venta.
           </p>
-        </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {(!hasCashTill(currentBranch.id) || selectedBranchId === 'all') && (
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1">Sucursal que recibe *</label>
+                <select
+                  value={receiveBranchId}
+                  onChange={(e) => setReceiveBranchId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Elegir sucursal…</option>
+                  {COMMERCIAL_BRANCHES.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <User className="w-3.5 h-3.5 text-slate-400" />
+                Cliente *
+              </label>
+              <input
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <Phone className="w-3.5 h-3.5 text-slate-400" />
+                Teléfono (10 dígitos) *
+              </label>
+              <input
+                type="tel"
+                maxLength={10}
+                value={clientPhone}
+                onChange={(e) => setClientPhone(e.target.value.replace(/\D/g, ''))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <Smartphone className="w-3.5 h-3.5 text-slate-400" />
+                Modelo *
+              </label>
+              <input
+                type="text"
+                value={deviceModel}
+                onChange={(e) => setDeviceModel(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                Contraseña / patrón
+              </label>
+              <input
+                type="text"
+                value={passcodePattern}
+                onChange={(e) => setPasscodePattern(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-slate-400" />
+                Falla o servicio *
+              </label>
+              <textarea
+                rows={2}
+                value={issueDescription}
+                onChange={(e) => setIssueDescription(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Precio al cliente (opcional)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={totalCost}
+                onChange={(e) => setTotalCost(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+          {formError && (
+            <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+              {formError}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingReception}
+              className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
+            >
+              {savingReception ? 'Guardando…' : 'Registrar recepción'}
+            </button>
+          </div>
+        </form>
       )}
 
-      {activeTab === 'tablero' && (
-        <div className="space-y-3">
-          {pendingRepairs.length === 0 ? (
-            <div className="p-10 text-center bg-white rounded-xl border border-slate-200 text-slate-500">
-              <PackageCheck className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-semibold text-slate-700">Sin equipos en taller</p>
-            </div>
-          ) : (
-            <RepairShopBoard
-              records={pendingRepairs}
-              selectedId={openOrderId}
-              showBranch={selectedBranchId === 'all'}
-              onSelect={(record) => setOpenOrderId(openOrderId === record.id ? null : record.id)}
-              onMove={(record, delta) => void handleMoveStage(record, delta)}
-            />
-          )}
-          {pendingRepairs.map((record) => {
-              const editing = editingId === record.id;
-              const sinCosto = money(record.totalCost) <= 0;
-              const open = openOrderId === record.id;
-              if (!open) return null;
-              return (
-                <article
-                  key={record.id}
-                  className="bg-white border border-[#0047AB]/30 rounded-xl p-3 space-y-3"
+      {activeTab === 'refaccion' && pendingStats.sinRefaccion > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-2xl px-4 py-3">
+          <p className="text-xs font-semibold text-amber-950">
+            {pendingStats.sinRefaccion} folio{pendingStats.sinRefaccion === 1 ? '' : 's'} sin costo de refacción
+          </p>
+        </div>
+      )}
+
+      {deliverError && activeTab === 'entrega' && (
+        <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2">
+          {deliverError}
+        </p>
+      )}
+
+      {listForTab.length === 0 ? (
+        <div className="p-10 text-center bg-white rounded-xl border border-slate-200 text-slate-500">
+          <PackageCheck className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+          <p className="text-sm font-semibold text-slate-700">
+            {activeTab === 'refaccion' ? 'Nada pendiente de refacción' : 'Sin equipos en taller'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {listForTab.map((record) => {
+            const open = openOrderId === record.id;
+            const missingPart = !hasRefaccionCost(record);
+            return (
+              <article
+                key={record.id}
+                className={`bg-white border rounded-xl p-3 space-y-3 ${
+                  open ? 'border-[#0047AB]/40' : 'border-slate-200'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenOrderId(open ? null : record.id)}
+                  className="w-full text-left cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -294,174 +522,114 @@ function RepairsModule({
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
                         {workStageLabel(workStageOf(record))}
                       </span>
+                      {missingPart && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                          Sin refacción
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] text-slate-500 flex items-center gap-1 font-medium">
                       <Clock className="w-3 h-3 text-slate-400" />
                       {stampRepairLabel(record.receivedAtIso, record.receivedAt)}
                     </span>
                   </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {record.clientName} · {record.clientPhone} · {record.issueDescription}
+                  </p>
+                </button>
 
-                  {open && (
-                    <div className="space-y-3 pt-2 border-t border-slate-100">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs bg-slate-50 p-3 rounded-xl">
-                        <div>
-                          <p className="text-slate-500 font-medium">Cliente</p>
-                          <p className="font-bold text-slate-900">
-                            {record.clientName} ({record.clientPhone})
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-slate-500 font-medium">Falla / servicio</p>
-                          <p className="font-bold text-slate-800">{record.issueDescription}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-500 font-medium">Contraseña / patrón</p>
-                          <p className="font-bold text-slate-800">{record.passcodePattern || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-500 font-medium">Recibió</p>
-                          <p className="font-bold text-slate-800">{record.operatorName}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 text-xs flex-wrap">
-                          <div>
-                            <span className="text-slate-500">Anticipo:</span>{' '}
-                            <span className="font-bold text-emerald-700">${formatMoney(record.advancePayment)}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Saldo:</span>{' '}
-                            <span className="font-black text-amber-700 text-sm">
-                              ${formatMoney(record.pendingBalance)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {onCancelRepairRecord && isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCancelTarget(record);
-                                setCancelReason('');
-                              }}
-                              className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Ban className="w-3.5 h-3.5" />
-                              Dar de baja
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => (editing ? setEditingId(null) : openCostEditor(record))}
-                            className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-                          >
-                            {sinCosto ? <DollarSign className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
-                            {sinCosto ? 'Precio al cliente' : 'Cambiar precio'}
-                          </button>
-                        </div>
-                      </div>
-
-                      {editing && (
-                        <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-3">
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Precio al cliente
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                autoFocus
-                                value={costDraft}
-                                onChange={(e) => setCostDraft(e.target.value)}
-                                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Anticipo ya cobrado
-                              </label>
-                              <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-emerald-800">
-                                ${formatMoney(record.advancePayment)}
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Nuevo saldo
-                              </label>
-                              <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-black text-amber-800">
-                                ${formatMoney(Math.max(0, money(parseFloat(costDraft) || 0) - money(record.advancePayment)))}
-                              </div>
-                            </div>
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="Nota opcional (ej. se cambió display, no solo revisión)"
-                            value={costNote}
-                            onChange={(e) => setCostNote(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                          />
-                          {costError && (
-                            <p className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                              {costError}
-                            </p>
-                          )}
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-white cursor-pointer"
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleSaveCost(record)}
-                              disabled={savingId === record.id}
-                              className="px-4 py-2 bg-[#0047AB] hover:bg-[#003d93] disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
-                            >
-                              {savingId === record.id ? 'Guardando…' : 'Guardar precio'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {(record.costUpdates || []).length > 0 && !editing && (
-                        <p className="text-[11px] text-slate-500">
-                          Último cambio de precio:{' '}
-                          ${formatMoney(record.costUpdates![record.costUpdates!.length - 1].previousTotal)} → $
-                          {formatMoney(record.costUpdates![record.costUpdates!.length - 1].newTotal)} por{' '}
-                          {record.costUpdates![record.costUpdates!.length - 1].by}
+                {open && (
+                  <div className="space-y-3 pt-2 border-t border-slate-100">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs bg-slate-50 p-3 rounded-xl">
+                      <div>
+                        <p className="text-slate-500 font-medium">Cliente</p>
+                        <p className="font-bold text-slate-900">
+                          {record.clientName} ({record.clientPhone})
                         </p>
-                      )}
+                      </div>
+                      <div>
+                        <p className="text-slate-500 font-medium">Falla / servicio</p>
+                        <p className="font-bold text-slate-800">{record.issueDescription}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 font-medium">Contraseña / patrón</p>
+                        <p className="font-bold text-slate-800">{record.passcodePattern || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 font-medium">Recibió</p>
+                        <p className="font-bold text-slate-800">{record.operatorName}</p>
+                      </div>
+                    </div>
 
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <span>
+                        Precio: <strong className="text-slate-900">${formatMoney(record.totalCost)}</strong>
+                      </span>
+                      <span>
+                        Anticipo:{' '}
+                        <strong className="text-emerald-700">${formatMoney(record.advancePayment)}</strong>
+                      </span>
+                      <span>
+                        Saldo:{' '}
+                        <strong className="text-amber-700">${formatMoney(record.pendingBalance)}</strong>
+                      </span>
+                    </div>
+
+                    {activeTab === 'refaccion' && (
                       <RepairCostLinesEditor
                         record={record}
                         operatorName={currentOperator.name}
                         onUpdate={onUpdateRepairRecord}
                         busy={savingId === record.id}
+                        allowedKinds={['refaccion']}
                       />
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-        </div>
-      )}
+                    )}
 
-      {activeTab === 'historial' && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5">
-          <RepairWeekRegisterPanel
-            records={scopedRecords}
-            showBranch
-            operatorName={currentOperator.name}
-            onUpdateRepairRecord={onUpdateRepairRecord}
-            onLoadOlder={onLoadOlderRepairs}
-            hasMore={repairsHasMore}
-            loadingMore={repairsLoading}
-          />
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {onCancelRepairRecord && isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCancelTarget(record);
+                            setCancelReason('');
+                          }}
+                          className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          Dar de baja
+                        </button>
+                      )}
+                      {activeTab === 'refaccion' && isPendingRepair(record) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleReadyForDelivery(record)}
+                          disabled={savingId === record.id}
+                          className="px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs rounded-xl cursor-pointer disabled:opacity-60"
+                        >
+                          Pasar a entrega
+                        </button>
+                      )}
+                      {activeTab === 'entrega' && isPendingRepair(record) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeliver(record)}
+                          disabled={savingId === record.id}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          {money(record.pendingBalance) > 0
+                            ? `Saldo $${formatMoney(record.pendingBalance)} · cobrar en caja`
+                            : savingId === record.id
+                              ? 'Entregando…'
+                              : 'Entregar equipo'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
 

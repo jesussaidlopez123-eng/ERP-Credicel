@@ -181,13 +181,8 @@ export interface CreditAccount {
 
 export type RepairCostKind = 'refaccion' | 'mano_obra' | 'otro';
 
-/** Paso de trabajo en el banco. No bloquea la entrega en caja. */
-export type RepairWorkStage =
-  | 'recibido'
-  | 'diagnostico'
-  | 'espera_pieza'
-  | 'en_proceso'
-  | 'para_entrega';
+/** Paso de trabajo en taller: recepción, costo de refacción o entrega. */
+export type RepairWorkStage = 'recibido' | 'costo_refaccion' | 'para_entrega';
 
 /** Costo interno del taller (refacción, mano de obra). No es el precio al cliente. */
 export interface RepairCostLine {

@@ -38,19 +38,24 @@ export function normalizeRepairStatus(status: string | undefined): RepairRecord[
 
 export const REPAIR_WORK_STAGES: RepairWorkStage[] = [
   'recibido',
-  'diagnostico',
-  'espera_pieza',
-  'en_proceso',
+  'costo_refaccion',
   'para_entrega'
 ];
 
 export const REPAIR_WORK_STAGE_META: Record<RepairWorkStage, { label: string; short: string }> = {
-  recibido: { label: 'Recibido', short: 'Nuevo' },
-  diagnostico: { label: 'Diagnóstico', short: 'Revisión' },
-  espera_pieza: { label: 'Espera pieza', short: 'Pieza' },
-  en_proceso: { label: 'En proceso', short: 'Banco' },
-  para_entrega: { label: 'Para recoger', short: 'Listo' }
+  recibido: { label: 'Recepción', short: 'Nuevo' },
+  costo_refaccion: { label: 'Costo de refacción', short: 'Refacción' },
+  para_entrega: { label: 'Entrega', short: 'Entregar' }
 };
+
+const MID_SHOP_STAGES = new Set([
+  'costo_refaccion',
+  'diagnostico',
+  'espera_pieza',
+  'en_proceso',
+  'revision',
+  'pieza'
+]);
 
 export function normalizeWorkStage(
   raw: unknown,
@@ -59,8 +64,17 @@ export function normalizeWorkStage(
   const value = String(raw || '')
     .toLowerCase()
     .trim();
-  if ((REPAIR_WORK_STAGES as string[]).includes(value)) return value as RepairWorkStage;
-  if (value === 'listo' || value === 'ready' || value === 'para_recoger') return 'para_entrega';
+  if (value === 'recibido' || value === 'recepcion' || value === 'nuevo') return 'recibido';
+  if (MID_SHOP_STAGES.has(value)) return 'costo_refaccion';
+  if (
+    value === 'para_entrega' ||
+    value === 'listo' ||
+    value === 'ready' ||
+    value === 'para_recoger' ||
+    value === 'entrega'
+  ) {
+    return 'para_entrega';
+  }
   if (normalizeRepairStatus(status) === 'entregado') return 'para_entrega';
   return 'recibido';
 }
@@ -143,7 +157,7 @@ export function buildRepairCostDueNotification(
   return {
     urgency: 'urgente',
     title: `Falta gasto de reparación · ${record.id}`,
-    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch}. El costo interno está en $0. Captúrelo en Reparaciones → Historial (refacción o mano de obra). La caja ya no espera ese dato.`,
+    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch}. El costo de refacción está en $0. Captúrelo en Reparaciones → Costo de refacción. La caja ya no espera ese dato.`,
     authorName: cashierName,
     branchId: 'all',
     targetOperatorId: 'all',
@@ -219,14 +233,48 @@ export function addRepairCostLine(
     at: input.at,
     by: input.by
   });
-  if (!line) throw new Error('No se pudo guardar el costo interno.');
-  return { ...record, costLines: [...(record.costLines || []), line] };
+  if (!line) throw new Error('No se pudo guardar el costo de refacción.');
+  const next: RepairRecord = { ...record, costLines: [...(record.costLines || []), line] };
+  if (workStageOf(next) === 'recibido') {
+    return setRepairWorkStage(next, 'costo_refaccion');
+  }
+  return next;
 }
 
 export function removeRepairCostLine(record: RepairRecord, lineId: string): RepairRecord {
   return {
     ...record,
     costLines: (record.costLines || []).filter((line) => line.id !== lineId)
+  };
+}
+
+export function hasRefaccionCost(record: RepairRecord | null | undefined): boolean {
+  return (record?.costLines || []).some(
+    (line) => line.kind === 'refaccion' && money(line.amount) > 0
+  );
+}
+
+export function markRepairReadyForDelivery(record: RepairRecord): RepairRecord {
+  return setRepairWorkStage(record, 'para_entrega');
+}
+
+export function markRepairDelivered(
+  record: RepairRecord,
+  operatorName: string,
+  atIso: string,
+  deliveredLabel: string
+): RepairRecord {
+  if (money(record.pendingBalance) > 0) {
+    throw new Error('Cobra el saldo en el punto de venta para entregar este equipo.');
+  }
+  return {
+    ...record,
+    status: 'entregado',
+    pendingBalance: 0,
+    workStage: 'para_entrega',
+    deliveredAt: deliveredLabel,
+    deliveredAtIso: atIso,
+    deliveredByName: operatorName
   };
 }
 

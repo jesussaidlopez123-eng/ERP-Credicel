@@ -16,17 +16,20 @@ interface RepairCostLinesEditorProps {
   operatorName: string;
   onUpdate: (record: RepairRecord) => void | Promise<void>;
   busy?: boolean;
+  allowedKinds?: RepairCostKind[];
 }
 
-const KINDS: RepairCostKind[] = ['refaccion', 'mano_obra', 'otro'];
+const ALL_KINDS: RepairCostKind[] = ['refaccion', 'mano_obra', 'otro'];
 
 export default function RepairCostLinesEditor({
   record,
   operatorName,
   onUpdate,
-  busy = false
+  busy = false,
+  allowedKinds = ALL_KINDS
 }: RepairCostLinesEditorProps) {
-  const [kind, setKind] = useState<RepairCostKind>('refaccion');
+  const kinds = allowedKinds.length > 0 ? allowedKinds : ALL_KINDS;
+  const [kind, setKind] = useState<RepairCostKind>(kinds[0] || 'refaccion');
   const [concept, setConcept] = useState('');
   const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -72,10 +75,12 @@ export default function RepairCostLinesEditor({
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <p className="text-[11px] font-black uppercase tracking-wide text-slate-600">
-            Costos / gastos de la orden
+            {kinds.length === 1 && kinds[0] === 'refaccion' ? 'Costo de refacción' : 'Costos / gastos de la orden'}
           </p>
           <p className="text-[11px] text-slate-500">
-            Refacción y mano de obra de esta orden. Se pueden capturar después de entregar; no bloquean la caja.
+            {kinds.length === 1 && kinds[0] === 'refaccion'
+              ? 'Lo que costó la pieza. Se puede capturar después de entregar; no bloquea la caja.'
+              : 'Refacción y mano de obra de esta orden. Se pueden capturar después de entregar; no bloquean la caja.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-3 text-[11px]">
@@ -126,21 +131,23 @@ export default function RepairCostLinesEditor({
         </ul>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as RepairCostKind)}
-          className="px-2.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
-        >
-          {KINDS.map((k) => (
-            <option key={k} value={k}>
-              {REPAIR_COST_KIND_LABEL[k]}
-            </option>
-          ))}
-        </select>
+      <div className={`grid grid-cols-1 gap-2 ${kinds.length > 1 ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        {kinds.length > 1 && (
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as RepairCostKind)}
+            className="px-2.5 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+          >
+            {kinds.map((k) => (
+              <option key={k} value={k}>
+                {REPAIR_COST_KIND_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           type="text"
-          placeholder="Concepto (display, flex, envío…)"
+          placeholder="Pieza (display, flex, centro de carga…)"
           value={concept}
           onChange={(e) => setConcept(e.target.value)}
           className="sm:col-span-2 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -168,7 +175,7 @@ export default function RepairCostLinesEditor({
           className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl text-xs font-bold cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
-          {saving ? 'Guardando…' : 'Agregar costo interno'}
+          {saving ? 'Guardando…' : kinds.length === 1 && kinds[0] === 'refaccion' ? 'Guardar refacción' : 'Agregar costo interno'}
         </button>
       </div>
     </div>
