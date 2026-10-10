@@ -378,7 +378,7 @@ export default function RepairModal({
             <div>
               <h3 className="font-bold text-base">Servicio Técnico & Reparaciones</h3>
               <p className="text-[11px] text-amber-100">
-                Recepción y entrega de equipos en caja
+                Caja recibe y entrega. El costo de la pieza se captura en Reparaciones.
               </p>
             </div>
           </div>
@@ -392,7 +392,7 @@ export default function RepairModal({
           {tabButton(
             'entrega',
             <PackageCheck className="w-4 h-4" />,
-            `En taller (${repairRecords.filter(isPendingRepair).length})`
+            `Entrega (${repairRecords.filter(isPendingRepair).length})`
           )}
           {tabButton('historial', <History className="w-4 h-4" />, 'Historial')}
         </div>

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Ban,
-  CheckCircle2,
   Clock,
   Phone,
   Search,
@@ -15,12 +14,10 @@ import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranch
 import { normalizeRole } from '../lib/roles';
 import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
-import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import {
   applyRepairCost,
   hasRefaccionCost,
   isPendingRepair,
-  markRepairDelivered,
   markRepairReadyForDelivery,
   matchesRepairSearch,
   needsRepairCostCapture,
@@ -177,24 +174,6 @@ function RepairsModule({
     }
   };
 
-  const handleDeliver = async (record: RepairRecord) => {
-    if (savingId) return;
-    if (money(record.pendingBalance) > 0) {
-      setActionError('Cobra el saldo en el punto de venta. La orden se cierra cuando caja termina el cobro.');
-      return;
-    }
-    const nowIso = trustedIso();
-    await persist(
-      markRepairDelivered(
-        record,
-        currentOperator.name,
-        nowIso,
-        `${safeFormatDate(nowIso)} ${safeFormatTime(nowIso)}`
-      )
-    );
-    setOpenOrderId(null);
-  };
-
   const handleReady = async (record: RepairRecord) => {
     if (savingId) return;
     await persist(markRepairReadyForDelivery(record));
@@ -215,7 +194,7 @@ function RepairsModule({
           <div>
             <h1 className="text-sm font-semibold text-slate-900">Órdenes de taller</h1>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Como en otros talleres: caja recibe el equipo, aquí se trabaja la orden y se marca lista. La entrega con saldo se cobra en el punto de venta.
+              Caja recibe y entrega. Aquí solo se captura el costo de la pieza y se puede ajustar el precio al cliente.
             </p>
           </div>
           <div className="grid grid-cols-4 gap-2 w-full sm:w-auto">
@@ -304,7 +283,6 @@ function RepairsModule({
           onSavePrice={() => void handleSavePrice(openOrder)}
           onUpdate={onUpdateRepairRecord}
           onReady={() => void handleReady(openOrder)}
-          onDeliver={() => void handleDeliver(openOrder)}
           onCancel={() => {
             setCancelTarget(openOrder);
             setCancelReason('');
@@ -313,7 +291,7 @@ function RepairsModule({
         />
       ) : (
         <p className="text-[11px] text-slate-500 px-1">
-          Toca una orden para abrir la ficha: refacción, precio y entrega. Las altas nuevas solo salen del punto de venta.
+          Toca una orden para capturar la pieza o cambiar el precio al cliente. Recibir y entregar se hace en el punto de venta.
         </p>
       )}
 
@@ -405,7 +383,6 @@ function WorkOrder({
   onSavePrice,
   onUpdate,
   onReady,
-  onDeliver,
   onCancel,
   canCancel
 }: {
@@ -420,7 +397,6 @@ function WorkOrder({
   onSavePrice: () => void;
   onUpdate: (record: RepairRecord) => void | Promise<void>;
   onReady: () => void;
-  onDeliver: () => void;
   onCancel: () => void;
   canCancel: boolean;
 }) {
@@ -566,23 +542,15 @@ function WorkOrder({
               disabled={busy}
               className="px-3 py-2 border border-slate-300 text-slate-800 hover:bg-slate-50 font-bold text-xs rounded-xl cursor-pointer disabled:opacity-60"
             >
-              Marcar listo
+              Marcar listo para caja
             </button>
           )}
           {pending && (
-            <button
-              type="button"
-              onClick={onDeliver}
-              disabled={busy}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4" />
+            <p className="text-[11px] text-slate-500">
               {money(record.pendingBalance) > 0
-                ? `Saldo $${formatMoney(record.pendingBalance)} · cobrar en caja`
-                : busy
-                  ? 'Entregando…'
-                  : 'Entregar equipo'}
-            </button>
+                ? `Saldo $${formatMoney(record.pendingBalance)}. La entrega se hace en el punto de venta.`
+                : 'Sin saldo. Caja entrega el equipo en el punto de venta.'}
+            </p>
           )}
         </div>
       </div>
