@@ -2189,6 +2189,35 @@ export async function deleteSaleTicketFromFirestore(
   }
 }
 
+/**
+ * Quita un gasto del turno (o de un corte ya sellado). No toca ventas ni inventario.
+ */
+export async function deleteExpenseFromFirestore(
+  expense: Expense | string,
+  options?: {
+    reason?: string;
+    operatorName?: string;
+  }
+): Promise<void> {
+  const expenseId = typeof expense === 'string' ? expense : expense.id;
+  if (!expenseId) throw new Error('ID de gasto no proporcionado');
+
+  const reason = options?.reason || 'Error de captura de operador';
+  const operator = options?.operatorName || (typeof expense === 'object' ? expense.operatorName : '') || 'Administrador';
+  console.info(`[Firestore] Eliminando gasto ${expenseId} (${reason}) por ${operator}`);
+
+  try {
+    await deleteDoc(doc(db, GASTOS_COLLECTION, expenseId));
+  } catch (err) {
+    console.warn('[Firestore] deleteDoc gastos err:', err);
+  }
+  try {
+    await deleteDoc(doc(db, EXPENSES_COLLECTION, expenseId));
+  } catch (err) {
+    console.warn('[Firestore] deleteDoc expenses err:', err);
+  }
+}
+
 // ----------------------------------------------------
 // 9. MIGRATION ENGINE (ZERO-DATA-LOSS TO SESSIONS)
 // ----------------------------------------------------

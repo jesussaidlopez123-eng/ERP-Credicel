@@ -35,5 +35,5 @@ export function authorizeWithAdminPassword(
     return 'No hay un administrador con contraseña configurada.';
   }
   if (admins.some((op) => String(op.password || '').trim() === given)) return null;
-  return 'Contraseña de administrador incorrecta. No se eliminó la venta.';
+  return 'Contraseña de administrador incorrecta. No se eliminó el movimiento.';
 }

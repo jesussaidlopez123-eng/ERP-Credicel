@@ -3,11 +3,14 @@ import {
   applyTicketToCorte,
   buildHistoricSaleTimestamp,
   findClosedCorteForDay,
+  isOpenShiftMovement,
+  rebuildCorteTotals,
+  removeExpenseFromCorte,
   removeTicketFromCorte,
   validateHistoricSaleTarget
 } from './historicSale.ts';
 import { hermosilloDateKey } from './shiftHours.ts';
-import type { CorteXRecord, SaleTicket } from '../types.ts';
+import type { CorteXRecord, Expense, SaleTicket } from '../types.ts';
 
 const pastStamp = buildHistoricSaleTimestamp('2026-09-09', new Date('2026-09-10T18:00:00-07:00'));
 assert.equal(pastStamp, '2026-09-09T21:00:00-07:00');
@@ -82,6 +85,27 @@ const without = removeTicketFromCorte(withSale, 'TCK-1');
 assert.equal(without.totalSales, 0);
 assert.equal(without.ticketIds.includes('TCK-1'), false);
 assert.equal(without.expectedCashInDrawer, 500);
+
+const gasto: Expense = {
+  id: 'GTO-1',
+  amount: 80,
+  concept: 'Pasaje',
+  timestamp: pastStamp,
+  operatorName: 'Cajero',
+  branchId: 'b-navojoa'
+};
+assert.equal(isOpenShiftMovement(gasto), true);
+assert.equal(isOpenShiftMovement({ ...gasto, corteXId: 'SES-1' }), false);
+
+const withExpense = rebuildCorteTotals(withSale, withSale.ticketsSnapshot || [], [gasto]);
+assert.equal(withExpense.totalExpenses, 80);
+assert.equal(withExpense.expectedCashInDrawer, 620);
+assert.equal(withExpense.expenseIds.includes('GTO-1'), true);
+
+const withoutExpense = removeExpenseFromCorte(withExpense, 'GTO-1');
+assert.equal(withoutExpense.totalExpenses, 0);
+assert.equal(withoutExpense.expenseIds.includes('GTO-1'), false);
+assert.equal(withoutExpense.expectedCashInDrawer, 700);
 
 assert.equal(findClosedCorteForDay([corte], 'Navojoa', '2026-09-09')?.id, corte.id);
 assert.equal(findClosedCorteForDay([corte], 'b-huatabampo', '2026-09-09'), null);

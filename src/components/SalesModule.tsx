@@ -34,9 +34,10 @@ import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, saf
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
 import { buildCortesRoster, CORTES_VISIBLE_DAYS, todayBranchStats } from '../lib/salesCortesBuild';
 import { ticketFolioLabel } from '../lib/ids';
-import { deleteSaleTicketFromFirestore } from '../lib/firebase';
+import { deleteExpenseFromFirestore, deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
+import { isOpenShiftMovement } from '../lib/historicSale';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -55,6 +56,7 @@ interface SalesModuleProps {
   onOpenNoticeModal?: () => void;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onDeleteSaleTicket?: (ticket: SaleTicket | string, reason?: string) => Promise<void> | void;
+  onDeleteExpense?: (expense: Expense | string, reason?: string) => Promise<void> | void;
   activeCashSession?: SesionCaja | null;
   onLoadOlderSales?: () => void;
   onLoadOlderExpenses?: () => void;
@@ -93,6 +95,7 @@ function SalesModule({
   onOpenNoticeModal,
   onFinalizeCorteX,
   onDeleteSaleTicket,
+  onDeleteExpense,
   activeCashSession = null,
   onLoadOlderSales,
   onLoadOlderExpenses,
@@ -118,11 +121,13 @@ function SalesModule({
   // Ticket Receipt modal for reprinting / inspecting individual tickets
   const [selectedTicketForReceipt, setSelectedTicketForReceipt] = useState<SaleTicket | null>(null);
   const [isTicketReceiptOpen, setIsTicketReceiptOpen] = useState<boolean>(false);
-  const [ticketToDelete, setTicketToDelete] = useState<SaleTicket | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'ticket'; ticket: SaleTicket } | { kind: 'expense'; expense: Expense } | null
+  >(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteReasonOption, setDeleteReasonOption] = useState('Cobro duplicado por operador');
   const [deleteCustomReason, setDeleteCustomReason] = useState('');
-  const [isDeletingTicket, setIsDeletingTicket] = useState(false);
+  const [isDeletingMovement, setIsDeletingMovement] = useState(false);
   const [deleteActionFeedback, setDeleteActionFeedback] = useState<string | null>(null);
   const [deleteAdminPassword, setDeleteAdminPassword] = useState('');
   const [deleteAuthError, setDeleteAuthError] = useState<string | null>(null);
@@ -373,8 +378,16 @@ function SalesModule({
     setIsTicketReceiptOpen(true);
   };
 
+  const closeDeleteModal = () => {
+    if (isDeletingMovement) return;
+    setIsDeleteModalOpen(false);
+    setPendingDelete(null);
+    setDeleteAdminPassword('');
+    setDeleteAuthError(null);
+  };
+
   const handlePromptDeleteTicket = (ticket: SaleTicket) => {
-    setTicketToDelete(ticket);
+    setPendingDelete({ kind: 'ticket', ticket });
     setDeleteReasonOption('Cobro duplicado por operador');
     setDeleteCustomReason('');
     setDeleteAdminPassword('');
@@ -382,36 +395,61 @@ function SalesModule({
     setIsDeleteModalOpen(true);
   };
 
-  const handleConfirmDeleteTicket = async () => {
-    if (!ticketToDelete) return;
+  const handlePromptDeleteExpense = (expense: Expense) => {
+    setPendingDelete({ kind: 'expense', expense });
+    setDeleteReasonOption('Gasto duplicado por operador');
+    setDeleteCustomReason('');
+    setDeleteAdminPassword('');
+    setDeleteAuthError(null);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDeleteMovement = async () => {
+    if (!pendingDelete) return;
     const authError = authorizeWithAdminPassword(deleteAdminPassword, operators, currentOperator);
     if (authError) {
       setDeleteAuthError(authError);
       return;
     }
-    setIsDeletingTicket(true);
+    setIsDeletingMovement(true);
     const finalReason = deleteCustomReason.trim()
       ? `${deleteReasonOption}: ${deleteCustomReason.trim()}`
       : deleteReasonOption;
     try {
-      if (onDeleteSaleTicket) {
-        await onDeleteSaleTicket(ticketToDelete, finalReason);
+      if (pendingDelete.kind === 'ticket') {
+        if (onDeleteSaleTicket) {
+          await onDeleteSaleTicket(pendingDelete.ticket, finalReason);
+        } else {
+          await deleteSaleTicketFromFirestore(pendingDelete.ticket, {
+            reason: finalReason,
+            operatorName: currentOperator.name
+          });
+        }
+        setDeleteActionFeedback(
+          `Ticket ${pendingDelete.ticket.folio || pendingDelete.ticket.id.slice(-6)} cancelado. El stock se restableció.`
+        );
       } else {
-        await deleteSaleTicketFromFirestore(ticketToDelete, {
-          reason: finalReason,
-          operatorName: currentOperator.name
-        });
+        if (onDeleteExpense) {
+          await onDeleteExpense(pendingDelete.expense, finalReason);
+        } else {
+          await deleteExpenseFromFirestore(pendingDelete.expense, {
+            reason: finalReason,
+            operatorName: currentOperator.name
+          });
+        }
+        setDeleteActionFeedback(
+          `Gasto «${pendingDelete.expense.concept || pendingDelete.expense.id}» eliminado del turno.`
+        );
       }
-      setDeleteActionFeedback(`Ticket ${ticketToDelete.folio || ticketToDelete.id.slice(-6)} cancelado. El stock se restableció.`);
       setIsDeleteModalOpen(false);
-      setTicketToDelete(null);
+      setPendingDelete(null);
       setDeleteAdminPassword('');
       setDeleteAuthError(null);
     } catch (err) {
-      console.error('Error al eliminar transacción:', err);
-      alert('Error al eliminar la transacción. Verifica tu conexión.');
+      console.error('Error al eliminar movimiento:', err);
+      alert('Error al eliminar el movimiento. Verifica tu conexión.');
     } finally {
-      setIsDeletingTicket(false);
+      setIsDeletingMovement(false);
       setTimeout(() => setDeleteActionFeedback(null), 7000);
     }
   };
@@ -865,6 +903,9 @@ function SalesModule({
               <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full">
                 {filteredExpenses.length} gastos
               </span>
+              <span className="hidden sm:inline text-[10px] font-semibold text-slate-500">
+                Los del turno abierto se pueden eliminar con contraseña de administrador
+              </span>
             </div>
             <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
               <span>Total Salidas:</span>
@@ -926,13 +967,32 @@ function SalesModule({
                       </div>
                     </div>
 
-                    <div className="text-right shrink-0">
-                      <span className="text-base font-black text-rose-600 font-mono block">
-                        -${(expense.amount || 0).toFixed(2)}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        Deducción de caja
-                      </span>
+                    <div className="flex items-center justify-between md:justify-end gap-3 shrink-0">
+                      <div className="text-right">
+                        <span className="text-base font-black text-rose-600 font-mono block">
+                          -${(expense.amount || 0).toFixed(2)}
+                        </span>
+                        {isOpenShiftMovement(expense) ? (
+                          <span className="text-[9px] text-emerald-600 font-bold block">
+                            Turno abierto
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-400 font-bold block">
+                            Corte: {expense.corteXId}
+                          </span>
+                        )}
+                      </div>
+                      {isOpenShiftMovement(expense) && (
+                        <button
+                          type="button"
+                          onClick={() => handlePromptDeleteExpense(expense)}
+                          className="flex items-center gap-1.5 px-2.5 py-2 bg-rose-50 hover:bg-rose-100 active:scale-[0.98] text-rose-700 border border-rose-200 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                          title="Eliminar gasto del turno en curso"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Eliminar</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1087,6 +1147,8 @@ function SalesModule({
               ? activeCashSession?.fecha_apertura
               : undefined
           }
+          onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
+          onRequestDeleteExpense={onDeleteExpense ? handlePromptDeleteExpense : undefined}
         />
       </LazyWhen>
 
@@ -1110,27 +1172,24 @@ function SalesModule({
         </div>
       )}
 
-      {isDeleteModalOpen && ticketToDelete && (
+      {isDeleteModalOpen && pendingDelete && (
         <div className="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-rose-100">
             <div className="bg-rose-700 px-5 py-4 flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-white font-black text-sm">
                   <ShieldAlert className="w-4 h-4" />
-                  Eliminar transacción de venta
+                  {pendingDelete.kind === 'ticket' ? 'Eliminar transacción de venta' : 'Eliminar gasto del turno'}
                 </div>
-                <p className="text-[11px] text-rose-100 mt-1">Solo para corregir un error de operador. El stock e IMEI vuelven a la sucursal.</p>
+                <p className="text-[11px] text-rose-100 mt-1">
+                  {pendingDelete.kind === 'ticket'
+                    ? 'Solo para corregir un error de operador. El stock e IMEI vuelven a la sucursal.'
+                    : 'Solo para corregir un gasto mal capturado. El efectivo esperado del turno se recalcula.'}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  if (!isDeletingTicket) {
-                    setIsDeleteModalOpen(false);
-                    setTicketToDelete(null);
-                    setDeleteAdminPassword('');
-                    setDeleteAuthError(null);
-                  }
-                }}
+                onClick={closeDeleteModal}
                 className="text-rose-100 hover:text-white p-1 rounded-lg"
               >
                 <X className="w-4 h-4" />
@@ -1138,13 +1197,28 @@ function SalesModule({
             </div>
             <div className="p-5 space-y-4">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-black text-slate-800">Folio: {ticketToDelete.folio || ticketToDelete.id}</span>
-                  <span className="text-sm font-black text-rose-700 font-mono">${(ticketToDelete.total || 0).toFixed(2)}</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  {getBranchName(ticketToDelete.branchId)} · {ticketToDelete.paymentMethod || 'Efectivo'} · {ticketToDelete.operatorName || 'Cajero'}
-                </p>
+                {pendingDelete.kind === 'ticket' ? (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black text-slate-800">Folio: {pendingDelete.ticket.folio || pendingDelete.ticket.id}</span>
+                      <span className="text-sm font-black text-rose-700 font-mono">${(pendingDelete.ticket.total || 0).toFixed(2)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {getBranchName(pendingDelete.ticket.branchId)} · {pendingDelete.ticket.paymentMethod || 'Efectivo'} · {pendingDelete.ticket.operatorName || 'Cajero'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-black text-slate-800">{pendingDelete.expense.concept || 'Gasto operativo'}</span>
+                      <span className="text-sm font-black text-rose-700 font-mono">-${(pendingDelete.expense.amount || 0).toFixed(2)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {getBranchName(pendingDelete.expense.branchId)} · {pendingDelete.expense.operatorName || 'Cajero'}
+                      {pendingDelete.expense.id ? ` · Folio ${pendingDelete.expense.id}` : ''}
+                    </p>
+                  </>
+                )}
               </div>
               <div>
                 <label className="text-[11px] font-bold text-slate-600 block mb-1">Motivo</label>
@@ -1153,12 +1227,24 @@ function SalesModule({
                   onChange={(e) => setDeleteReasonOption(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl px-3 py-2.5"
                 >
-                  <option>Cobro duplicado por operador</option>
-                  <option>Artículo o modelo equivocado seleccionado</option>
-                  <option>Monto o forma de pago errónea</option>
-                  <option>Cliente canceló antes de entregar producto</option>
-                  <option>Error de captura de operador</option>
-                  <option>Otro motivo justificado</option>
+                  {pendingDelete.kind === 'ticket' ? (
+                    <>
+                      <option>Cobro duplicado por operador</option>
+                      <option>Artículo o modelo equivocado seleccionado</option>
+                      <option>Monto o forma de pago errónea</option>
+                      <option>Cliente canceló antes de entregar producto</option>
+                      <option>Error de captura de operador</option>
+                      <option>Otro motivo justificado</option>
+                    </>
+                  ) : (
+                    <>
+                      <option>Gasto duplicado por operador</option>
+                      <option>Monto o concepto equivocado</option>
+                      <option>No correspondía a este turno</option>
+                      <option>Error de captura de operador</option>
+                      <option>Otro motivo justificado</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div>
@@ -1173,7 +1259,11 @@ function SalesModule({
               </div>
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>Esta acción quita solo este ticket. El resto de ventas, cortes e inventario de otros folios se conserva.</span>
+                <span>
+                  {pendingDelete.kind === 'ticket'
+                    ? 'Esta acción quita solo este ticket. El resto de ventas, cortes e inventario de otros folios se conserva.'
+                    : 'Esta acción quita solo este gasto. Las ventas del turno y los demás gastos se conservan.'}
+                </span>
               </div>
               <div>
                 <label className="text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
@@ -1199,25 +1289,20 @@ function SalesModule({
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  disabled={isDeletingTicket}
-                  onClick={() => {
-                    setIsDeleteModalOpen(false);
-                    setTicketToDelete(null);
-                    setDeleteAdminPassword('');
-                    setDeleteAuthError(null);
-                  }}
+                  disabled={isDeletingMovement}
+                  onClick={closeDeleteModal}
                   className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-300"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
-                  disabled={isDeletingTicket}
-                  onClick={handleConfirmDeleteTicket}
+                  disabled={isDeletingMovement}
+                  onClick={handleConfirmDeleteMovement}
                   className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl flex items-center gap-2 disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  {isDeletingTicket ? 'Eliminando...' : 'Confirmar y eliminar'}
+                  {isDeletingMovement ? 'Eliminando...' : 'Confirmar y eliminar'}
                 </button>
               </div>
             </div>

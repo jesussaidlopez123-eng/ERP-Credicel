@@ -37,6 +37,7 @@ import {
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
   deleteSaleTicketFromFirestore,
+  deleteExpenseFromFirestore,
   savePurchaseDraftToFirestore,
   fetchOlderSales,
   fetchOlderExpenses,
@@ -102,6 +103,7 @@ import {
   commitRepairRecord,
   commitSale,
   forgetLocalSale,
+  forgetLocalExpense,
   localCortes,
   localExpenses,
   localRepairs,
@@ -140,6 +142,7 @@ import { useStableCallback } from '../hooks/useStableCallback';
 import {
   applyTicketToCorte,
   findClosedCorteForDay,
+  removeExpenseFromCorte,
   removeTicketFromCorte
 } from '../lib/historicSale';
 import NotesAgenda from './NotesAgenda';
@@ -1333,6 +1336,45 @@ export default function Dashboard({
     }
   };
 
+  const handleDeleteExpense = async (expense: Expense | string, reason?: string) => {
+    const expenseId = typeof expense === 'string' ? expense : expense.id;
+    const expenseData =
+      typeof expense === 'object'
+        ? expense
+        : expensesRef.current.find((row) => row.id === expenseId);
+    setExpenses((prev) => {
+      const next = prev.filter((e) => e.id !== expenseId);
+      saveCachedList('expenses', next);
+      return next;
+    });
+    localOnlyRef.current.expenses = localOnlyRef.current.expenses.filter((e) => e.id !== expenseId);
+    await forgetLocalExpense(expenseId);
+    await deleteExpenseFromFirestore(expenseData || expenseId, {
+      reason: reason || 'Error de captura de operador',
+      operatorName: currentOperator.name
+    });
+
+    const corteId = expenseData?.corteXId || expenseData?.sesion_caja_id;
+    if (corteId) {
+      const closed = cortesRef.current.find((c) => c.id === corteId || c.sesion_caja_id === corteId);
+      if (closed) {
+        const updated = removeExpenseFromCorte(closed, expenseId);
+        void commitCorteSnapshot(updated).catch((err) =>
+          console.warn('No se pudo actualizar el corte al eliminar el gasto:', err)
+        );
+        localOnlyRef.current.cortes = [
+          updated,
+          ...localOnlyRef.current.cortes.filter((c) => c.id !== updated.id)
+        ];
+        setCortesX((prev) => {
+          const next = [updated, ...prev.filter((c) => c.id !== updated.id)];
+          saveCachedList('cortes', next);
+          return next;
+        });
+      }
+    }
+  };
+
   /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
   const persistRepairRecord = async (record: RepairRecord): Promise<RepairRecord> => {
     const previous = repairRecordsRef.current.find((r) => r.id === record.id);
@@ -1972,6 +2014,7 @@ export default function Dashboard({
   const stableRecordMovement = useStableCallback(handleRecordInventoryMovement);
   const stableReceivePurchase = useStableCallback(handleReceivePurchase);
   const stableDeleteSaleTicket = useStableCallback(handleDeleteSaleTicket);
+  const stableDeleteExpense = useStableCallback(handleDeleteExpense);
   const stableAddNotification = useStableCallback(handleAddNotification);
   const stableSaveAgendaTask = useStableCallback(persistAgendaTask);
   const stableDeleteAgendaTask = useStableCallback(handleDeleteAgendaTask);
@@ -2065,6 +2108,7 @@ export default function Dashboard({
             onOpenNoticeModal={() => setIsCreateNoticeOpen(true)}
             onFinalizeCorteX={stableFinalizeCorteX}
             onDeleteSaleTicket={stableDeleteSaleTicket}
+            onDeleteExpense={stableDeleteExpense}
             activeCashSession={activeCashSession}
             onLoadOlderSales={loadOlderSales}
             onLoadOlderExpenses={loadOlderExpenses}

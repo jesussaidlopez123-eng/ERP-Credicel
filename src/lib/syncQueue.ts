@@ -12,7 +12,7 @@ import { normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
-import { LocalRecord, RecordKind, deleteRecord, getRecord, listRecords, putRecord } from './localDb';
+import { LocalRecord, RecordKind, deleteOutboxRow, deleteRecord, getRecord, listRecords, putRecord } from './localDb';
 import { drainOutbox, enqueue, listPendingOutbox } from './outbox';
 import {
   CORTE_X_COLLECTION,
@@ -360,9 +360,24 @@ export function sortByTimestampDesc<T extends { timestamp?: string }>(rows: T[])
     .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
 }
 
+async function dropPendingWrite(outboxId: string): Promise<void> {
+  try {
+    await deleteOutboxRow(outboxId);
+  } catch {
+    // si no había fila en cola, el movimiento ya estaba en la nube
+  }
+}
+
 /** Un ticket cancelado no debe revivir desde el respaldo del equipo. */
 export async function forgetLocalSale(ticketId: string): Promise<void> {
   await deleteRecord('sale', ticketId);
+  await dropPendingWrite(`sale-${ticketId}`);
+}
+
+/** Un gasto cancelado no debe volver a subir desde la cola local. */
+export async function forgetLocalExpense(expenseId: string): Promise<void> {
+  await deleteRecord('expense', expenseId);
+  await dropPendingWrite(`expense-${expenseId}`);
 }
 
 const LOCAL_RETENTION_DAYS = 45;

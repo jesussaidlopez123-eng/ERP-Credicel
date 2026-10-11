@@ -45,6 +45,7 @@ interface CorteXModalProps {
   activeSessionId?: string;
   sessionOpenedAt?: string;
   onRequestDeleteTicket?: (ticket: SaleTicket) => void;
+  onRequestDeleteExpense?: (expense: Expense) => void;
 }
 
 interface ConceptDetail {
@@ -93,7 +94,8 @@ export default function CorteXModal({
   cortesX = [],
   activeSessionId,
   sessionOpenedAt,
-  onRequestDeleteTicket
+  onRequestDeleteTicket,
+  onRequestDeleteExpense
 }: CorteXModalProps) {
 
   // Accordion state in arqueo view
@@ -932,6 +934,43 @@ export default function CorteXModal({
                           <button
                             type="button"
                             onClick={() => onRequestDeleteTicket(ticket)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {onRequestDeleteExpense && branchExpenses.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <TrendingDown className="w-4 h-4 text-rose-600" />
+                    <span>Gastos de este turno</span>
+                  </h4>
+                  <ul className="divide-y divide-slate-100">
+                    {branchExpenses.map((expense) => (
+                      <li key={expense.id} className="py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900">
+                            {expense.concept || 'Gasto operativo'}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {expense.operatorName || 'Cajero'}
+                            {expense.id ? ` · Folio ${expense.id.slice(-6)}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-sm font-black text-rose-600">
+                            -${(expense.amount || 0).toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onRequestDeleteExpense(expense)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />

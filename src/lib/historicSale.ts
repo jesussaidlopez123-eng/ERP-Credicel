@@ -106,4 +106,18 @@ export function removeTicketFromCorte(corte: CorteXRecord, ticketId: string): Co
   return next;
 }
 
+/** Ticket o gasto que todavía no quedó sellado en un corte cerrado. */
+export function isOpenShiftMovement(row: { corteXId?: string; corteXClosedAt?: string }): boolean {
+  return !String(row.corteXId || '').trim() && !String(row.corteXClosedAt || '').trim();
+}
+
+export function removeExpenseFromCorte(corte: CorteXRecord, expenseId: string): CorteXRecord {
+  const expenses = (corte.expensesSnapshot || []).filter((row) => row.id !== expenseId);
+  const ids = (corte.expenseIds || []).filter((id) => id !== expenseId);
+  const tickets = [...(corte.ticketsSnapshot || [])];
+  const next = rebuildCorteTotals(corte, tickets, expenses);
+  next.expenseIds = ids.length ? ids : next.expenseIds;
+  return next;
+}
+
 export const HISTORIC_TILL_BRANCHES = COMMERCIAL_BRANCHES;
