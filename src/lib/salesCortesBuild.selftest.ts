@@ -4,7 +4,7 @@ import { assertThreeBranchesPerDay } from './corteDayRoster.ts';
 import { branchDateKey, indexByBranchDate } from './branchDateIndex.ts';
 import { corteDayKey } from './corteDayRoster.ts';
 import { addCashDays } from './dateUtils.ts';
-import { buildCortesRoster } from './salesCortesBuild.ts';
+import { buildCortesRoster, liveShiftCashierName, todayBranchStats } from './salesCortesBuild.ts';
 
 const branch: Branch = { id: 'b-navojoa', name: 'Navojoa' };
 const operator: Operator = {
@@ -88,5 +88,47 @@ assert.equal(days.includes('2026-09-15'), true, '15 de septiembre no se debe per
 for (let cursor = '2026-09-01'; cursor <= '2026-10-03'; cursor = addCashDays(cursor, 1)) {
   assert.equal(days.includes(cursor), true, `falta el día ${cursor}`);
 }
+
+assert.equal(
+  liveShiftCashierName({
+    branchId: 'b-matriz',
+    sessionCashier: 'Teresa',
+    tickets: [{ ...tickets[0], branchId: 'b-matriz', operatorName: 'Geraldín', timestamp: '2026-10-11T10:00:00-07:00' }]
+  }),
+  'Teresa',
+  'el cajero del turno abierto gana sobre un ticket viejo de otra persona'
+);
+assert.equal(
+  liveShiftCashierName({
+    branchId: 'b-huatabampo',
+    sessionCashier: 'Geraldín',
+    tickets: []
+  }),
+  'Geraldín'
+);
+assert.equal(
+  liveShiftCashierName({
+    branchId: 'b-matriz',
+    tickets: [
+      { ...tickets[0], branchId: 'b-matriz', operatorName: 'Geraldín', timestamp: '2026-10-11T09:00:00-07:00' },
+      { ...tickets[0], id: 't-new', branchId: 'b-matriz', operatorName: 'Teresa', timestamp: '2026-10-11T11:00:00-07:00' }
+    ]
+  }),
+  'Teresa',
+  'sin sesión, se toma el último ticket de esa sucursal'
+);
+
+const liveStats = todayBranchStats(
+  [
+    { ...tickets[0], branchId: 'b-matriz', operatorName: 'Geraldín', timestamp: '2026-10-11T09:00:00-07:00' },
+    { ...tickets[1], branchId: 'b-huatabampo', operatorName: 'Geraldín', timestamp: '2026-10-11T09:30:00-07:00' }
+  ],
+  [],
+  '2026-10-11',
+  () => 0,
+  { 'b-matriz': 'Teresa', 'b-huatabampo': 'Geraldín' }
+);
+assert.equal(liveStats.find((row) => row.branchId === 'b-matriz')?.currentShiftOperator, 'Teresa');
+assert.equal(liveStats.find((row) => row.branchId === 'b-huatabampo')?.currentShiftOperator, 'Geraldín');
 
 console.log('salesCortesBuild self-test ok');

@@ -46,6 +46,7 @@ interface CorteXModalProps {
   sessionOpenedAt?: string;
   onRequestDeleteTicket?: (ticket: SaleTicket) => void;
   onRequestDeleteExpense?: (expense: Expense) => void;
+  shiftOperatorName?: string;
 }
 
 interface ConceptDetail {
@@ -95,7 +96,8 @@ export default function CorteXModal({
   activeSessionId,
   sessionOpenedAt,
   onRequestDeleteTicket,
-  onRequestDeleteExpense
+  onRequestDeleteExpense,
+  shiftOperatorName
 }: CorteXModalProps) {
 
   // Accordion state in arqueo view
@@ -126,7 +128,9 @@ export default function CorteXModal({
   // Determine branch info
   const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : (currentBranch?.name || 'Sucursal');
   const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : (currentBranch?.id || 'main');
-  const effectiveOperatorName = isHistoric ? existingCorteRecord.operatorName : (currentOperator?.name || 'Cajero');
+  const effectiveOperatorName = isHistoric
+    ? existingCorteRecord.operatorName
+    : (shiftOperatorName || currentOperator?.name || 'Cajero');
   
   const todayDateIsoKey = todayCashDateKey();
   const todayFormatted = safeFormatDate(new Date());

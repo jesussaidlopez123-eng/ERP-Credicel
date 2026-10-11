@@ -307,6 +307,11 @@ export interface SesionCaja {
     uid: string;
     nombre: string;
   };
+  /** Quien está cobrando ahora. Se actualiza si entra otro usuario al mismo turno. */
+  operador_actual?: {
+    uid: string;
+    nombre: string;
+  };
   operador_cierre?: {
     uid: string;
     nombre: string;

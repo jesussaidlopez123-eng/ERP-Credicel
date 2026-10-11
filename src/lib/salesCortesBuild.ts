@@ -17,7 +17,41 @@ type BuildArgs = {
   currentBranch: Branch;
   currentOperator: Operator;
   openingFund: (branchId: string) => number;
+  openCashiersByBranch?: Record<string, string>;
 };
+
+export function cashierNameFromSession(session?: {
+  operador_actual?: { nombre?: string };
+  operador_apertura?: { nombre?: string };
+} | null): string {
+  return String(session?.operador_actual?.nombre || session?.operador_apertura?.nombre || '').trim();
+}
+
+export function latestTicketCashier(tickets: SaleTicket[]): string {
+  const sorted = tickets
+    .slice()
+    .sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+  return String(sorted[sorted.length - 1]?.operatorName || '').trim();
+}
+
+/** Quién está en esa caja ahora: turno abierto, no el login de otra computadora. */
+export function liveShiftCashierName(params: {
+  branchId: string;
+  sessionCashier?: string;
+  tickets?: SaleTicket[];
+  currentBranchId?: string;
+  currentOperatorName?: string;
+}): string {
+  const fromSession = String(params.sessionCashier || '').trim();
+  if (fromSession) return fromSession;
+  const fromTickets = latestTicketCashier(params.tickets || []);
+  if (fromTickets) return fromTickets;
+  if (normalizeBranchId(params.branchId) === normalizeBranchId(params.currentBranchId)) {
+    const here = String(params.currentOperatorName || '').trim();
+    if (here) return here;
+  }
+  return 'Turno abierto';
+}
 
 function paymentTotals(tickets: SaleTicket[]): { cash: number; card: number; transfer: number; total: number } {
   let cash = 0;
@@ -39,19 +73,18 @@ function liveShiftRow(
   expenses: Expense[],
   currentBranch: Branch,
   currentOperator: Operator,
-  openingFund: (branchId: string) => number
+  openingFund: (branchId: string) => number,
+  sessionCashier?: string
 ): CorteXRecord {
   const pay = paymentTotals(tickets);
   const totalExp = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
   const fund = openingFund(branch.id);
   let shiftLoginTime = '09:00 a.m.';
-  let loggedOperatorName = '';
   try {
     const saved = localStorage.getItem(`erp_shift_login_${branch.id}_${dateKey}`);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed?.time) shiftLoginTime = parsed.time;
-      if (parsed?.operatorName) loggedOperatorName = parsed.operatorName;
     }
   } catch {
     /* ignore */
@@ -63,8 +96,13 @@ function liveShiftRow(
     timeStr: `Inicia: ${shiftLoginTime} (Turno en Vivo / Tiempo Real)`,
     branchId: branch.id,
     branchName: branch.name,
-    operatorName:
-      loggedOperatorName || tickets[0]?.operatorName || (branch.id === currentBranch.id ? currentOperator.name : 'Turno Activo (Hoy)'),
+    operatorName: liveShiftCashierName({
+      branchId: branch.id,
+      sessionCashier,
+      tickets,
+      currentBranchId: currentBranch.id,
+      currentOperatorName: currentOperator.name
+    }),
     initialCashFund: fund,
     cashSales: pay.cash,
     cardSales: pay.card,
@@ -128,7 +166,7 @@ function reconciledRow(branch: Branch, dateKey: string, tickets: SaleTicket[], e
 
 /** Arma el roster: 1 pasada por tickets/gastos, 3 sucursales por día. */
 export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
-  const { cortes, tickets, expenses, todayKey, currentBranch, currentOperator, openingFund } = args;
+  const { cortes, tickets, expenses, todayKey, currentBranch, currentOperator, openingFund, openCashiersByBranch = {} } = args;
   const savedGrouped: Record<string, CorteXRecord> = {};
   const suppressed = new Set<string>();
   const corteIds = new Set<string>();
@@ -244,7 +282,8 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
             openExpenses.length > 0 ? openExpenses : dayExpenses,
             currentBranch,
             currentOperator,
-            openingFund
+            openingFund,
+            openCashiersByBranch[normalizeBranchId(branch.id)]
           )
         );
         continue;
@@ -265,7 +304,10 @@ export function todayBranchStats(
   tickets: SaleTicket[],
   expenses: Expense[],
   todayKey: string,
-  openingFund: (branchId: string) => number
+  openingFund: (branchId: string) => number,
+  openCashiersByBranch: Record<string, string> = {},
+  currentBranchId?: string,
+  currentOperatorName?: string
 ) {
   const ticketIndex = indexByBranchDate(tickets, (t) => t.branchId, (t) => t.timestamp);
   const expenseIndex = indexByBranchDate(expenses, (e) => e.branchId, (e) => e.timestamp || e.date);
@@ -297,7 +339,13 @@ export function todayBranchStats(
       totalExpenses: money(totalExpenses),
       initialCashFund: fund,
       expectedCashInDrawer: money(fund + openCash - openExp),
-      currentShiftOperator: todayTickets[todayTickets.length - 1]?.operatorName || 'Operador en Turno',
+      currentShiftOperator: liveShiftCashierName({
+        branchId: branch.id,
+        sessionCashier: openCashiersByBranch[normalizeBranchId(branch.id)],
+        tickets: openTickets.length > 0 ? openTickets : todayTickets,
+        currentBranchId,
+        currentOperatorName
+      }),
       hasOpenShift: openTickets.length > 0 || openExpenses.length > 0 || todayTickets.length > 0 || todayExpenses.length > 0
     };
   });

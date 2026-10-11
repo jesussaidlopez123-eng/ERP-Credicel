@@ -209,13 +209,14 @@ async function resolveActiveCashSession(
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const existing = await findExistingOpenSession(normBId, fund);
-      if (existing) return existing;
+      if (existing) return stampOpenSessionCashier(existing, operatorUid, operatorName);
 
       if (!canOpenNewCashSession()) {
         throw new CashTillLockedError();
       }
 
-      return await runTransaction(db, async (tx) => {
+      return stampOpenSessionCashier(
+        await runTransaction(db, async (tx) => {
         const again = await tx.get(stateRef);
         const pid = String(again.data()?.openSessionId || '');
         if (pid) {
@@ -227,14 +228,16 @@ async function resolveActiveCashSession(
 
         const openedAt = new Date();
         const newSesionId = newSessionId(normBId, openedAt);
+        const opener = {
+          uid: operatorUid || `usr-${Date.now().toString(36)}`,
+          nombre: operatorName
+        };
         const newSession: SesionCaja = {
           id: newSesionId,
           sucursal_id: normBId,
           sucursal_nombre: displayName,
-          operador_apertura: {
-            uid: operatorUid || `usr-${Date.now().toString(36)}`,
-            nombre: operatorName
-          },
+          operador_apertura: opener,
+          operador_actual: opener,
           estado: 'ABIERTA',
           fecha_apertura: openedAt.toISOString(),
           monto_inicial_efectivo: money(fund)
@@ -252,7 +255,10 @@ async function resolveActiveCashSession(
           { merge: true }
         );
         return newSession;
-      });
+      }),
+        operatorUid,
+        operatorName
+      );
     } catch (err) {
       if (err instanceof CashTillLockedError || (err as { name?: string })?.name === 'CashTillLockedError') {
         throw err;
@@ -328,6 +334,54 @@ export function subscribeToOpenCashSession(
   return () => {
     unsubPointer();
     if (unsubSession) unsubSession();
+  };
+}
+
+export function cashierNameFromSession(session: SesionCaja | null | undefined): string {
+  return String(session?.operador_actual?.nombre || session?.operador_apertura?.nombre || '').trim();
+}
+
+/** Si entra otro cajero al turno ya abierto, Cortes debe mostrar a esa persona, no a quien abrió la caja. */
+async function stampOpenSessionCashier(
+  session: SesionCaja,
+  operatorUid: string,
+  operatorName: string
+): Promise<SesionCaja> {
+  const nombre = String(operatorName || '').trim();
+  const uid = String(operatorUid || '').trim();
+  if (!session?.id || !nombre || nombre === 'Cajero') return session;
+
+  const currentName = cashierNameFromSession(session);
+  const currentUid = String(session.operador_actual?.uid || session.operador_apertura?.uid || '').trim();
+  if (currentName === nombre && (!uid || currentUid === uid)) return session;
+
+  const operador_actual = { uid: uid || currentUid, nombre };
+  try {
+    await updateDoc(doc(db, SESIONES_CAJA_COLLECTION, session.id), { operador_actual });
+  } catch (err) {
+    console.warn('[Firestore] No se pudo actualizar el cajero del turno:', err);
+  }
+  return { ...session, operador_actual };
+}
+
+/** Escucha las tres cajas abiertas para el módulo de Cortes (quién está en cada sucursal). */
+export function subscribeToAllOpenCashSessions(
+  onUpdate: (sessions: Record<string, SesionCaja | null>) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  const state: Record<string, SesionCaja | null> = {};
+  const unsubs = COMMERCIAL_BRANCHES.map((branch) =>
+    subscribeToOpenCashSession(
+      branch.id,
+      (session) => {
+        state[normalizeBranchId(branch.id)] = session;
+        onUpdate({ ...state });
+      },
+      onError
+    )
+  );
+  return () => {
+    unsubs.forEach((stop) => stop());
   };
 }
 
@@ -977,6 +1031,7 @@ async function ensureSessionForClose(
     sucursal_id: branchId,
     sucursal_nombre: branchName || getBranchDisplayName(branchId),
     operador_apertura: operator,
+    operador_actual: operator,
     estado: 'ABIERTA',
     fecha_apertura: openedAt.toISOString(),
     monto_inicial_efectivo: money(initialFund)

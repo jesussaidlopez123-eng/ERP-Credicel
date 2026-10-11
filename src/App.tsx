@@ -7,6 +7,7 @@ import { getStoredOperators, saveStoredOperators, INITIAL_OPERATORS } from './da
 import { ALL_BRANCHES, hasCashTill } from './data/initialBranches';
 import { resolveOperatorWorkspace } from './lib/roles';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
+import { getHermosilloClock } from './lib/shiftHours';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
@@ -186,16 +187,14 @@ export default function App() {
       );
 
       if (hasCashTill(workspace.id)) {
-        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIso = getHermosilloClock().dateKey;
         const shiftLoginKey = `erp_shift_login_${workspace.id}_${todayIso}`;
-        if (!localStorage.getItem(shiftLoginKey)) {
-          const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
-          localStorage.setItem(shiftLoginKey, JSON.stringify({
-            operatorName: operator.name,
-            time: nowTime,
-            timestamp: new Date().toISOString()
-          }));
-        }
+        const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true });
+        localStorage.setItem(shiftLoginKey, JSON.stringify({
+          operatorName: operator.name,
+          time: nowTime,
+          timestamp: new Date().toISOString()
+        }));
       }
     } catch (e) {
       console.error('Error saving session to localStorage', e);

@@ -27,6 +27,7 @@ import {
   ensureBranchFundsZeroedOnce,
   getActiveCashSession,
   subscribeToOpenCashSession,
+  subscribeToAllOpenCashSessions,
   closeCashSessionIfDue,
   syncPosCashSession,
   closeOpenShiftForBranch,
@@ -206,6 +207,7 @@ export default function Dashboard({
   const [agendaClock, setAgendaClock] = useState(() => getHermosilloClock());
   const [repairsCloudReady, setRepairsCloudReady] = useState(false);
   const [activeCashSession, setActiveCashSession] = useState<SesionCaja | null>(null);
+  const [openSessionsByBranch, setOpenSessionsByBranch] = useState<Record<string, SesionCaja | null>>({});
   const [cloudSynced, setCloudSynced] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [tillLocked, setTillLocked] = useState(false);
@@ -870,6 +872,21 @@ export default function Dashboard({
       unsub();
     };
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name]);
+
+  useEffect(() => {
+    return subscribeToAllOpenCashSessions((sessions) => {
+      setOpenSessionsByBranch(sessions);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!activeCashSession?.id || !hasCashTill(currentBranch.id)) return;
+    const branchId = normalizeBranchId(currentBranch.id);
+    setOpenSessionsByBranch((prev) => {
+      if (prev[branchId]?.id === activeCashSession.id && prev[branchId] === activeCashSession) return prev;
+      return { ...prev, [branchId]: activeCashSession };
+    });
+  }, [activeCashSession, currentBranch.id]);
 
   useEffect(() => {
     const runNightClose = async () => {
@@ -2118,6 +2135,7 @@ export default function Dashboard({
             cortesHasMore={cortesHasMore}
             historyBusy={historyBusy}
             operators={operators}
+            openSessionsByBranch={openSessionsByBranch}
           />
         );
       case 'repairs':

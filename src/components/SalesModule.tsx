@@ -32,7 +32,7 @@ import {
 import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
 import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
-import { buildCortesRoster, CORTES_VISIBLE_DAYS, todayBranchStats } from '../lib/salesCortesBuild';
+import { buildCortesRoster, cashierNameFromSession, CORTES_VISIBLE_DAYS, todayBranchStats } from '../lib/salesCortesBuild';
 import { ticketFolioLabel } from '../lib/ids';
 import { deleteExpenseFromFirestore, deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
@@ -66,6 +66,7 @@ interface SalesModuleProps {
   cortesHasMore?: boolean;
   historyBusy?: string | null;
   operators?: Operator[];
+  openSessionsByBranch?: Record<string, SesionCaja | null>;
 }
 
 /** Fondo de apertura: lo que dejó el cajero en branchCashFunds. Nunca inventar $1000. */
@@ -104,7 +105,8 @@ function SalesModule({
   expensesHasMore = false,
   cortesHasMore = false,
   historyBusy = null,
-  operators = []
+  operators = [],
+  openSessionsByBranch = {}
 }: SalesModuleProps) {
 
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
@@ -172,25 +174,28 @@ function SalesModule({
 
   const openingFund = (branchId: string) => openingFundForBranch(branchId, branchCashFunds);
 
-  const branchLiveStats = useMemo(() => {
-    const stats = todayBranchStats(safeTickets, safeExpenses, todayIso, openingFund);
-    return stats.map((bStat) => {
-      let currentShiftOperator = bStat.currentShiftOperator;
-      try {
-        const savedLogin = localStorage.getItem(`erp_shift_login_${bStat.branchId}_${todayIso}`);
-        if (savedLogin) {
-          const parsed = JSON.parse(savedLogin);
-          if (parsed?.operatorName) currentShiftOperator = parsed.operatorName;
-        }
-      } catch {
-        /* ignore */
-      }
-      if ((!currentShiftOperator || currentShiftOperator === 'Operador en Turno') && bStat.branchId === currentBranch.id) {
-        currentShiftOperator = currentOperator.name;
-      }
-      return { ...bStat, currentShiftOperator };
-    });
-  }, [safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]);
+  const openCashiersByBranch = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [branchId, session] of Object.entries(openSessionsByBranch || {})) {
+      const name = cashierNameFromSession(session);
+      if (name) map[normalizeBranchId(branchId)] = name;
+    }
+    return map;
+  }, [openSessionsByBranch]);
+
+  const branchLiveStats = useMemo(
+    () =>
+      todayBranchStats(
+        safeTickets,
+        safeExpenses,
+        todayIso,
+        openingFund,
+        openCashiersByBranch,
+        currentBranch.id,
+        currentOperator.name
+      ),
+    [safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch]
+  );
 
   const aggregatedCortesList = useMemo(
     () =>
@@ -201,9 +206,10 @@ function SalesModule({
         todayKey: todayIso,
         currentBranch,
         currentOperator,
-        openingFund
+        openingFund,
+        openCashiersByBranch
       }),
-    [safeCortesX, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds]
+    [safeCortesX, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch]
   );
 
   const filteredCortes = useMemo(() => {
@@ -690,6 +696,9 @@ function SalesModule({
                             <span className={isCurrentOpenShift ? 'text-emerald-700 font-medium' : ''}>
                               {hours.end}
                             </span>
+                            {isCurrentOpenShift && corte.operatorName ? (
+                              <span className="text-slate-500"> · {corte.operatorName}</span>
+                            ) : null}
                           </span>
 
                           <span className={`text-[13px] font-semibold tabular-nums text-right col-start-2 row-start-1 sm:col-start-3 sm:row-start-1 ${isZeroDay ? 'text-slate-400' : 'text-slate-900'}`}>
@@ -1149,6 +1158,12 @@ function SalesModule({
           }
           onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
           onRequestDeleteExpense={onDeleteExpense ? handlePromptDeleteExpense : undefined}
+          shiftOperatorName={
+            openCashiersByBranch[normalizeBranchId(selectedLiveBranch.id)] ||
+            (normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
+              ? currentOperator.name
+              : undefined)
+          }
         />
       </LazyWhen>
 
