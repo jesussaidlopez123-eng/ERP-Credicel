@@ -254,6 +254,22 @@ export function hasRefaccionCost(record: RepairRecord | null | undefined): boole
   );
 }
 
+export function repairReceivedSortKey(record: Pick<RepairRecord, 'receivedAtIso' | 'receivedAt' | 'id'>): string {
+  return `${String(record.receivedAtIso || '').trim()}|${String(record.receivedAt || '')}|${record.id}`;
+}
+
+/** Las más recientes arriba. Guardar la pieza no cambia este orden. */
+export function compareRepairsNewestFirst(
+  a: Pick<RepairRecord, 'receivedAtIso' | 'receivedAt' | 'id'>,
+  b: Pick<RepairRecord, 'receivedAtIso' | 'receivedAt' | 'id'>
+): number {
+  return repairReceivedSortKey(b).localeCompare(repairReceivedSortKey(a));
+}
+
+export function newestRepairCostLines(record: RepairRecord | null | undefined): RepairCostLine[] {
+  return [...(record?.costLines || [])].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+}
+
 export function markRepairReadyForDelivery(record: RepairRecord): RepairRecord {
   return setRepairWorkStage(record, 'para_entrega');
 }

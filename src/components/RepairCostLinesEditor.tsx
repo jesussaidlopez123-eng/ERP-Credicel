@@ -5,6 +5,7 @@ import { formatMoney } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import {
   addRepairCostLine,
+  newestRepairCostLines,
   removeRepairCostLine,
   repairInternalCost,
   stampRepairLabel
@@ -101,7 +102,7 @@ export default function RepairCostLinesEditor({
 
       {(record.costLines || []).length > 0 && (
         <ul className="space-y-1.5">
-          {(record.costLines || []).map((line) => (
+          {newestRepairCostLines(record).map((line) => (
             <li
               key={line.id}
               className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px]"

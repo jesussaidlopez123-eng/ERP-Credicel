@@ -2,6 +2,8 @@ import type { AppNotification, RepairRecord, SaleTicket } from '../types';
 import {
   addRepairCostLine,
   assembleRepairRecords,
+  compareRepairsNewestFirst,
+  newestRepairCostLines,
   buildRepairCostDueNotification,
   combineRepairRecords,
   findPendingDuplicate,
@@ -246,6 +248,25 @@ const withPart = addRepairCostLine(pending, {
 });
 assert(workStageOf(withPart) === 'costo_refaccion', 'al capturar refacción sale de recepción');
 assert(withPart.costLines?.[0]?.kind === 'refaccion', 'el gasto queda como refacción');
+
+const older = { ...pending, id: 'REP-OLD', receivedAtIso: '2026-10-01T10:00:00-07:00' };
+const newer = { ...pending, id: 'REP-NEW', receivedAtIso: '2026-10-12T18:00:00-07:00' };
+assert(
+  [older, newer].sort(compareRepairsNewestFirst)[0].id === 'REP-NEW',
+  'la orden más reciente queda arriba'
+);
+assert(
+  [newer, older].sort(compareRepairsNewestFirst)[0].id === 'REP-NEW',
+  'ese orden se mantiene aunque la lista llegue al revés'
+);
+const twoParts = addRepairCostLine(withPart, {
+  kind: 'refaccion',
+  concept: 'Flex',
+  amount: 80,
+  at: '2026-10-12T19:00:00-07:00',
+  by: 'Taller'
+});
+assert(newestRepairCostLines(twoParts)[0].concept === 'Flex', 'la refacción nueva se lista arriba');
 
 const paid: RepairRecord = { ...pending, pendingBalance: 0, totalCost: 0 };
 const delivered = markRepairDelivered(paid, 'Caja', '2026-10-03T18:00:00-07:00', '03/10/2026 6:00 p.m.');

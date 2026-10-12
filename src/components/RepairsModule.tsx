@@ -18,6 +18,7 @@ import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import {
   applyRepairCost,
+  compareRepairsNewestFirst,
   hasRefaccionCost,
   isPendingRepair,
   matchesRepairSearch,
@@ -100,14 +101,7 @@ function RepairsModule({
     return scopedRecords
       .filter(isCostQueue)
       .filter((r) => matchesRepairSearch(r, debouncedSearch))
-      .sort((a, b) => {
-        const aMissing = hasRefaccionCost(a) ? 1 : 0;
-        const bMissing = hasRefaccionCost(b) ? 1 : 0;
-        if (aMissing !== bMissing) return aMissing - bMissing;
-        return String(b.receivedAtIso || b.receivedAt || '').localeCompare(
-          String(a.receivedAtIso || a.receivedAt || '')
-        );
-      });
+      .sort(compareRepairsNewestFirst);
   }, [scopedRecords, debouncedSearch]);
 
   const openOrder = useMemo(
