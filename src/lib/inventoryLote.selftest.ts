@@ -5,6 +5,8 @@ import { imeisAtBranch, unmappedImeis } from './imeiInventory.ts';
 import {
   applyAccessoryLote,
   applyEquipmentLote,
+  confirmLinesFromAccessoryLote,
+  confirmLinesFromEquipmentLote,
   emptyAccessoryLine,
   emptyEquipmentLine,
   loteImeiFormatError,
@@ -190,5 +192,25 @@ const twoStuck = validateEquipmentLote(
   [{ ...emptyEquipmentLine(), productId: 'eq-a16', imeis: ['351299123456789352088111111111'] }]
 );
 assert.ok(twoStuck.some((e) => e.message.includes('15') || e.message.includes('escanear')));
+
+const accPreview = confirmLinesFromAccessoryLote([mica(), funda()], accLines);
+assert.equal(accPreview.length, 3);
+assert.equal(accPreview[0].name, 'Mica 15');
+assert.equal(accPreview[0].qty, 10);
+assert.equal(accPreview[1].name, 'Funda A16');
+assert.equal(accPreview[2].qty, 2);
+
+const eqPreview = confirmLinesFromEquipmentLote(
+  [phone()],
+  [
+    { ...emptyEquipmentLine(), productId: 'eq-a16', imeis: ['351299123456789', '351299123456780'] },
+    { ...emptyEquipmentLine(), isNew: true, name: 'Redmi 14', imeis: ['352088111111111'] }
+  ]
+);
+assert.equal(eqPreview.length, 2);
+assert.equal(eqPreview[0].name, 'Samsung A16');
+assert.equal(eqPreview[0].qty, 2);
+assert.equal(eqPreview[1].isNew, true);
+assert.deepEqual(eqPreview[1].imeis, ['352088111111111']);
 
 console.log('inventoryLote self-test ok');

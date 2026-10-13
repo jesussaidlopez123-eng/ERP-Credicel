@@ -61,6 +61,69 @@ export type LoteApplyOk = {
 
 export type LoteApplyResult = LoteApplyOk | { ok: false; errors: LoteError[] };
 
+export type IngresoConfirmLine = {
+  name: string;
+  code?: string;
+  qty: number;
+  imeis?: string[];
+  isNew?: boolean;
+};
+
+export function confirmLinesFromAccessoryLote(products: Product[], lines: AccessoryLoteLine[]): IngresoConfirmLine[] {
+  const out: IngresoConfirmLine[] = [];
+  for (const line of lines || []) {
+    const qty = Math.round(Number(line.qty) || 0);
+    if (qty <= 0 && !line.productId && !line.name.trim() && !line.code.trim()) continue;
+    if (line.productId) {
+      const prod = (products || []).find((p) => p.id === line.productId);
+      if (!prod && qty <= 0) continue;
+      out.push({
+        name: prod?.name || line.name.trim() || 'Accesorio',
+        code: prod?.code || line.code.trim() || undefined,
+        qty,
+        isNew: false
+      });
+      continue;
+    }
+    if (!line.name.trim() && !line.code.trim()) continue;
+    out.push({
+      name: line.name.trim() || 'Accesorio nuevo',
+      code: line.code.trim() || undefined,
+      qty,
+      isNew: true
+    });
+  }
+  return out;
+}
+
+export function confirmLinesFromEquipmentLote(products: Product[], lines: EquipmentLoteLine[]): IngresoConfirmLine[] {
+  const out: IngresoConfirmLine[] = [];
+  for (const line of lines || []) {
+    const imeis = (line.imeis || []).map((im) => im.trim()).filter(Boolean);
+    if (line.productId) {
+      const prod = (products || []).find((p) => p.id === line.productId);
+      if (!prod && imeis.length === 0) continue;
+      out.push({
+        name: prod?.name || line.name.trim() || 'Equipo',
+        code: prod?.code || line.code.trim() || undefined,
+        qty: imeis.length,
+        imeis,
+        isNew: false
+      });
+      continue;
+    }
+    if (!line.name.trim() && !line.code.trim() && imeis.length === 0) continue;
+    out.push({
+      name: line.name.trim() || 'Modelo nuevo',
+      code: line.code.trim() || undefined,
+      qty: imeis.length,
+      imeis,
+      isNew: true
+    });
+  }
+  return out;
+}
+
 export function newLoteLineKey(): string {
   return newUniqueId('ln');
 }

@@ -15,16 +15,21 @@ import { ALL_BRANCHES, getBranchDisplayName } from '../data/initialBranches';
 import ProductSearchSelect from './ProductSearchSelect';
 import { accessoryStockAt } from '../lib/accessoryInventory';
 import { imeisAtBranch } from '../lib/imeiInventory';
+import InventoryIngresoConfirm from './InventoryIngresoConfirm';
 import {
   AccessoryLoteLine,
   EquipmentLoteLine,
   applyAccessoryLote,
   applyEquipmentLote,
   catalogForLote,
+  confirmLinesFromAccessoryLote,
+  confirmLinesFromEquipmentLote,
   emptyAccessoryLine,
   emptyEquipmentLine,
   loteImeiCanonical,
-  loteImeiFormatError
+  loteImeiFormatError,
+  validateAccessoryLote,
+  validateEquipmentLote
 } from '../lib/inventoryLote';
 
 type Kind = 'accesorio' | 'equipo';
@@ -60,6 +65,7 @@ export default function InventoryLoteModal({
   const [scanByLine, setScanByLine] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<string[]>([]);
   const [done, setDone] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const scanRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const piecePreview = isEquipo
@@ -133,9 +139,26 @@ export default function InventoryLoteModal({
     requestAnimationFrame(() => scanRefs.current[key]?.focus());
   };
 
-  const handleConfirm = (e: React.FormEvent) => {
+  const handleReview = (e: React.FormEvent) => {
     e.preventDefault();
     setDone(null);
+    if (!branchId.trim()) {
+      setErrors(['Elija la sucursal que recibe el paquete.']);
+      return;
+    }
+    const reviewErrors = isEquipo
+      ? validateEquipmentLote(products, salesTickets, eqLines)
+      : validateAccessoryLote(products, accLines);
+    if (reviewErrors.length) {
+      setErrors(reviewErrors.map((err) => err.message));
+      setConfirmOpen(false);
+      return;
+    }
+    setErrors([]);
+    setConfirmOpen(true);
+  };
+
+  const handleAccept = () => {
     const result = isEquipo
       ? applyEquipmentLote({
           products,
@@ -154,6 +177,7 @@ export default function InventoryLoteModal({
         });
 
     if (result.ok === false) {
+      setConfirmOpen(false);
       setErrors(result.errors.map((err) => err.message));
       return;
     }
@@ -172,9 +196,11 @@ export default function InventoryLoteModal({
     setEqLines([emptyEquipmentLine()]);
     setScanByLine({});
     setErrors([]);
+    setConfirmOpen(false);
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-visible animate-in fade-in zoom-in-95 duration-150 my-4">
         <div className={`flex items-center justify-between px-5 py-4 text-white rounded-t-2xl ${isEquipo ? 'bg-blue-900' : 'bg-emerald-800'}`}>
@@ -194,7 +220,7 @@ export default function InventoryLoteModal({
           </button>
         </div>
 
-        <form onSubmit={handleConfirm} className="p-5 space-y-4">
+        <form onSubmit={handleReview} className="p-5 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-extrabold text-slate-700 mb-1">Sucursal que recibe *</label>
@@ -550,11 +576,26 @@ export default function InventoryLoteModal({
                 isEquipo ? 'bg-blue-800 hover:bg-blue-900' : 'bg-emerald-700 hover:bg-emerald-800'
               }`}
             >
-              Ingresar paquete
+              Revisar ingreso
             </button>
           </div>
         </form>
       </div>
     </div>
+
+      {confirmOpen && (
+        <InventoryIngresoConfirm
+          kind={kind}
+          destBranchName={getBranchDisplayName(branchId)}
+          lines={
+            isEquipo
+              ? confirmLinesFromEquipmentLote(catalog, eqLines)
+              : confirmLinesFromAccessoryLote(catalog, accLines)
+          }
+          onBack={() => setConfirmOpen(false)}
+          onAccept={handleAccept}
+        />
+      )}
+    </>
   );
 }

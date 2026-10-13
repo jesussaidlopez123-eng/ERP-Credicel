@@ -61,6 +61,7 @@ import {
 import { isVirtualPosProduct, unassignedEquipmentCount } from '../lib/inventoryRules';
 import LazyWhen from './LazyWhen';
 import ProductSearchSelect from './ProductSearchSelect';
+import InventoryIngresoConfirm, { type IngresoConfirmLine } from './InventoryIngresoConfirm';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { authorizeWithOperatorPassword } from '../lib/inventoryAuth';
 import { normalizeRole } from '../lib/roles';
@@ -165,6 +166,12 @@ function InventoryModule({
     supplier?: string;
     branchId: string;
     qty: number;
+  } | null>(null);
+  const [ingresoConfirm, setIngresoConfirm] = useState<{
+    kind: 'accesorio' | 'equipo';
+    destBranchId: string;
+    destBranchName: string;
+    lines: IngresoConfirmLine[];
   } | null>(null);
 
   // Modal 6: Ver Lista Completa de IMEIs de un Producto
@@ -702,26 +709,14 @@ function InventoryModule({
         }
 
         const destBranch = toInventoryBranchId(ingresarBranchId);
-        const updated = addAccessoryStock(prod, destBranch, qty);
-
         const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
-        onRecordMovement?.({
-          type: 'ingreso',
-          productId: prod.id,
-          productCode: prod.code,
-          productName: prod.name,
-          category: prod.category,
-          inventoryType: 'accesorio',
-          quantity: qty,
-          targetBranchId: destBranch,
-          targetBranchName: branchName,
-          operatorName: currentOperator?.name || 'Admin',
-          operatorId: currentOperator?.id,
-          details: `Ingreso de stock (+${qty} pza(s)) en ${branchName}`
+        setIngresoConfirm({
+          kind: 'accesorio',
+          destBranchId: destBranch,
+          destBranchName: branchName,
+          lines: [{ name: prod.name, code: prod.code, qty }]
         });
-
-        onUpdateProduct(updated);
-        setIsIngresarModalOpen(false);
+        return;
       } else {
         // Crear nuevo accesorio e ingresar
         if (!newCode.trim()) {
@@ -744,50 +739,157 @@ function InventoryModule({
           return;
         }
 
-        const numCost = parseFloat(newCostPrice) || 0;
-        const numPrice = parseFloat(newPrice) || 0;
-
         const destBranch = toInventoryBranchId(ingresarBranchId);
-        const newProd = addAccessoryStock(
-          {
-            id: `prod-${Date.now()}`,
-            code: cleanCode,
-            name: newName.trim(),
-            category: 'accesorio',
-            inventoryType: 'accesorio',
-            supplier: newSupplier.trim(),
-            costPrice: numCost,
-            price: numPrice,
-            stock: 0,
-            branchStock: { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 },
-            color: 'bg-slate-800 text-white'
-          },
-          destBranch,
-          qty
-        );
-
         const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
-        onRecordMovement?.({
-          type: 'creacion',
-          productId: newProd.id,
-          productCode: newProd.code,
-          productName: newProd.name,
-          category: 'accesorio',
-          inventoryType: 'accesorio',
-          quantity: qty,
-          targetBranchId: destBranch,
-          targetBranchName: branchName,
-          operatorName: currentOperator?.name || 'Admin',
-          operatorId: currentOperator?.id,
-          unitPrice: numPrice,
-          costPrice: numCost,
-          details: `Alta de nuevo accesorio e ingreso inicial de ${qty} pza(s) en ${branchName}`
+        setIngresoConfirm({
+          kind: 'accesorio',
+          destBranchId: destBranch,
+          destBranchName: branchName,
+          lines: [{ name: newName.trim(), code: cleanCode, qty, isNew: true }]
         });
-
-        onAddProduct(newProd);
-        setIsIngresarModalOpen(false);
+        return;
       }
     }
+  };
+
+  const commitAccessoryIngreso = () => {
+    if (!ingresoConfirm || ingresoConfirm.kind !== 'accesorio') return;
+    const qty = parseInt(ingresarQuantity, 10);
+    if (isNaN(qty) || qty <= 0) return;
+    const destBranch = toInventoryBranchId(ingresoConfirm.destBranchId);
+    const branchName = ingresoConfirm.destBranchName;
+
+    if (ingresarMode === 'existente') {
+      const prod = products.find((p) => p.id === ingresarSelectedProdId);
+      if (!prod) return;
+      const updated = addAccessoryStock(prod, destBranch, qty);
+      onRecordMovement?.({
+        type: 'ingreso',
+        productId: prod.id,
+        productCode: prod.code,
+        productName: prod.name,
+        category: prod.category,
+        inventoryType: 'accesorio',
+        quantity: qty,
+        targetBranchId: destBranch,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        details: `Ingreso de stock (+${qty} pza(s)) en ${branchName}`
+      });
+      onUpdateProduct(updated);
+    } else {
+      const cleanCode = newCode.trim().toUpperCase();
+      const numCost = parseFloat(newCostPrice) || 0;
+      const numPrice = parseFloat(newPrice) || 0;
+      const newProd = addAccessoryStock(
+        {
+          id: `prod-${Date.now()}`,
+          code: cleanCode,
+          name: newName.trim(),
+          category: 'accesorio',
+          inventoryType: 'accesorio',
+          supplier: newSupplier.trim(),
+          costPrice: numCost,
+          price: numPrice,
+          stock: 0,
+          branchStock: { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0 },
+          color: 'bg-slate-800 text-white'
+        },
+        destBranch,
+        qty
+      );
+      onRecordMovement?.({
+        type: 'creacion',
+        productId: newProd.id,
+        productCode: newProd.code,
+        productName: newProd.name,
+        category: 'accesorio',
+        inventoryType: 'accesorio',
+        quantity: qty,
+        targetBranchId: destBranch,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        unitPrice: numPrice,
+        costPrice: numCost,
+        details: `Alta de nuevo accesorio e ingreso inicial de ${qty} pza(s) en ${branchName}`
+      });
+      onAddProduct(newProd);
+    }
+
+    setIngresoConfirm(null);
+    setIsIngresarModalOpen(false);
+  };
+
+  const commitCapturedImeis = (finalImeis: string[]) => {
+    if (!pendingEquipmentData) return;
+    const { isExisting, selectedProdId, branchId, qty, name, code, costPrice, price, supplier } = pendingEquipmentData;
+    const destBranch = toInventoryBranchId(ingresoConfirm?.destBranchId || branchId);
+    const branchName =
+      ingresoConfirm?.destBranchName || ALL_BRANCHES.find((b) => b.id === destBranch)?.name || destBranch;
+
+    if (isExisting && selectedProdId) {
+      const prod = products.find((p) => p.id === selectedProdId);
+      if (!prod) return;
+      const updated = addImeisToProduct(prod, destBranch, finalImeis);
+      onRecordMovement?.({
+        type: 'ingreso',
+        productId: prod.id,
+        productCode: prod.code,
+        productName: prod.name,
+        category: prod.category,
+        inventoryType: 'equipo',
+        quantity: qty,
+        targetBranchId: destBranch,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        imeis: finalImeis,
+        details: `Ingreso de ${qty} equipo(s) con captura de IMEIs en ${branchName}`
+      });
+      onUpdateProduct(updated);
+    } else {
+      const newProd = addImeisToProduct(
+        {
+          id: `prod-${Date.now()}`,
+          code: code || `EQ-${Date.now()}`,
+          name: name || 'Equipo Celular',
+          category: 'equipo_credito',
+          inventoryType: 'equipo',
+          supplier: supplier || '',
+          costPrice: costPrice || 0,
+          price: price || 0,
+          stock: 0,
+          color: 'bg-blue-800 text-white'
+        },
+        destBranch,
+        finalImeis
+      );
+      onRecordMovement?.({
+        type: 'creacion',
+        productId: newProd.id,
+        productCode: newProd.code,
+        productName: newProd.name,
+        category: 'equipo_credito',
+        inventoryType: 'equipo',
+        quantity: qty,
+        targetBranchId: destBranch,
+        targetBranchName: branchName,
+        operatorName: currentOperator?.name || 'Admin',
+        operatorId: currentOperator?.id,
+        unitPrice: price || 0,
+        costPrice: costPrice || 0,
+        imeis: finalImeis,
+        details: `Alta de nuevo equipo celular e ingreso de ${qty} pza(s) con IMEIs en ${branchName}`
+      });
+      onAddProduct(newProd);
+    }
+
+    setIngresoConfirm(null);
+    setIsImeiCaptureModalOpen(false);
+    setPendingEquipmentData(null);
+    setImeiInputs([]);
   };
 
   // --- HANDLER: CONFIRMAR Y GUARDAR IMEIS CAPTURADOS ---
@@ -798,7 +900,7 @@ function InventoryModule({
 
     const finalImeis = imeiInputs.map((s) => imeiForStorage(s)).filter(Boolean);
 
-    const { isExisting, selectedProdId, branchId, qty, name, code, costPrice, price, supplier } = pendingEquipmentData;
+    const { qty, name, code, branchId } = pendingEquipmentData;
 
     // 1. Strict quantity validation
     if (finalImeis.length !== qty) {
@@ -842,76 +944,22 @@ function InventoryModule({
       }
     }
 
-    if (isExisting && selectedProdId) {
-      const prod = products.find((p) => p.id === selectedProdId);
-      if (!prod) return;
-
-      const destBranch = toInventoryBranchId(branchId);
-      const updated = addImeisToProduct(prod, destBranch, finalImeis);
-
-      const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
-      onRecordMovement?.({
-        type: 'ingreso',
-        productId: prod.id,
-        productCode: prod.code,
-        productName: prod.name,
-        category: prod.category,
-        inventoryType: 'equipo',
-        quantity: qty,
-        targetBranchId: destBranch,
-        targetBranchName: branchName,
-        operatorName: currentOperator?.name || 'Admin',
-        operatorId: currentOperator?.id,
-        imeis: finalImeis,
-        details: `Ingreso de ${qty} equipo(s) con captura de IMEIs en ${branchName}`
-      });
-
-      onUpdateProduct(updated);
-    } else {
-      // New equipment model: siempre con sucursal, nunca lista plana suelta.
-      const destBranch = toInventoryBranchId(branchId);
-      const newProd = addImeisToProduct(
+    const destBranch = toInventoryBranchId(branchId);
+    const branchName = ALL_BRANCHES.find((b) => b.id === destBranch)?.name || destBranch;
+    setIngresoConfirm({
+      kind: 'equipo',
+      destBranchId: destBranch,
+      destBranchName: branchName,
+      lines: [
         {
-          id: `prod-${Date.now()}`,
-          code: code || `EQ-${Date.now()}`,
           name: name || 'Equipo Celular',
-          category: 'equipo_credito',
-          inventoryType: 'equipo',
-          supplier: supplier || '',
-          costPrice: costPrice || 0,
-          price: price || 0,
-          stock: 0,
-          color: 'bg-blue-800 text-white'
-        },
-        destBranch,
-        finalImeis
-      );
-
-      const branchName = ALL_BRANCHES.find(b => b.id === destBranch)?.name || destBranch;
-      onRecordMovement?.({
-        type: 'creacion',
-        productId: newProd.id,
-        productCode: newProd.code,
-        productName: newProd.name,
-        category: 'equipo_credito',
-        inventoryType: 'equipo',
-        quantity: qty,
-        targetBranchId: destBranch,
-        targetBranchName: branchName,
-        operatorName: currentOperator?.name || 'Admin',
-        operatorId: currentOperator?.id,
-        unitPrice: price || 0,
-        costPrice: costPrice || 0,
-        imeis: finalImeis,
-        details: `Alta de nuevo equipo celular e ingreso de ${qty} pza(s) con IMEIs en ${branchName}`
-      });
-
-      onAddProduct(newProd);
-    }
-
-    setIsImeiCaptureModalOpen(false);
-    setPendingEquipmentData(null);
-    setImeiInputs([]);
+          code,
+          qty: finalImeis.length,
+          imeis: finalImeis,
+          isNew: !pendingEquipmentData.isExisting
+        }
+      ]
+    });
   };
 
   // --- HANDLER: TRANSFERIR (SUC ORIGEN, SUC DESTINO, MODELO Y CANTIDAD) ---
@@ -2105,7 +2153,7 @@ function InventoryModule({
                   type="submit"
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold shadow-sm cursor-pointer"
                 >
-                  Confirmar Ingreso
+                  {activeInventoryTab === 'equipo' ? 'Capturar IMEIs' : 'Revisar ingreso'}
                 </button>
               </div>
 
@@ -3018,7 +3066,7 @@ function InventoryModule({
                         }`}
                       >
                         <ShieldCheck className="w-4 h-4" />
-                        Guardar Equipos y IMEIs
+                        Revisar ingreso
                       </button>
                     </div>
                   </div>
@@ -3669,6 +3717,23 @@ function InventoryModule({
           />
         )}
       </LazyWhen>
+
+      {ingresoConfirm && (
+        <InventoryIngresoConfirm
+          kind={ingresoConfirm.kind}
+          destBranchName={ingresoConfirm.destBranchName}
+          lines={ingresoConfirm.lines}
+          onBack={() => setIngresoConfirm(null)}
+          onAccept={() => {
+            if (ingresoConfirm.kind === 'equipo') {
+              const imeis = ingresoConfirm.lines.flatMap((line) => line.imeis || []);
+              commitCapturedImeis(imeis);
+              return;
+            }
+            commitAccessoryIngreso();
+          }}
+        />
+      )}
 
     </div>
   );
