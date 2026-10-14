@@ -33,6 +33,12 @@ export type ExecutiveFinanceTotals = {
   comisiones: number;
   dineroPaso: number;
   gastos: number;
+  /** Compra de refacciones del taller (inversión, no gasto de caja). */
+  inversion: number;
+  /** Costo interno del taller en la semana (refacción + mano de obra + otro). */
+  tallerCostos: number;
+  /** Accesorios + margen de taller + comisiones (aún sin restar gastos de caja). */
+  utilidad: number;
   resultado: number;
 };
 
@@ -42,6 +48,9 @@ export function emptyExecutiveFinance(): ExecutiveFinanceTotals {
     comisiones: 0,
     dineroPaso: 0,
     gastos: 0,
+    inversion: 0,
+    tallerCostos: 0,
+    utilidad: 0,
     resultado: 0
   };
 }
@@ -51,17 +60,25 @@ export function buildExecutiveFinance(input: {
   cats: ExecutiveCatTotals;
   gastos: number;
   phonesSold: number;
+  tallerCostos?: number;
+  inversion?: number;
 }): ExecutiveFinanceTotals {
   const ingresosPropios = executiveOwnIncome(input.cats);
   const comisiones = phoneCommissionAmount(input.branchId, input.phonesSold);
   const dineroPaso = executivePassThrough(input.cats);
   const gastos = money(Math.max(0, input.gastos || 0));
+  const tallerCostos = money(Math.max(0, input.tallerCostos || 0));
+  const inversion = money(Math.max(0, input.inversion || 0));
+  const utilidad = money(ingresosPropios - tallerCostos + comisiones);
   return {
     ingresosPropios,
     comisiones,
     dineroPaso,
     gastos,
-    resultado: money(ingresosPropios + comisiones - gastos)
+    inversion,
+    tallerCostos,
+    utilidad,
+    resultado: money(utilidad - gastos)
   };
 }
 
@@ -74,6 +91,9 @@ export function addExecutiveFinance(
     comisiones: money(acc.comisiones + next.comisiones),
     dineroPaso: money(acc.dineroPaso + next.dineroPaso),
     gastos: money(acc.gastos + next.gastos),
+    inversion: money(acc.inversion + next.inversion),
+    tallerCostos: money(acc.tallerCostos + next.tallerCostos),
+    utilidad: money(acc.utilidad + next.utilidad),
     resultado: money(acc.resultado + next.resultado)
   };
 }

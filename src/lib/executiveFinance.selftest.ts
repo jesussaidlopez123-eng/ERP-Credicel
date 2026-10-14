@@ -38,7 +38,9 @@ assert.equal(navojoa.ingresosPropios, 1000);
 assert.equal(navojoa.comisiones, 2000);
 assert.equal(navojoa.dineroPaso, 9300);
 assert.equal(navojoa.gastos, 150);
+assert.equal(navojoa.utilidad, 3000);
 assert.equal(navojoa.resultado, 2850);
+assert.equal(navojoa.inversion, 0);
 
 const huata = buildExecutiveFinance({
   branchId: 'b-huatabampo',

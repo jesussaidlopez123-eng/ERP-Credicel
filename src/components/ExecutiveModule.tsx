@@ -9,12 +9,12 @@ import {
   Megaphone,
   Package,
   Smartphone,
-  Store,
   Wallet,
   Wrench,
   X
 } from 'lucide-react';
-import { Branch, CartItem, Expense, Operator, Product, SaleTicket } from '../types';
+import { Branch, CartItem, Expense, Operator, Product, RepairRecord, SaleTicket } from '../types';
+import ExecutiveAreaChart, { sumAreaPoints } from './ExecutiveAreaChart';
 import CorteCategoryBreakdown from './CorteCategoryBreakdown';
 import { buildCorteCategoryBreakdown, isCancelledSale } from '../lib/corteCategories';
 import {
@@ -53,6 +53,12 @@ import {
   phoneCommissionAmount,
   type ExecutiveFinanceTotals
 } from '../lib/executiveFinance';
+import {
+  areaTotalsFromFinance,
+  repairFinanceWeekStarts,
+  sumRepairCostLines,
+  type ExecutiveAreaPoint
+} from '../lib/executiveArea';
 import LoadMoreButton from './LoadMoreButton';
 
 interface ExecutiveModuleProps {
@@ -63,8 +69,11 @@ interface ExecutiveModuleProps {
   salesTickets?: SaleTicket[];
   expenses?: Expense[];
   products?: Product[];
+  repairRecords?: RepairRecord[];
   onLoadOlderSales?: () => void;
+  onLoadOlderRepairs?: () => void;
   salesHasMore?: boolean;
+  repairsHasMore?: boolean;
   historyBusy?: string | null;
 }
 
@@ -146,7 +155,7 @@ type WeekBlock = {
 
 const OURS: { id: CategoryId; label: string; hint: string }[] = [
   { id: 'accesorios', label: 'Accesorios', hint: 'Sí es ingreso' },
-  { id: 'reparaciones', label: 'Reparaciones', hint: 'Sí es ingreso' },
+  { id: 'reparaciones', label: 'Reparaciones', hint: 'Cobrado al cliente · la utilidad usa el margen' },
   { id: 'comisiones', label: 'Comisiones', hint: 'Navojoa $1,000 · Huatabampo $350' },
   { id: 'gastos', label: 'Gastos', hint: 'Se restan del resultado' }
 ];
@@ -202,12 +211,17 @@ function emptyRow(branchId: string, branchName: string): BranchWeekRow {
   };
 }
 
-function applyFinance(row: BranchWeekRow): BranchWeekRow {
+function applyFinance(
+  row: BranchWeekRow,
+  extra?: { tallerCostos?: number; inversion?: number }
+): BranchWeekRow {
   row.finance = buildExecutiveFinance({
     branchId: row.branchId,
     cats: row.cats,
     gastos: row.gastos,
-    phonesSold: row.phonesSold
+    phonesSold: row.phonesSold,
+    tallerCostos: extra?.tallerCostos,
+    inversion: extra?.inversion
   });
   row.ventas = money(row.finance.ingresosPropios + row.finance.dineroPaso);
   row.utilidad = row.finance.resultado;
@@ -238,11 +252,6 @@ function sumBranchRows(rows: BranchWeekRow[]): BranchWeekRow {
   totals.ventas = money(finance.ingresosPropios + finance.dineroPaso);
   totals.utilidad = finance.resultado;
   return totals;
-}
-
-/** Suma visible: productos + comisiones − gastos, todavía con lo que se retorna. */
-function weekGross(row: BranchWeekRow): number {
-  return money(row.finance.ingresosPropios + row.finance.comisiones + row.finance.dineroPaso - row.finance.gastos);
 }
 
 function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSale | null {
@@ -279,7 +288,11 @@ function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSa
   };
 }
 
-function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[] {
+function buildWeekBlocks(
+  tickets: SaleTicket[],
+  expenses: Expense[],
+  repairs: RepairRecord[] = []
+): WeekBlock[] {
   const currentStart = currentWeekStartKey();
   const bucket = new Map<string, { tickets: SaleTicket[]; expenses: Expense[] }>();
 
@@ -301,6 +314,10 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[
     if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(expense.timestamp || expense.date)));
     group?.expenses.push(expense);
+  });
+
+  repairFinanceWeekStarts(repairs).forEach((weekStart) => {
+    take(weekStart);
   });
 
   const starts = Array.from(bucket.keys()).sort((a, b) => (a < b ? 1 : -1));
@@ -395,9 +412,26 @@ function buildWeekBlocks(tickets: SaleTicket[], expenses: Expense[]): WeekBlock[
       });
     });
 
+    repairs.forEach((repair) => {
+      if (String(repair.status || '').toLowerCase().startsWith('cancel')) return;
+      const bid = normalizeBranchId(repair.branchId);
+      if (!hasCashTill(bid)) return;
+      for (const line of repair.costLines || []) {
+        const dayKey = safeDateIsoKey(line.at);
+        if (!dayKey) continue;
+        if (weekStartDateKey(dayKey) !== weekStart) continue;
+        dateKeys.push(dayKey);
+      }
+    });
+
     const branches = visibleBranches
-      .map((b) => byBranch.get(b.id) || emptyRow(b.id, getBranchDisplayName(b.id)))
-      .map(applyFinance);
+      .map((b) => {
+        const row = byBranch.get(b.id) || emptyRow(b.id, getBranchDisplayName(b.id));
+        return applyFinance(row, {
+          inversion: sumRepairCostLines(repairs, weekStart, { branchId: b.id, kinds: ['refaccion'] }),
+          tallerCostos: sumRepairCostLines(repairs, weekStart, { branchId: b.id })
+        });
+      });
 
     const totals = sumBranchRows(branches);
     dateKeys.sort();
@@ -615,12 +649,15 @@ function CategoryHistoryModal({
 
 function WeekBoard({
   week,
+  branchId,
+  onBranchChange,
   onOpenCategory
 }: {
   week: WeekBlock;
+  branchId: string;
+  onBranchChange: (id: string) => void;
   onOpenCategory: (id: CategoryId) => void;
 }) {
-  const [branchId, setBranchId] = useState<string>('all');
   const scopedTickets = useMemo(
     () =>
       week.tickets.filter(
@@ -670,7 +707,7 @@ function WeekBoard({
             ${peso(financeRow.utilidad)}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Accesorios + taller + comisiones − gastos
+            Accesorios + margen de taller + comisiones − gastos
           </p>
         </div>
       </div>
@@ -680,7 +717,7 @@ function WeekBoard({
           <button
             key={branch.id}
             type="button"
-            onClick={() => setBranchId(branch.id)}
+            onClick={() => onBranchChange(branch.id)}
             className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
               branchId === branch.id
                 ? 'bg-slate-950 text-white border-slate-950'
@@ -718,22 +755,22 @@ function WeekBoard({
         />
       </div>
 
-      <div className="px-4 sm:px-5 py-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50">
-        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suma de la semana</p>
-          <p className="font-mono text-sm font-black text-slate-900">${peso(weekGross(financeRow))}</p>
+      <div className="px-4 sm:px-5 py-3 border-t border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Utilidad</p>
+          <p className="font-mono text-sm font-black text-emerald-950">${peso(financeRow.finance.utilidad)}</p>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-800">Inversión</p>
+          <p className="font-mono text-sm font-black text-blue-950">${peso(financeRow.finance.inversion)}</p>
+        </div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-rose-800">Gastos</p>
+          <p className="font-mono text-sm font-black text-rose-950">−${peso(financeRow.finance.gastos)}</p>
         </div>
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">(−) Se retorna</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Retorno</p>
           <p className="font-mono text-sm font-black text-amber-950">−${peso(financeRow.finance.dineroPaso)}</p>
-        </div>
-        <div className="rounded-xl border border-slate-900 bg-slate-950 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Utilidad</p>
-          <p className={`font-mono text-sm font-black ${
-            financeRow.utilidad >= 0 ? 'text-emerald-300' : 'text-rose-300'
-          }`}>
-            ${peso(financeRow.utilidad)}
-          </p>
         </div>
       </div>
 
@@ -761,16 +798,20 @@ export default function ExecutiveModule({
   onOpenNoticeModal,
   salesTickets = [],
   expenses = [],
+  repairRecords = [],
   onLoadOlderSales,
+  onLoadOlderRepairs,
   salesHasMore = false,
+  repairsHasMore = false,
   historyBusy = null
 }: ExecutiveModuleProps) {
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>('');
   const [historyCategory, setHistoryCategory] = useState<CategoryId | null>(null);
+  const [branchId, setBranchId] = useState<string>('all');
 
   const weeks = useMemo(
-    () => buildWeekBlocks(salesTickets, expenses),
-    [salesTickets, expenses]
+    () => buildWeekBlocks(salesTickets, expenses, repairRecords),
+    [salesTickets, expenses, repairRecords]
   );
 
   const currentStart = weeks.find((week) => week.isCurrent)?.weekStart || weeks[0]?.weekStart || '';
@@ -778,6 +819,24 @@ export default function ExecutiveModule({
     ? selectedWeekStart
     : currentStart;
   const activeWeek = weeks.find((week) => week.weekStart === activeWeekStart) || weeks[0];
+
+  const areaPoints = useMemo((): ExecutiveAreaPoint[] => {
+    const chronological = [...weeks].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    return chronological.map((week) => {
+      const row =
+        branchId === 'all'
+          ? week.totals
+          : week.branches.find((item) => item.branchId === branchId) || week.totals;
+      return {
+        weekStart: week.weekStart,
+        label: week.label,
+        title: week.title,
+        ...areaTotalsFromFinance(row.finance)
+      };
+    });
+  }, [weeks, branchId]);
+
+  const areaTotals = useMemo(() => sumAreaPoints(areaPoints), [areaPoints]);
 
   return (
     <div className="space-y-4 pb-8">
@@ -799,8 +858,20 @@ export default function ExecutiveModule({
         </button>
       </div>
 
+      <ExecutiveAreaChart
+        points={areaPoints}
+        branchId={branchId}
+        onBranchChange={setBranchId}
+        totals={areaTotals}
+      />
+
       {activeWeek && (
-        <WeekBoard week={activeWeek} onOpenCategory={setHistoryCategory} />
+        <WeekBoard
+          week={activeWeek}
+          branchId={branchId}
+          onBranchChange={setBranchId}
+          onOpenCategory={setHistoryCategory}
+        />
       )}
 
       <section>
@@ -848,9 +919,12 @@ export default function ExecutiveModule({
       </section>
 
       <LoadMoreButton
-        hasMore={salesHasMore}
-        loading={historyBusy === 'sales'}
-        onClick={onLoadOlderSales}
+        hasMore={salesHasMore || repairsHasMore}
+        loading={historyBusy === 'sales' || historyBusy === 'repairs'}
+        onClick={() => {
+          if (salesHasMore) onLoadOlderSales?.();
+          if (repairsHasMore) onLoadOlderRepairs?.();
+        }}
         label="Cargar semanas anteriores"
       />
 

@@ -2163,8 +2163,11 @@ export default function Dashboard({
             salesTickets={salesTickets}
             expenses={expenses}
             products={products}
+            repairRecords={repairRecords}
             onLoadOlderSales={loadOlderSales}
+            onLoadOlderRepairs={loadOlderRepairs}
             salesHasMore={salesHasMore}
+            repairsHasMore={repairsHasMore}
             historyBusy={historyBusy}
           />
         );
