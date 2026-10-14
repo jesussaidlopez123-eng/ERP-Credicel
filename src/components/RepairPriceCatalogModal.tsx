@@ -1,12 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Wrench, Search, Plus, Trash2, Edit3, X, CheckCircle2, ShoppingCart, Smartphone, Battery, Zap, Lock, ListFilter, Download, Upload } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Wrench, Search, Plus, Trash2, Edit3, X, CheckCircle2, ShoppingCart, Smartphone, Battery, Zap, Lock, ListFilter, Download } from 'lucide-react';
 import { RepairPriceItem, Product, CartItemMetadata } from '../types';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
-import {
-  downloadRepairPriceCatalog,
-  downloadRepairPriceTemplate,
-  repairPricesFromSpreadsheet
-} from '../lib/repairPriceCatalog';
+import { downloadRepairPriceCatalog } from '../lib/repairPriceCatalog';
+import RepairPriceSheetImport from './RepairPriceSheetImport';
 
 interface RepairPriceCatalogModalProps {
   isOpen: boolean;
@@ -46,9 +43,6 @@ export default function RepairPriceCatalogModal({
   const [price, setPrice] = useState('');
   const [estimatedTime, setEstimatedTime] = useState('');
   const [notes, setNotes] = useState('');
-  const [importBusy, setImportBusy] = useState(false);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const getCategoryOfItem = (item: RepairPriceItem): string => {
     if (item.category) return item.category;
@@ -149,23 +143,6 @@ export default function RepairPriceCatalogModal({
     setIsFormOpen(false);
   };
 
-  const handleImportFile = async (file: File | null) => {
-    if (!file || !onImportRepairPrices) return;
-    setImportBusy(true);
-    setImportMessage(null);
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const items = await repairPricesFromSpreadsheet(bytes, file.name);
-      await onImportRepairPrices(items);
-      setImportMessage(`Se cargaron ${items.length} precios desde ${file.name}. Cada modelo/pantalla quedó con su tarifa.`);
-    } catch (err) {
-      setImportMessage(err instanceof Error ? err.message : 'No se pudo leer el Excel.');
-    } finally {
-      setImportBusy(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
   const handleLoadToCart = (item: RepairPriceItem) => {
     if (!onAddToCart) return;
 
@@ -210,40 +187,12 @@ export default function RepairPriceCatalogModal({
               <>
                 <button
                   type="button"
-                  onClick={() => downloadRepairPriceTemplate()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700/80 hover:bg-amber-800 text-white rounded-xl font-bold text-xs cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  Plantilla Excel
-                </button>
-                <button
-                  type="button"
                   onClick={() => downloadRepairPriceCatalog(repairPrices)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700/80 hover:bg-amber-800 text-white rounded-xl font-bold text-xs cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   Exportar
                 </button>
-                {onImportRepairPrices && (
-                  <>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept=".xlsx,.xlsm,.csv,.txt"
-                      className="hidden"
-                      onChange={(e) => void handleImportFile(e.target.files?.[0] || null)}
-                    />
-                    <button
-                      type="button"
-                      disabled={importBusy}
-                      onClick={() => fileRef.current?.click()}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-amber-900 hover:bg-amber-50 rounded-xl font-bold text-xs cursor-pointer disabled:opacity-60"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {importBusy ? 'Leyendo…' : 'Importar Excel'}
-                    </button>
-                  </>
-                )}
                 <button
                   type="button"
                   onClick={handleOpenCreateForm}
@@ -383,10 +332,10 @@ export default function RepairPriceCatalogModal({
           </form>
         )}
 
-        {importMessage && (
-          <p className="px-4 py-2 text-[11px] font-semibold text-amber-950 bg-amber-50 border-b border-amber-200">
-            {importMessage}
-          </p>
+        {isAdmin && onImportRepairPrices && !isFormOpen && (
+          <div className="px-4 py-3 bg-amber-50/90 border-b border-amber-200">
+            <RepairPriceSheetImport onImport={onImportRepairPrices} />
+          </div>
         )}
 
         {/* CATEGORY TABS (4 CATEGORÍAS: Pantalla, Batería, Centro de Carga, Desbloqueo) & SEARCH */}

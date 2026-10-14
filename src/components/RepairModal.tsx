@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Wrench,
   User,
@@ -13,9 +13,7 @@ import {
   Clock,
   PackageCheck,
   History,
-  Ban,
-  Download,
-  Upload
+  Ban
 } from 'lucide-react';
 import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket, RepairPriceItem } from '../types';
 import { allocateRepairFolio } from '../lib/folioAllocator';
@@ -25,11 +23,8 @@ import { formatMoney, money } from '../lib/ids';
 import { canCancelRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
 import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
 import RepairPriceSearch from './RepairPriceSearch';
-import {
-  applyRepairPriceToReception,
-  downloadRepairPriceTemplate,
-  repairPricesFromSpreadsheet
-} from '../lib/repairPriceCatalog';
+import RepairPriceSheetImport from './RepairPriceSheetImport';
+import { applyRepairPriceToReception } from '../lib/repairPriceCatalog';
 
 interface RepairModalProps {
   isOpen: boolean;
@@ -74,9 +69,6 @@ export default function RepairModal({
   const [totalCost, setTotalCost] = useState<string>('');
   const [advancePayment, setAdvancePayment] = useState<string>('');
   const [selectedPriceId, setSelectedPriceId] = useState<string>('');
-  const [priceImportBusy, setPriceImportBusy] = useState(false);
-  const [priceImportMessage, setPriceImportMessage] = useState<string | null>(null);
-  const priceFileRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -121,23 +113,6 @@ export default function RepairModal({
     setAdvancePayment('');
     setSelectedPriceId('');
     setFormError(null);
-  };
-
-  const handleImportPriceList = async (file: File | null) => {
-    if (!file || !onImportRepairPrices) return;
-    setPriceImportBusy(true);
-    setPriceImportMessage(null);
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const items = await repairPricesFromSpreadsheet(bytes, file.name);
-      await onImportRepairPrices(items);
-      setPriceImportMessage(`Lista cargada: ${items.length} precios. Cada pantalla/modelo ya tiene su tarifa.`);
-    } catch (err) {
-      setPriceImportMessage(err instanceof Error ? err.message : 'No se pudo leer el Excel.');
-    } finally {
-      setPriceImportBusy(false);
-      if (priceFileRef.current) priceFileRef.current.value = '';
-    }
   };
 
   const handleRecepcionSubmit = async (e: React.FormEvent) => {
@@ -487,34 +462,12 @@ export default function RepairModal({
                   Precio de lista (pantalla / modelo)
                 </label>
                 {isAdmin && onImportRepairPrices && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => downloadRepairPriceTemplate()}
-                      className="inline-flex items-center gap-1 px-2 py-1 border border-amber-300 bg-white text-amber-900 rounded-lg text-[10px] font-bold cursor-pointer"
-                    >
-                      <Download className="w-3 h-3" />
-                      Plantilla
-                    </button>
-                    <button
-                      type="button"
-                      disabled={priceImportBusy}
-                      onClick={() => priceFileRef.current?.click()}
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-amber-700 text-white rounded-lg text-[10px] font-bold cursor-pointer disabled:opacity-60"
-                    >
-                      <Upload className="w-3 h-3" />
-                      {priceImportBusy ? 'Leyendo…' : 'Importar Excel'}
-                    </button>
-                    <input
-                      ref={priceFileRef}
-                      type="file"
-                      accept=".xlsx,.xlsm,.csv,.txt"
-                      className="hidden"
-                      onChange={(e) => void handleImportPriceList(e.target.files?.[0] || null)}
-                    />
-                  </div>
+                  <span className="text-[10px] font-bold text-amber-900">Excel o Google Sheets</span>
                 )}
               </div>
+              {isAdmin && onImportRepairPrices && (
+                <RepairPriceSheetImport compact onImport={onImportRepairPrices} />
+              )}
               <RepairPriceSearch
                 prices={repairPrices}
                 selectedId={selectedPriceId}
@@ -529,9 +482,6 @@ export default function RepairModal({
               <p className="text-[11px] text-slate-600">
                 Escribe el modelo: se carga el precio de esa pantalla. Si no está en la lista, llena el modelo y el costo a mano.
               </p>
-              {priceImportMessage && (
-                <p className="text-[11px] font-semibold text-amber-950">{priceImportMessage}</p>
-              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

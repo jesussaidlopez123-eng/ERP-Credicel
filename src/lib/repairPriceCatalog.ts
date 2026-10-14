@@ -3,8 +3,33 @@ import { money, newUniqueId } from './ids';
 import { downloadXlsx } from './xlsxMinimal';
 import { parseSpreadsheetTable } from './xlsxRead';
 
-const PRICE_HEADERS = new Set(['precio', 'price', 'costo', 'pvp', 'importe', 'tarifa']);
-const MODEL_HEADERS = new Set(['modelo', 'model', 'equipo', 'celular', 'pantalla', 'dispositivo']);
+const PRICE_HEADERS = new Set([
+  'precio',
+  'price',
+  'costo',
+  'pvp',
+  'importe',
+  'tarifa',
+  'venta',
+  'publico',
+  'preciopantalla',
+  'preciolcd',
+  'preciooled',
+  'lcd',
+  'oled',
+  'original',
+  'generica'
+]);
+const MODEL_HEADERS = new Set([
+  'modelo',
+  'model',
+  'equipo',
+  'celular',
+  'pantalla',
+  'dispositivo',
+  'referencia',
+  'nombre'
+]);
 const BRAND_HEADERS = new Set(['marca', 'brand']);
 const SERVICE_HEADERS = new Set([
   'servicio',
@@ -103,11 +128,27 @@ function mapHeaders(row: string[]): Record<string, number> {
   return map;
 }
 
+function pickHeaderRow(rows: string[][]): { index: number; map: Record<string, number>; score: number } {
+  let best = { index: 0, map: mapHeaders(rows[0] || []), score: 0 };
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const map = mapHeaders(rows[i] || []);
+    const score =
+      (map.model !== undefined ? 2 : 0) +
+      (map.price !== undefined ? 2 : 0) +
+      (map.brand !== undefined ? 1 : 0) +
+      (map.service !== undefined ? 1 : 0) +
+      (map.category !== undefined ? 1 : 0);
+    if (score > best.score) best = { index: i, map, score };
+  }
+  return best;
+}
+
 export function repairPricesFromTable(rows: string[][]): RepairPriceItem[] {
   if (!rows.length) return [];
-  const headerMap = mapHeaders(rows[0] || []);
-  const hasHeader = headerMap.model !== undefined || headerMap.price !== undefined;
-  const start = hasHeader ? 1 : 0;
+  const picked = pickHeaderRow(rows);
+  const headerMap = picked.map;
+  const hasHeader = picked.score > 0;
+  const start = hasHeader ? picked.index + 1 : 0;
   const modelIdx = headerMap.model ?? 0;
   const priceIdx = headerMap.price ?? (hasHeader ? modelIdx + 1 : 1);
   const brandIdx = headerMap.brand;
@@ -265,6 +306,10 @@ export function downloadRepairPriceCatalog(prices: RepairPriceItem[]): void {
 
 export async function repairPricesFromSpreadsheet(bytes: Uint8Array, filename = ''): Promise<RepairPriceItem[]> {
   const rows = await parseSpreadsheetTable(bytes, filename);
+  return repairPricesFromRows(rows);
+}
+
+export function repairPricesFromRows(rows: string[][]): RepairPriceItem[] {
   const items = repairPricesFromTable(rows);
   if (!items.length) {
     throw new Error('No se leyeron precios. Usa columnas Modelo y Precio (Marca y Servicio son opcionales).');
