@@ -33,6 +33,7 @@ import {
   safeDateIsoKey,
   safeFormatDate,
   safeFormatTime,
+  todayCashDateKey,
   weekStartDateKey,
   workedDatesLabel
 } from '../lib/dateUtils';
@@ -54,10 +55,11 @@ import {
   type ExecutiveFinanceTotals
 } from '../lib/executiveFinance';
 import {
-  areaTotalsFromFinance,
+  buildExecutiveLinePoints,
   repairFinanceWeekStarts,
-  sumRepairCostLines,
-  type ExecutiveAreaPoint
+  resolveExecutiveLineRange,
+  sumRepairCostLinesInWeek,
+  type ExecutiveLinePeriod
 } from '../lib/executiveArea';
 import LoadMoreButton from './LoadMoreButton';
 
@@ -428,8 +430,8 @@ function buildWeekBlocks(
       .map((b) => {
         const row = byBranch.get(b.id) || emptyRow(b.id, getBranchDisplayName(b.id));
         return applyFinance(row, {
-          inversion: sumRepairCostLines(repairs, weekStart, { branchId: b.id, kinds: ['refaccion'] }),
-          tallerCostos: sumRepairCostLines(repairs, weekStart, { branchId: b.id })
+          inversion: sumRepairCostLinesInWeek(repairs, weekStart, { branchId: b.id, kinds: ['refaccion'] }),
+          tallerCostos: sumRepairCostLinesInWeek(repairs, weekStart, { branchId: b.id })
         });
       });
 
@@ -808,6 +810,10 @@ export default function ExecutiveModule({
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>('');
   const [historyCategory, setHistoryCategory] = useState<CategoryId | null>(null);
   const [branchId, setBranchId] = useState<string>('all');
+  const [linePeriod, setLinePeriod] = useState<ExecutiveLinePeriod>('semana');
+  const todayKey = todayCashDateKey();
+  const [rangeFrom, setRangeFrom] = useState(() => addCashDays(todayCashDateKey(), -29));
+  const [rangeTo, setRangeTo] = useState(() => todayCashDateKey());
 
   const weeks = useMemo(
     () => buildWeekBlocks(salesTickets, expenses, repairRecords),
@@ -820,21 +826,30 @@ export default function ExecutiveModule({
     : currentStart;
   const activeWeek = weeks.find((week) => week.weekStart === activeWeekStart) || weeks[0];
 
-  const areaPoints = useMemo((): ExecutiveAreaPoint[] => {
-    const chronological = [...weeks].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-    return chronological.map((week) => {
-      const row =
-        branchId === 'all'
-          ? week.totals
-          : week.branches.find((item) => item.branchId === branchId) || week.totals;
-      return {
-        weekStart: week.weekStart,
-        label: week.label,
-        title: week.title,
-        ...areaTotalsFromFinance(row.finance)
-      };
-    });
-  }, [weeks, branchId]);
+  const lineRange = useMemo(
+    () =>
+      resolveExecutiveLineRange(linePeriod, {
+        weekStart: activeWeekStart || currentWeekStartKey(),
+        monthDateKey: activeWeekStart || todayKey,
+        rangeFrom,
+        rangeTo,
+        today: todayKey
+      }),
+    [linePeriod, activeWeekStart, rangeFrom, rangeTo, todayKey]
+  );
+
+  const areaPoints = useMemo(
+    () =>
+      buildExecutiveLinePoints({
+        days: lineRange.days,
+        tickets: salesTickets,
+        expenses,
+        repairs: repairRecords,
+        branchId,
+        period: linePeriod
+      }),
+    [lineRange.days, salesTickets, expenses, repairRecords, branchId, linePeriod]
+  );
 
   const areaTotals = useMemo(() => sumAreaPoints(areaPoints), [areaPoints]);
 
@@ -863,6 +878,15 @@ export default function ExecutiveModule({
         branchId={branchId}
         onBranchChange={setBranchId}
         totals={areaTotals}
+        period={linePeriod}
+        onPeriodChange={setLinePeriod}
+        rangeFrom={rangeFrom}
+        rangeTo={rangeTo}
+        onRangeChange={(from, to) => {
+          setRangeFrom(from);
+          setRangeTo(to);
+        }}
+        periodLabel={lineRange.label}
       />
 
       {activeWeek && (

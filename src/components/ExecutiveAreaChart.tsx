@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,11 +14,13 @@ import { money } from '../lib/ids';
 import {
   EXECUTIVE_AREA_COLORS,
   EXECUTIVE_AREA_LEGEND,
+  EXECUTIVE_LINE_PERIODS,
   addExecutiveAreaTotals,
   areaStackValues,
   emptyExecutiveAreaTotals,
   type ExecutiveAreaPoint,
-  type ExecutiveAreaTotals
+  type ExecutiveAreaTotals,
+  type ExecutiveLinePeriod
 } from '../lib/executiveArea';
 
 function peso(n: number): string {
@@ -39,13 +41,25 @@ interface ExecutiveAreaChartProps {
   branchId: string;
   onBranchChange: (id: string) => void;
   totals: ExecutiveAreaTotals;
+  period: ExecutiveLinePeriod;
+  onPeriodChange: (period: ExecutiveLinePeriod) => void;
+  rangeFrom: string;
+  rangeTo: string;
+  onRangeChange: (from: string, to: string) => void;
+  periodLabel: string;
 }
 
 export default function ExecutiveAreaChart({
   points,
   branchId,
   onBranchChange,
-  totals
+  totals,
+  period,
+  onPeriodChange,
+  rangeFrom,
+  rangeTo,
+  onRangeChange,
+  periodLabel
 }: ExecutiveAreaChartProps) {
   const branches: BranchChip[] = useMemo(
     () => [
@@ -59,54 +73,86 @@ export default function ExecutiveAreaChart({
 
   const chartData = useMemo(
     () =>
-      points.map((point) => {
-        const stacked = areaStackValues(point);
-        return {
-          ...point,
-          ...stacked,
-          rawUtilidad: point.utilidad
-        };
-      }),
+      points.map((point) => ({
+        ...point,
+        ...areaStackValues(point)
+      })),
     [points]
   );
 
   const hasSeries = totals.utilidad || totals.inversion || totals.gastos || totals.retorno;
+  const tickEvery = chartData.length > 16 ? Math.ceil(chartData.length / 8) : 1;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       <div className="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Ingresos</p>
-            <h2 className="text-lg font-semibold text-slate-950">Área por semana</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Verde utilidad · azul inversión · rojo gastos · amarillo retorno
-            </p>
+            <h2 className="text-lg font-semibold text-slate-950">Consumo en el tiempo</h2>
+            <p className="text-xs text-slate-500 mt-0.5">{periodLabel}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {branches.map((branch) => (
+          <div className="flex bg-slate-100 p-1 rounded-full self-start">
+            {EXECUTIVE_LINE_PERIODS.map((item) => (
               <button
-                key={branch.id}
+                key={item.id}
                 type="button"
-                onClick={() => onBranchChange(branch.id)}
-                className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
-                  branchId === branch.id
-                    ? 'bg-slate-950 text-white border-slate-950'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                onClick={() => onPeriodChange(item.id)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer ${
+                  period === item.id ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                {branch.name}
+                {item.label}
               </button>
             ))}
           </div>
         </div>
 
+        {period === 'rango' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[11px] font-bold text-slate-500">
+              Del
+              <input
+                type="date"
+                value={rangeFrom}
+                max={rangeTo}
+                onChange={(e) => onRangeChange(e.target.value, rangeTo)}
+                className="ml-1.5 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-900 bg-white"
+              />
+            </label>
+            <label className="text-[11px] font-bold text-slate-500">
+              al
+              <input
+                type="date"
+                value={rangeTo}
+                min={rangeFrom}
+                onChange={(e) => onRangeChange(rangeFrom, e.target.value)}
+                className="ml-1.5 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-900 bg-white"
+              />
+            </label>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {branches.map((branch) => (
+            <button
+              key={branch.id}
+              type="button"
+              onClick={() => onBranchChange(branch.id)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
+                branchId === branch.id
+                  ? 'bg-slate-950 text-white border-slate-950'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              {branch.name}
+            </button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {EXECUTIVE_AREA_LEGEND.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
-            >
+            <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                 <span
                   className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
@@ -126,25 +172,21 @@ export default function ExecutiveAreaChart({
       <div className="px-2 sm:px-4 py-3">
         {!hasSeries ? (
           <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-500">
-            Aún no hay ingresos en las semanas cargadas para{' '}
+            Aún no hay movimiento en este periodo para{' '}
             {branchId === 'all' ? 'todas las sucursales' : getBranchDisplayName(branchId)}.
           </div>
         ) : (
           <div className="h-56 sm:h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis
                   dataKey="title"
                   tick={{ fontSize: 10, fill: '#64748b' }}
                   tickMargin={8}
-                  interval="preserveStartEnd"
+                  interval={tickEvery - 1}
                 />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#64748b' }}
-                  tickFormatter={axisMoney}
-                  width={52}
-                />
+                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={axisMoney} width={52} />
                 <Tooltip
                   formatter={(value, name) => {
                     const key = String(name) as keyof ExecutiveAreaTotals;
@@ -153,50 +195,26 @@ export default function ExecutiveAreaChart({
                   }}
                   labelFormatter={(_, payload) => {
                     const row = payload?.[0]?.payload as ExecutiveAreaPoint | undefined;
-                    return row ? `${row.title} · ${row.label}` : '';
+                    return row ? row.label : '';
                   }}
                 />
                 <Legend
                   wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                   formatter={(value) => EXECUTIVE_AREA_LEGEND.find((item) => item.id === value)?.label || value}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="utilidad"
-                  name="utilidad"
-                  stackId="ing"
-                  stroke={EXECUTIVE_AREA_COLORS.utilidad}
-                  fill={EXECUTIVE_AREA_COLORS.utilidad}
-                  fillOpacity={0.78}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="inversion"
-                  name="inversion"
-                  stackId="ing"
-                  stroke={EXECUTIVE_AREA_COLORS.inversion}
-                  fill={EXECUTIVE_AREA_COLORS.inversion}
-                  fillOpacity={0.78}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="gastos"
-                  name="gastos"
-                  stackId="ing"
-                  stroke={EXECUTIVE_AREA_COLORS.gastos}
-                  fill={EXECUTIVE_AREA_COLORS.gastos}
-                  fillOpacity={0.78}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="retorno"
-                  name="retorno"
-                  stackId="ing"
-                  stroke={EXECUTIVE_AREA_COLORS.retorno}
-                  fill={EXECUTIVE_AREA_COLORS.retorno}
-                  fillOpacity={0.78}
-                />
-              </AreaChart>
+                {EXECUTIVE_AREA_LEGEND.map((item) => (
+                  <Line
+                    key={item.id}
+                    type="monotone"
+                    dataKey={item.id}
+                    name={item.id}
+                    stroke={EXECUTIVE_AREA_COLORS[item.id]}
+                    strokeWidth={2.4}
+                    dot={false}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                  />
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           </div>
         )}

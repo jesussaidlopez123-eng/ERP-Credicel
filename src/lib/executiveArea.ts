@@ -1,8 +1,31 @@
-import type { RepairCostKind, RepairRecord } from '../types';
+import type { Expense, RepairCostKind, RepairRecord, SaleTicket } from '../types';
 import { money } from './ids';
-import { addCashDays, safeDateIsoKey, weekStartDateKey } from './dateUtils';
-import { hasCashTill, normalizeBranchId } from '../data/initialBranches';
-import type { ExecutiveFinanceTotals } from './executiveFinance';
+import {
+  addCashDays,
+  formatCashDateLabel,
+  formatMonthLabel,
+  formatWeekRangeLabel,
+  listCashDays,
+  monthEndDateKey,
+  monthStartDateKey,
+  safeDateIsoKey,
+  todayCashDateKey,
+  weekdayShortEs,
+  weekStartDateKey
+} from './dateUtils';
+import { COMMERCIAL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import {
+  addExecutiveItem,
+  emptyExecutiveCats,
+  isPhoneUnitSale,
+  phoneUnitsSold
+} from './saleClassification';
+import {
+  addExecutiveFinance,
+  buildExecutiveFinance,
+  emptyExecutiveFinance,
+  type ExecutiveFinanceTotals
+} from './executiveFinance';
 
 export const EXECUTIVE_AREA_COLORS = {
   utilidad: '#16a34a',
@@ -20,6 +43,14 @@ export const EXECUTIVE_AREA_LEGEND: { id: ExecutiveAreaKey; label: string; hint:
   { id: 'retorno', label: 'Retorno', hint: 'Equipos, abonos y recargas que se regresan' }
 ];
 
+export type ExecutiveLinePeriod = 'semana' | 'mes' | 'rango';
+
+export const EXECUTIVE_LINE_PERIODS: { id: ExecutiveLinePeriod; label: string }[] = [
+  { id: 'semana', label: 'Semanal' },
+  { id: 'mes', label: 'Mensual' },
+  { id: 'rango', label: 'Rango' }
+];
+
 export type ExecutiveAreaTotals = {
   utilidad: number;
   inversion: number;
@@ -28,15 +59,17 @@ export type ExecutiveAreaTotals = {
 };
 
 export type ExecutiveAreaPoint = ExecutiveAreaTotals & {
-  weekStart: string;
+  dateKey: string;
+  weekStart?: string;
   label: string;
   title: string;
 };
 
-function inWeek(dateKey: string, weekStart: string): boolean {
-  if (!dateKey || !weekStart) return false;
-  const end = addCashDays(weekStart, 6);
-  return dateKey >= weekStart && dateKey <= end;
+function inDateRange(dateKey: string, from: string, to: string): boolean {
+  if (!dateKey || !from || !to) return false;
+  const start = from <= to ? from : to;
+  const end = from <= to ? to : from;
+  return dateKey >= start && dateKey <= end;
 }
 
 export function matchesExecutiveBranch(branchId: string | undefined, filter: string): boolean {
@@ -49,8 +82,14 @@ function isCancelledRepair(repair: RepairRecord): boolean {
   return status === 'cancelado' || status === 'cancelada' || status === 'baja';
 }
 
+function isCancelledTicket(ticket: SaleTicket): boolean {
+  return String(ticket.estado || '').toUpperCase() === 'CANCELADA';
+}
+
 function lineKind(kind: RepairCostKind | string | undefined): RepairCostKind {
-  const value = String(kind || '').toLowerCase().trim();
+  const value = String(kind || '')
+    .toLowerCase()
+    .trim();
   if (value === 'mano_obra' || value === 'mano de obra' || value === 'labor') return 'mano_obra';
   if (value === 'otro' || value === 'other') return 'otro';
   return 'refaccion';
@@ -73,7 +112,8 @@ export function repairFinanceWeekStarts(repairs: RepairRecord[]): string[] {
 
 export function sumRepairCostLines(
   repairs: RepairRecord[],
-  weekStart: string,
+  from: string,
+  to: string,
   opts?: { branchId?: string; kinds?: RepairCostKind[] }
 ): number {
   const wantKinds = opts?.kinds;
@@ -84,13 +124,21 @@ export function sumRepairCostLines(
     const bid = normalizeBranchId(repair.branchId);
     if (!hasCashTill(bid)) continue;
     for (const line of repair.costLines || []) {
-      if (!inWeek(safeDateIsoKey(line.at), weekStart)) continue;
+      if (!inDateRange(safeDateIsoKey(line.at), from, to)) continue;
       const kind = lineKind(line.kind);
       if (wantKinds && !wantKinds.includes(kind)) continue;
       total += money(line.amount);
     }
   }
   return money(total);
+}
+
+export function sumRepairCostLinesInWeek(
+  repairs: RepairRecord[],
+  weekStart: string,
+  opts?: { branchId?: string; kinds?: RepairCostKind[] }
+): number {
+  return sumRepairCostLines(repairs, weekStart, addCashDays(weekStart, 6), opts);
 }
 
 export function areaTotalsFromFinance(finance: ExecutiveFinanceTotals): ExecutiveAreaTotals {
@@ -118,7 +166,7 @@ export function addExecutiveAreaTotals(
   };
 }
 
-/** El área no apila negativos: la utilidad en rojo se ve en el recuadro, no bajo el eje. */
+/** La línea no baja del eje: la utilidad en rojo se ve en el recuadro. */
 export function areaStackValues(totals: ExecutiveAreaTotals): ExecutiveAreaTotals {
   return {
     utilidad: money(Math.max(0, totals.utilidad)),
@@ -126,4 +174,125 @@ export function areaStackValues(totals: ExecutiveAreaTotals): ExecutiveAreaTotal
     gastos: money(Math.max(0, totals.gastos)),
     retorno: money(Math.max(0, totals.retorno))
   };
+}
+
+export function linePointTitle(dateKey: string, period: ExecutiveLinePeriod): string {
+  const day = String(Number(dateKey.slice(8, 10) || '0'));
+  if (period === 'mes') return day;
+  if (period === 'semana') return `${weekdayShortEs(dateKey)} ${day}`;
+  const month = new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Hermosillo',
+    month: 'short'
+  })
+    .format(new Date(`${dateKey}T12:00:00-07:00`))
+    .replace('.', '');
+  return `${day} ${month}`;
+}
+
+export function resolveExecutiveLineRange(
+  period: ExecutiveLinePeriod,
+  opts: {
+    weekStart: string;
+    monthDateKey?: string;
+    rangeFrom: string;
+    rangeTo: string;
+    today?: string;
+  }
+): { from: string; to: string; days: string[]; label: string } {
+  const today = opts.today || todayCashDateKey();
+  if (period === 'semana') {
+    const from = opts.weekStart || weekStartDateKey(today);
+    const to = addCashDays(from, 6);
+    return { from, to, days: listCashDays(from, to), label: formatWeekRangeLabel(from) };
+  }
+  if (period === 'mes') {
+    const pivot = opts.monthDateKey || opts.weekStart || today;
+    const from = monthStartDateKey(pivot);
+    const monthEnd = monthEndDateKey(pivot);
+    const to = monthEnd > today && from.slice(0, 7) === today.slice(0, 7) ? today : monthEnd;
+    return { from, to, days: listCashDays(from, to), label: formatMonthLabel(from) };
+  }
+  let from = opts.rangeFrom || addCashDays(today, -29);
+  let to = opts.rangeTo || today;
+  if (from > to) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+  const days = listCashDays(from, to, 120);
+  const last = days[days.length - 1] || to;
+  return { from, to: last, days, label: `${formatCashDateLabel(from)} – ${formatCashDateLabel(last)}` };
+}
+
+function financeForDay(
+  dateKey: string,
+  tickets: SaleTicket[],
+  expenses: Expense[],
+  repairs: RepairRecord[],
+  branchFilter: string
+): ExecutiveFinanceTotals {
+  let finance = emptyExecutiveFinance();
+  for (const branch of COMMERCIAL_BRANCHES) {
+    if (!matchesExecutiveBranch(branch.id, branchFilter)) continue;
+    const cats = emptyExecutiveCats();
+    let phonesSold = 0;
+    let gastos = 0;
+    for (const ticket of tickets) {
+      if (isCancelledTicket(ticket)) continue;
+      if (normalizeBranchId(ticket.branchId) !== branch.id) continue;
+      if (safeDateIsoKey(ticket.timestamp) !== dateKey) continue;
+      for (const item of ticket.items || []) {
+        addExecutiveItem(cats, item);
+        if (isPhoneUnitSale(item)) phonesSold += phoneUnitsSold(item);
+      }
+    }
+    for (const expense of expenses) {
+      if (normalizeBranchId(expense.branchId) !== branch.id) continue;
+      if (safeDateIsoKey(expense.timestamp || expense.date) !== dateKey) continue;
+      gastos += money(expense.amount || 0);
+    }
+    const inversion = sumRepairCostLines(repairs, dateKey, dateKey, {
+      branchId: branch.id,
+      kinds: ['refaccion']
+    });
+    const tallerCostos = sumRepairCostLines(repairs, dateKey, dateKey, { branchId: branch.id });
+    finance = addExecutiveFinance(
+      finance,
+      buildExecutiveFinance({
+        branchId: branch.id,
+        cats,
+        gastos,
+        phonesSold,
+        inversion,
+        tallerCostos
+      })
+    );
+  }
+  return finance;
+}
+
+export function buildExecutiveLinePoints(params: {
+  days: string[];
+  tickets: SaleTicket[];
+  expenses: Expense[];
+  repairs: RepairRecord[];
+  branchId: string;
+  period: ExecutiveLinePeriod;
+}): ExecutiveAreaPoint[] {
+  return (params.days || []).map((dateKey) => {
+    const finance = financeForDay(
+      dateKey,
+      params.tickets || [],
+      params.expenses || [],
+      params.repairs || [],
+      params.branchId
+    );
+    return {
+      dateKey,
+      weekStart: weekStartDateKey(dateKey),
+      title: linePointTitle(dateKey, params.period),
+      label: formatCashDateLabel(dateKey),
+      ...areaTotalsFromFinance(finance)
+    };
+  });
 }

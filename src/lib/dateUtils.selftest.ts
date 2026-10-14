@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import {
   fillCashDateSpan,
   formatCashDateLabel,
+  formatMonthLabel,
+  listCashDays,
+  monthEndDateKey,
+  monthStartDateKey,
   isoWeekAndYear,
   naturalWeekTitle,
+  weekdayShortEs,
   weekStartDateKey,
   workedDatesLabel
 } from './dateUtils.ts';
@@ -26,5 +31,13 @@ assert.match(formatCashDateLabel('2026-09-10'), /10/);
 assert.equal(workedDatesLabel('', ''), 'Sin movimiento');
 assert.match(workedDatesLabel('2026-09-10', '2026-09-10'), /Trabajada el/);
 assert.match(workedDatesLabel('2026-09-08', '2026-09-10'), /Trabajada /);
+
+assert.equal(monthStartDateKey('2026-10-14'), '2026-10-01');
+assert.equal(monthEndDateKey('2026-10-14'), '2026-10-31');
+assert.equal(monthEndDateKey('2026-02-10'), '2026-02-28');
+assert.match(formatMonthLabel('2026-10-14'), /octubre/i);
+assert.deepEqual(listCashDays('2026-10-12', '2026-10-14'), ['2026-10-12', '2026-10-13', '2026-10-14']);
+assert.deepEqual(listCashDays('2026-10-14', '2026-10-12'), ['2026-10-12', '2026-10-13', '2026-10-14']);
+assert.ok(weekdayShortEs('2026-10-14'));
 
 console.log('dateUtils self-test ok');

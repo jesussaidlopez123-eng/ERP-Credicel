@@ -148,6 +148,62 @@ export function currentWeekStartKey(): string {
   return weekStartDateKey(todayCashDateKey());
 }
 
+export function monthStartDateKey(dateKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';
+  return `${dateKey.slice(0, 7)}-01`;
+}
+
+export function monthEndDateKey(dateKey: string): string {
+  const start = monthStartDateKey(dateKey);
+  if (!start) return '';
+  const year = Number(start.slice(0, 4));
+  const month = Number(start.slice(5, 7));
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextStart = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+  return addCashDays(nextStart, -1);
+}
+
+export function formatMonthLabel(dateKey: string): string {
+  const start = monthStartDateKey(dateKey);
+  if (!start) return '';
+  const label = new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date(`${start}T12:00:00-07:00`));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function weekdayShortEs(dateKey: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return '';
+  const raw = new Intl.DateTimeFormat('es-MX', {
+    timeZone: CASH_TIME_ZONE,
+    weekday: 'short'
+  }).format(new Date(`${dateKey}T12:00:00-07:00`));
+  const cleaned = raw.replace('.', '').trim();
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+/** Días corridos de from a to (incluidos), hora Sonora. */
+export function listCashDays(fromKey: string, toKey: string, maxDays = 400): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) return [];
+  let from = fromKey;
+  let to = toKey;
+  if (from > to) {
+    from = toKey;
+    to = fromKey;
+  }
+  const out: string[] = [];
+  let cursor = from;
+  for (let i = 0; i < maxDays; i++) {
+    out.push(cursor);
+    if (cursor >= to) break;
+    cursor = addCashDays(cursor, 1);
+  }
+  return out;
+}
+
 export function formatDateRangeLabel(fromKey: string, toKey: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) return '';
   const start = new Date(`${fromKey}T12:00:00-07:00`);
