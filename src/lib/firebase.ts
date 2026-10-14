@@ -48,6 +48,12 @@ import {
   sessionNeedsAutomaticCorte
 } from './shiftHours';
 import { loadLastSessionId } from './localCloudCache';
+import {
+  mapBranchFundsSnapshot,
+  parseCashFundAmount,
+  persistLocalBranchFund,
+  readLocalBranchFund
+} from './cashFund';
 import { registerOutboxExecutor } from './outbox';
 import { mergeByIdKeep } from './listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from './queryLimits';
@@ -105,24 +111,21 @@ export function cleanForFirestore<T>(data: T): Record<string, any> {
 // ----------------------------------------------------
 
 async function readBranchFundAmount(branchId: string, fallback: number = 0): Promise<number> {
-  try {
-    const fundSnap = await getDoc(doc(db, BRANCH_FUNDS_COLLECTION, branchId));
-    if (fundSnap.exists()) {
-      const amount = Number(fundSnap.data()?.fundAmount);
-      if (Number.isFinite(amount) && amount >= 0) return amount;
+  const norm = normalizeBranchId(branchId);
+  const ids = Array.from(new Set([norm, branchId].filter(Boolean)));
+  for (const id of ids) {
+    try {
+      const fundSnap = await getDoc(doc(db, BRANCH_FUNDS_COLLECTION, id));
+      if (fundSnap.exists()) {
+        const amount = parseCashFundAmount(fundSnap.data()?.fundAmount);
+        if (amount !== null) return amount;
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
-  try {
-    const saved = localStorage.getItem(`erp_branch_fund_${branchId}`);
-    if (saved) {
-      const parsed = parseFloat(saved);
-      if (!isNaN(parsed) && parsed >= 0) return parsed;
-    }
-  } catch {
-    // ignore
-  }
+  const local = readLocalBranchFund(norm) ?? (branchId !== norm ? readLocalBranchFund(branchId) : null);
+  if (local !== null) return local;
   return Math.max(0, fallback);
 }
 
@@ -783,9 +786,7 @@ export async function executeCorteSesionCajaTransaction(params: {
   }
 
   if (persistOperatorFund) {
-    try {
-      localStorage.setItem(`erp_branch_fund_${normBId}`, String(leftFund));
-    } catch {}
+    persistLocalBranchFund(normBId, leftFund);
   }
 
   console.log(`[Firestore] Corte de caja cerrado: ${sesionId} (contado ${counted} vs esperado ${expectedCashInDrawer})`);
@@ -1703,18 +1704,17 @@ export async function saveBranchFundToFirestore(branchId: string, fundAmount: nu
   try {
     const normId = normalizeBranchId(branchId);
     if (!normId || !hasCashTill(normId)) return;
+    const amount = parseCashFundAmount(fundAmount) ?? 0;
     const docRef = doc(db, BRANCH_FUNDS_COLLECTION, normId);
     await setDoc(docRef, {
       branchId: normId,
-      fundAmount: Math.max(0, fundAmount),
+      fundAmount: amount,
       source: 'operator',
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
-    try {
-      localStorage.setItem(`erp_branch_fund_${normId}`, String(fundAmount));
-    } catch {}
-    console.log(`[Firestore] 💵 Fondo inicial sincronizado para ${normId}: $${fundAmount}`);
+    persistLocalBranchFund(normId, amount);
+    console.log(`[Firestore] 💵 Fondo inicial sincronizado para ${normId}: $${amount}`);
   } catch (err) {
     console.error('[Firestore] Error saving branch fund:', err);
   }
@@ -1754,9 +1754,7 @@ export async function ensureBranchFundsZeroedOnce(): Promise<void> {
       )
     );
     ids.forEach((id) => {
-      try {
-        localStorage.setItem(`erp_branch_fund_${id}`, '0');
-      } catch {}
+      persistLocalBranchFund(id, 0);
     });
     await setDoc(flagRef, {
       at: resetAt,
@@ -1775,16 +1773,12 @@ export function subscribeToBranchFunds(
   return onSnapshot(
     col,
     (snapshot) => {
-      const fundsMap: Record<string, number> = {};
+      const docs: Array<{ id: string; data: Record<string, unknown> }> = [];
       snapshot.forEach((d) => {
-        const data = d.data();
-        if (data && data.branchId && typeof data.fundAmount === 'number') {
-          fundsMap[data.branchId] = data.fundAmount;
-          try {
-            localStorage.setItem(`erp_branch_fund_${data.branchId}`, String(data.fundAmount));
-          } catch {}
-        }
+        docs.push({ id: d.id, data: d.data() as Record<string, unknown> });
       });
+      const fundsMap = mapBranchFundsSnapshot(docs);
+      Object.entries(fundsMap).forEach(([id, amount]) => persistLocalBranchFund(id, amount));
       onFundsUpdate(fundsMap);
     },
     (err) => {

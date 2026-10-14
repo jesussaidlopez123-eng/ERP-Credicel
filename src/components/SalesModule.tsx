@@ -41,6 +41,7 @@ import { isOpenShiftMovement } from '../lib/historicSale';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { resolveOpeningCashFund } from '../lib/cashFund';
 
 const CorteXModal = lazy(() => import('./CorteXModal'));
 const TicketReceiptModal = lazy(() => import('./TicketReceiptModal'));
@@ -68,22 +69,6 @@ interface SalesModuleProps {
   operators?: Operator[];
   openSessionsByBranch?: Record<string, SesionCaja | null>;
   repairRecords?: RepairRecord[];
-}
-
-/** Fondo de apertura: lo que dejó el cajero en branchCashFunds. Nunca inventar $1000. */
-function openingFundForBranch(branchId: string, funds: Record<string, number> = {}): number {
-  const fromCloud = funds[branchId];
-  if (typeof fromCloud === 'number' && !isNaN(fromCloud) && fromCloud >= 0) {
-    return fromCloud;
-  }
-  try {
-    const saved = localStorage.getItem(`erp_branch_fund_${branchId}`);
-    if (saved) {
-      const parsed = parseFloat(saved);
-      if (!isNaN(parsed) && parsed >= 0) return parsed;
-    }
-  } catch {}
-  return 0;
 }
 
 function SalesModule({
@@ -174,7 +159,17 @@ function SalesModule({
     if (fresh) setSelectedCorte(fresh);
   }, [safeCortesX, selectedCorte?.id]);
 
-  const openingFund = (branchId: string) => openingFundForBranch(branchId, branchCashFunds);
+  const openingFund = (branchId: string) =>
+    resolveOpeningCashFund({
+      branchId,
+      funds: branchCashFunds,
+      sessionInitial:
+        openSessionsByBranch[normalizeBranchId(branchId)]?.monto_inicial_efectivo ??
+        (normalizeBranchId(branchId) === normalizeBranchId(currentBranch.id)
+          ? activeCashSession?.monto_inicial_efectivo
+          : undefined),
+      cortes: safeCortesX
+    });
 
   const openCashiersByBranch = useMemo(() => {
     const map: Record<string, string> = {};
@@ -196,7 +191,7 @@ function SalesModule({
         currentBranch.id,
         currentOperator.name
       ),
-    [safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch]
+    [safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch, openSessionsByBranch, activeCashSession, safeCortesX]
   );
 
   const aggregatedCortesList = useMemo(
@@ -211,7 +206,7 @@ function SalesModule({
         openingFund,
         openCashiersByBranch
       }),
-    [safeCortesX, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch]
+    [safeCortesX, safeTickets, safeExpenses, todayIso, currentBranch, currentOperator, branchCashFunds, openCashiersByBranch, openSessionsByBranch, activeCashSession]
   );
 
   const filteredCortes = useMemo(() => {
@@ -514,8 +509,8 @@ function SalesModule({
                     <span className="text-sm font-semibold text-slate-900 tabular-nums block">
                       ${bStat.expectedCashInDrawer.toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-red-600 block mt-0.5">
-                      Gastos −${bStat.totalExpenses.toFixed(0)}
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      Fondo ${bStat.initialCashFund.toFixed(2)} · Gastos −${bStat.totalExpenses.toFixed(0)}
                     </span>
                   </div>
                 </div>
@@ -1149,15 +1144,24 @@ function SalesModule({
           currentOperator={currentOperator}
           cortesX={safeCortesX}
           onFinalizeCorteX={onFinalizeCorteX}
+          initialCashFund={openingFund(selectedLiveBranch.id)}
+          sessionOpeningFund={
+            Number(
+              openSessionsByBranch[normalizeBranchId(selectedLiveBranch.id)]?.monto_inicial_efectivo ??
+                (normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
+                  ? activeCashSession?.monto_inicial_efectivo
+                  : undefined)
+            ) || undefined
+          }
           activeSessionId={
             normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
               ? activeCashSession?.id
-              : undefined
+              : openSessionsByBranch[normalizeBranchId(selectedLiveBranch.id)]?.id
           }
           sessionOpenedAt={
             normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)
               ? activeCashSession?.fecha_apertura
-              : undefined
+              : openSessionsByBranch[normalizeBranchId(selectedLiveBranch.id)]?.fecha_apertura
           }
           onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
           onRequestDeleteExpense={onDeleteExpense ? handlePromptDeleteExpense : undefined}

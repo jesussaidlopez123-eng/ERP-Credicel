@@ -125,10 +125,16 @@ const liveStats = todayBranchStats(
   ],
   [],
   '2026-10-11',
-  () => 0,
+  (branchId) => (branchId === 'b-matriz' ? 1000 : 0),
   { 'b-matriz': 'Teresa', 'b-huatabampo': 'Geraldín' }
 );
 assert.equal(liveStats.find((row) => row.branchId === 'b-matriz')?.currentShiftOperator, 'Teresa');
 assert.equal(liveStats.find((row) => row.branchId === 'b-huatabampo')?.currentShiftOperator, 'Geraldín');
+assert.equal(liveStats.find((row) => row.branchId === 'b-matriz')?.initialCashFund, 1000);
+assert.equal(
+  liveStats.find((row) => row.branchId === 'b-matriz')?.expectedCashInDrawer,
+  1100,
+  'fondo inicial + efectivo del día'
+);
 
 console.log('salesCortesBuild self-test ok');

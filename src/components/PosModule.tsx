@@ -1376,6 +1376,11 @@ function PosModule({
           currentOperator={currentOperator}
           cortesX={cortesX}
           initialCashFund={initialCashFund}
+          sessionOpeningFund={
+            typeof activeCashSession?.monto_inicial_efectivo === 'number'
+              ? activeCashSession.monto_inicial_efectivo
+              : undefined
+          }
           activeSessionId={activeCashSession?.id}
           sessionOpenedAt={activeCashSession?.fecha_apertura}
           onFinalizeCorteX={onFinalizeCorteX}

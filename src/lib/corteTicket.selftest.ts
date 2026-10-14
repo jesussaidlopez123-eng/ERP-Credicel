@@ -23,9 +23,9 @@ const html = buildCorteThermalInnerHtml({
   cashSales: 1800,
   cardSales: 200,
   transferSales: 100,
-  initialCashFund: 0,
-  expectedCashInDrawer: 1720,
-  fundLeft: 0,
+  initialCashFund: 1000,
+  expectedCashInDrawer: 2720,
+  fundLeft: 1000,
   cashWithdrawn: 1720,
   items: [
     {
@@ -46,4 +46,6 @@ assert.match(html, /NAV-0509-003/);
 assert.match(html, /Mica 15/);
 assert.match(html, /Gasolina/);
 assert.match(html, /TOTAL VENTAS<\/span><span class="font-bold">\$2100\.00/);
+assert.match(html, /\(\+\) Fondo<\/span><span class="font-bold">\$1000\.00/);
+assert.match(html, /Fondo sig\. turno<\/span><span class="font-bold">\$1000\.00/);
 console.log('corteTicket self-test ok');

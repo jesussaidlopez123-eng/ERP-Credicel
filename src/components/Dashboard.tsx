@@ -74,6 +74,7 @@ import {
   yieldToUi
 } from '../lib/historyWindow';
 import { money, newUniqueId } from '../lib/ids';
+import { persistLocalBranchFund, resolveOpeningCashFund } from '../lib/cashFund';
 import {
   canOpenNewCashSession,
   getHermosilloClock,
@@ -380,7 +381,7 @@ export default function Dashboard({
 
     const unsubFunds = subscribeToBranchFunds((funds) => {
       if (funds && typeof funds === 'object') {
-        setBranchCashFunds(funds);
+        setBranchCashFunds((prev) => ({ ...prev, ...funds }));
       }
     });
     void ensureBranchFundsZeroedOnce();
@@ -823,7 +824,12 @@ export default function Dashboard({
           branchName: currentBranch.name,
           operatorUid: currentOperator.id,
           operatorName: currentOperator.name,
-          initialFund: branchCashFunds[currentBranch.id] ?? 0,
+          initialFund: resolveOpeningCashFund({
+            branchId: currentBranch.id,
+            funds: branchCashFunds,
+            sessionInitial: activeCashSession?.monto_inicial_efectivo,
+            cortes: cortesX
+          }),
           ticketsSnapshot: salesTicketsRef.current,
           expensesSnapshot: expensesRef.current
         });
@@ -906,7 +912,12 @@ export default function Dashboard({
             branchName: currentBranch.name,
             operatorUid: currentOperator.id,
             operatorName: currentOperator.name,
-            initialFund: branchCashFunds[currentBranch.id] ?? 0,
+            initialFund: resolveOpeningCashFund({
+              branchId: currentBranch.id,
+              funds: branchCashFunds,
+              sessionInitial: activeCashSession?.monto_inicial_efectivo,
+              cortes: cortesX
+            }),
             ticketsSnapshot: salesTicketsRef.current,
             expensesSnapshot: expensesRef.current
           });
@@ -949,7 +960,12 @@ export default function Dashboard({
             branchName: currentBranch.name,
             operatorUid: currentOperator.id,
             operatorName: currentOperator.name,
-            fondoDejado: branchCashFunds[currentBranch.id] ?? 0,
+            fondoDejado: resolveOpeningCashFund({
+              branchId: currentBranch.id,
+              funds: branchCashFunds,
+              sessionInitial: activeCashSession?.monto_inicial_efectivo,
+              cortes: cortesX
+            }),
             persistOperatorFund: false,
             notas: 'Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.',
             fechaCierreIso: `${dateKey}T23:00:00-07:00`,
@@ -1045,7 +1061,11 @@ export default function Dashboard({
           branchName: currentBranch.name,
           operatorUid: currentOperator.id,
           operatorName: currentOperator.name,
-          initialFund: branchCashFunds[ticket.branchId] ?? 0
+          initialFund: resolveOpeningCashFund({
+            branchId: ticket.branchId,
+            funds: branchCashFunds,
+            cortes: cortesX
+          })
         });
         throw new CashTillLockedError();
       }
@@ -1090,7 +1110,11 @@ export default function Dashboard({
             ticket.branchId,
             currentBranch.name,
             currentOperator.name,
-            branchCashFunds[ticket.branchId] ?? 0,
+            resolveOpeningCashFund({
+              branchId: ticket.branchId,
+              funds: branchCashFunds,
+              cortes: cortesX
+            }),
             currentOperator.id
           );
           setActiveCashSession(session);
@@ -1687,7 +1711,11 @@ export default function Dashboard({
           expense.branchId,
           currentBranch.name,
           currentOperator.name,
-          branchCashFunds[expense.branchId] ?? 0,
+          resolveOpeningCashFund({
+            branchId: expense.branchId,
+            funds: branchCashFunds,
+            cortes: cortesX
+          }),
           currentOperator.id
         );
         activeSessionId = activeSes.id;
@@ -1975,13 +2003,19 @@ export default function Dashboard({
         return next;
       });
 
+      const leftover = money(
+        savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0
+      );
+      persistLocalBranchFund(targetBranchId, leftover);
+      setBranchCashFunds((prev) => ({ ...prev, [targetBranchId]: leftover }));
+
       if (canOpenNewCashSession() && normalizeBranchId(currentBranch.id) === targetBranchId) {
         try {
           const nextSession = await getActiveCashSession(
             targetBranchId,
             targetBranchName,
             currentOperator.name,
-            savedCorte?.cashFundLeftForNextShift ?? corteRecord.cashFundLeftForNextShift ?? 0,
+            leftover,
             currentOperator.id
           );
           setActiveCashSession(nextSession);
@@ -2163,7 +2197,12 @@ export default function Dashboard({
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
             cortesX={cortesX}
-            initialCashFund={branchCashFunds[currentBranch.id]}
+            initialCashFund={resolveOpeningCashFund({
+              branchId: currentBranch.id,
+              funds: branchCashFunds,
+              sessionInitial: activeCashSession?.monto_inicial_efectivo,
+              cortes: cortesX
+            })}
             activeCashSession={activeCashSession}
             tillLocked={tillLocked}
             creditAccounts={posCreditAccounts}

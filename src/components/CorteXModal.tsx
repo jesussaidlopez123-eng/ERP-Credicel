@@ -31,6 +31,7 @@ import { normalizeBranchId } from '../data/initialBranches';
 import { corteExpenseTotals } from '../lib/historicSale';
 import { isMatrizRepairExpense } from '../lib/repairCorte';
 import { deliveredRepairsMissingCost } from '../lib/repairUtils';
+import { persistLocalBranchFund, resolveOpeningCashFund, suggestedLeftoverFund } from '../lib/cashFund';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ interface CorteXModalProps {
   currentBranch: Branch;
   currentOperator: Operator;
   initialCashFund?: number;
+  sessionOpeningFund?: number;
   existingCorteRecord?: CorteXRecord | null;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
   onLogout?: () => void;
@@ -93,6 +95,7 @@ export default function CorteXModal({
   currentBranch,
   currentOperator,
   initialCashFund = 0,
+  sessionOpeningFund,
   existingCorteRecord,
   onFinalizeCorteX,
   onLogout,
@@ -164,11 +167,17 @@ export default function CorteXModal({
     : null;
   const isCorteAlreadyDoneToday = !isHistoric && !!todaySavedCorte;
 
-  // Opening fund = last amount the cashier typed at close (Firestore branchCashFunds). Never invent $1000.
-  const storedBranchFund =
-    typeof initialCashFund === 'number' && !isNaN(initialCashFund) ? Math.max(0, initialCashFund) : 0;
+  // Opening fund = leftover from last close (session, Firestore, local, or latest corte). Never invent $1000.
+  const storedBranchFund = resolveOpeningCashFund({
+    branchId: effectiveBranchId,
+    funds: { [effectiveBranchId]: initialCashFund },
+    sessionInitial: sessionOpeningFund ?? initialCashFund,
+    cortes: cortesX
+  });
 
-  const effectiveInitialCash = isHistoric ? existingCorteRecord.initialCashFund : storedBranchFund;
+  const effectiveInitialCash = isHistoric
+    ? money(Number(existingCorteRecord.initialCashFund) || 0)
+    : storedBranchFund;
 
   // Filter tickets and expenses
   let branchTickets: SaleTicket[] = [];
@@ -592,9 +601,15 @@ export default function CorteXModal({
     lines.push(`----------------------------------------`);
     lines.push(`👉 EFECTIVO TOTAL EN CAJA: $${expectedCashInDrawer.toFixed(2)} MXN`);
 
-    if (isHistoric && existingCorteRecord.cashFundLeftForNextShift !== undefined) {
-      lines.push(`📌 FONDO DEJADO: $${existingCorteRecord.cashFundLeftForNextShift.toFixed(2)}`);
-      lines.push(`💵 RETIRADO/ENTREGADO: $${(existingCorteRecord.cashWithdrawn ?? 0).toFixed(2)}`);
+    const fundLeftShown =
+      closedShiftFundSnapshot?.fundLeft ??
+      (isHistoric ? existingCorteRecord.cashFundLeftForNextShift : undefined);
+    const withdrawnShown =
+      closedShiftFundSnapshot?.cashWithdrawn ??
+      (isHistoric ? existingCorteRecord.cashWithdrawn : undefined);
+    if (fundLeftShown !== undefined) {
+      lines.push(`📌 FONDO PARA MAÑANA: $${Number(fundLeftShown).toFixed(2)}`);
+      lines.push(`💵 RETIRADO/ENTREGADO: $${Number(withdrawnShown ?? 0).toFixed(2)}`);
     }
 
     lines.push(`========================================`);
@@ -614,7 +629,7 @@ export default function CorteXModal({
       setFinishStatusMessage('Este turno ya tiene corte registrado.');
       return;
     }
-    setNextCashFundInput('0');
+    setNextCashFundInput(suggestedLeftoverFund(effectiveInitialCash, expectedCashInDrawer).toFixed(2));
     setCountedCashInput(expectedCashInDrawer.toFixed(2));
     setShiftClosureNotes('');
     setShouldPrintOnClose(true);
@@ -670,10 +685,7 @@ export default function CorteXModal({
     setIsClosingShiftDialog(false);
     setFinishStatusMessage('Guardando Corte X y registrando fondo de caja en la nube...');
 
-    // 1. Guardar persistentemente el fondo para el nuevo día en Firestore y localStorage
-    try {
-      localStorage.setItem(`erp_branch_fund_${effectiveBranchId}`, fundLeft.toFixed(2));
-    } catch {}
+    persistLocalBranchFund(effectiveBranchId, fundLeft);
     try {
       await saveBranchFundToFirestore(effectiveBranchId, fundLeft);
     } catch (e) {
@@ -1353,12 +1365,18 @@ export default function CorteXModal({
               {/* Drawer Cash Summary */}
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-1.5">
                 <div className="flex justify-between items-center text-slate-700">
+                  <span>Fondo inicial de hoy:</span>
+                  <strong className="text-sm font-black text-slate-900 font-mono">
+                    ${effectiveInitialCash.toFixed(2)}
+                  </strong>
+                </div>
+                <div className="flex justify-between items-center text-slate-700">
                   <span>Efectivo esperado en caja:</span>
                   <strong className="text-base font-black text-slate-900 font-mono">
                     ${expectedCashInDrawer.toFixed(2)}
                   </strong>
                 </div>
-                <p className="text-[10px] text-slate-500">Fondo inicial + ventas en efectivo − gastos.</p>
+                <p className="text-[10px] text-slate-500">Fondo inicial + ventas en efectivo − gastos de cajón.</p>
               </div>
 
               <div className="space-y-1.5">
@@ -1395,7 +1413,7 @@ export default function CorteXModal({
               {/* Fund Left Input */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-black text-slate-800 uppercase">
-                  Fondo que dejas para el siguiente turno:
+                  Fondo para mañana (abre el siguiente turno):
                 </label>
                 <div className="relative">
                   <DollarSign className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -1406,17 +1424,22 @@ export default function CorteXModal({
                     value={nextCashFundInput}
                     onChange={(e) => setNextCashFundInput(e.target.value)}
                     className="w-full pl-8 pr-3 py-2 text-sm font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white font-mono"
-                    placeholder="0.00"
+                    placeholder={suggestedLeftoverFund(effectiveInitialCash, expectedCashInDrawer).toFixed(2)}
                   />
                 </div>
                 {(() => {
-                  const fund = parseFloat(nextCashFundInput) || 0;
                   const counted = parseFloat(countedCashInput);
                   const base = isNaN(counted) ? expectedCashInDrawer : counted;
+                  const parsedFund = parseFloat(nextCashFundInput);
+                  const fund = isNaN(parsedFund) || parsedFund < 0
+                    ? suggestedLeftoverFund(effectiveInitialCash, base)
+                    : parsedFund;
                   const withdraw = Math.max(0, base - fund);
                   return (
                     <p className="text-[11px] text-slate-600">
-                      Efectivo a retirar / resguardar: <strong className="font-bold text-slate-900 font-mono">${withdraw.toFixed(2)}</strong>
+                      Mañana abre con <strong className="font-bold text-emerald-800 font-mono">${fund.toFixed(2)}</strong>
+                      {' · '}
+                      A retirar: <strong className="font-bold text-slate-900 font-mono">${withdraw.toFixed(2)}</strong>
                     </p>
                   );
                 })()}
@@ -1465,13 +1488,18 @@ export default function CorteXModal({
                 type="button"
                 onClick={() => {
                   if (isFinishingShift) return;
-                  const finalFund = parseFloat(nextCashFundInput);
                   const counted = parseFloat(countedCashInput);
+                  const countedCash = isNaN(counted) || counted < 0 ? expectedCashInDrawer : counted;
+                  const parsedFund = parseFloat(nextCashFundInput);
+                  const finalFund =
+                    isNaN(parsedFund) || parsedFund < 0
+                      ? suggestedLeftoverFund(effectiveInitialCash, countedCash)
+                      : parsedFund;
                   handleFinalizeShift(
-                    isNaN(finalFund) || finalFund < 0 ? 0 : finalFund,
+                    finalFund,
                     shiftClosureNotes,
                     shouldPrintOnClose,
-                    isNaN(counted) || counted < 0 ? expectedCashInDrawer : counted
+                    countedCash
                   );
                 }}
                 disabled={isFinishingShift}
