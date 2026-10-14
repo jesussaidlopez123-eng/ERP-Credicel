@@ -6,7 +6,16 @@ import { normalizeRole } from './roles';
 
 const LEGACY_PREFIX = 'erp_repair_records_';
 
-const CLOSED_STATUSES = new Set(['entregado', 'entregada', 'delivered', 'cancelado', 'cancelada', 'baja']);
+const CLOSED_STATUSES = new Set([
+  'entregado',
+  'entregada',
+  'delivered',
+  'cancelado',
+  'cancelada',
+  'baja',
+  'eliminado',
+  'eliminada'
+]);
 
 export function isPendingRepair(record: RepairRecord | null | undefined): boolean {
   if (!record) return false;
@@ -55,13 +64,18 @@ export function rememberDeletedRepairIds(existing: Iterable<string>, extra: Iter
   return next;
 }
 
+export function isDeletedRepair(record: RepairRecord | null | undefined): boolean {
+  if (!record) return false;
+  const status = String(record.status || '').toLowerCase();
+  return status === 'eliminado' || status === 'eliminada';
+}
+
 export function excludeDeletedRepairs(
   records: RepairRecord[] | undefined,
   deletedIds: Iterable<string>
 ): RepairRecord[] {
   const skip = deletedIds instanceof Set ? deletedIds : new Set(deletedIds);
-  if (!skip.size) return records || [];
-  return (records || []).filter((row) => !skip.has(row.id));
+  return (records || []).filter((row) => !skip.has(row.id) && !isDeletedRepair(row));
 }
 
 export function cancelRepairRecord(
@@ -97,6 +111,7 @@ export function repairStatusLabel(status: RepairRecord['status'] | string | unde
   const value = String(status || '').toLowerCase();
   if (value === 'entregado' || value === 'entregada') return 'Entregado';
   if (value === 'cancelado' || value === 'cancelada' || value === 'baja') return 'Dado de baja';
+  if (value === 'eliminado' || value === 'eliminada') return 'Eliminado';
   return 'En taller';
 }
 
@@ -106,6 +121,7 @@ export function normalizeRepairStatus(status: string | undefined): RepairRecord[
     .trim();
   if (value === 'entregado' || value === 'entregada' || value === 'delivered') return 'entregado';
   if (value === 'cancelado' || value === 'cancelada' || value === 'baja') return 'cancelado';
+  if (value === 'eliminado' || value === 'eliminada') return 'eliminado';
   // "listo" ya no existe como paso: el equipo se puede entregar en cuanto entra a taller.
   return 'en_taller';
 }
@@ -464,6 +480,7 @@ export function normalizeRepairRecord(
 
 function repairStatusRank(status: RepairRecord['status'] | string | undefined): number {
   const value = normalizeRepairStatus(status);
+  if (value === 'eliminado') return 4;
   if (value === 'cancelado') return 3;
   if (value === 'entregado') return 2;
   return 1;

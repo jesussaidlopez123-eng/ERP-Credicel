@@ -206,7 +206,7 @@ export interface RepairRecord {
   advancePayment: number;
   pendingBalance: number;
   /** Ciclo de caja: en taller o ya cobrado/entregado. "listo" viejo se lee como en_taller. */
-  status: 'en_taller' | 'listo' | 'entregado' | 'cancelado';
+  status: 'en_taller' | 'listo' | 'entregado' | 'cancelado' | 'eliminado';
   /** Dónde va el equipo hoy en el banco. Independiente de si caja ya puede cobrar. */
   workStage?: RepairWorkStage;
   receivedAt: string;

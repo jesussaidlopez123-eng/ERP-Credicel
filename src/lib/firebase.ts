@@ -2424,21 +2424,47 @@ export async function saveRepairRecordToFirestore(record: RepairRecord) {
   await setDoc(docRef, cleanForFirestore(record), { merge: true });
 }
 
+/**
+ * IDs de fichas que el admin ya quitó. Se leen de repairRecords (status
+ * eliminado) — la misma colección que el taller, para no depender de una
+ * colección nueva que tumbe el aviso de “sin nube”. repairDeletions es extra.
+ */
 export function subscribeToRepairDeletions(
   onUpdate: (ids: string[]) => void,
-  onError?: (err: any) => void
+  _onError?: (err: any) => void
 ) {
-  const col = collection(db, REPAIR_DELETIONS_COLLECTION);
-  return onSnapshot(
-    col,
+  let fromRecords: string[] = [];
+  let fromTombstones: string[] = [];
+  const emit = () => {
+    onUpdate(Array.from(new Set([...fromRecords, ...fromTombstones])));
+  };
+
+  const unsubRecords = onSnapshot(
+    query(collection(db, REPAIR_RECORDS_COLLECTION), where('status', '==', 'eliminado')),
     (snapshot) => {
-      onUpdate(snapshot.docs.map((d) => d.id).filter(Boolean));
+      fromRecords = snapshot.docs.map((d) => d.id).filter(Boolean);
+      emit();
     },
     (err) => {
-      console.error('[Firestore] subscribeToRepairDeletions error:', err);
-      if (onError) onError(err);
+      console.warn('[Firestore] subscribeToRepairDeletions (repairRecords):', err);
     }
   );
+
+  const unsubTombstones = onSnapshot(
+    collection(db, REPAIR_DELETIONS_COLLECTION),
+    (snapshot) => {
+      fromTombstones = snapshot.docs.map((d) => d.id).filter(Boolean);
+      emit();
+    },
+    (err) => {
+      console.warn('[Firestore] subscribeToRepairDeletions (repairDeletions):', err);
+    }
+  );
+
+  return () => {
+    unsubRecords();
+    unsubTombstones();
+  };
 }
 
 export async function deleteRepairRecordFromFirestore(
@@ -2447,21 +2473,33 @@ export async function deleteRepairRecordFromFirestore(
 ): Promise<void> {
   const id = String(repairId || '').trim();
   if (!id) return;
-  try {
-    await deleteDoc(doc(db, REPAIR_RECORDS_COLLECTION, id));
-  } catch (err) {
-    console.warn('[Firestore] deleteDoc repairRecords:', err);
-  }
+  const deletedAt = new Date().toISOString();
+  const deletedByName = String(meta.operatorName || '').trim() || 'Admin';
+  const reason = String(meta.reason || '').trim() || 'Eliminado por administrador';
+  // Se deja el documento en repairRecords con status eliminado: sale de
+  // “en taller” y las demás cajas lo reconocen sin una colección extra.
   await setDoc(
-    doc(db, REPAIR_DELETIONS_COLLECTION, id),
-    {
+    doc(db, REPAIR_RECORDS_COLLECTION, id),
+    cleanForFirestore({
       id,
-      deletedAt: new Date().toISOString(),
-      deletedByName: String(meta.operatorName || '').trim() || 'Admin',
-      reason: String(meta.reason || '').trim() || 'Eliminado por administrador'
-    },
+      status: 'eliminado',
+      deletedAt,
+      deletedByName,
+      cancelReason: reason,
+      cancelledAt: deletedAt,
+      cancelledByName: deletedByName
+    }),
     { merge: true }
   );
+  try {
+    await setDoc(
+      doc(db, REPAIR_DELETIONS_COLLECTION, id),
+      { id, deletedAt, deletedByName, reason },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('[Firestore] setDoc repairDeletions:', err);
+  }
 }
 
 export function subscribeToPurchaseDrafts(

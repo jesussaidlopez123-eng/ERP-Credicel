@@ -128,6 +128,7 @@ import {
   canDeleteRepair,
   cancelRepairRecord,
   excludeDeletedRepairs,
+  isDeletedRepair,
   findPendingDuplicate,
   inferRepairsFromTickets,
   isPendingRepair,
@@ -284,12 +285,17 @@ export default function Dashboard({
   agendaTasksRef.current = agendaTasks;
   productsRef.current = products;
 
+  const CLOUD_DOWN_MESSAGE =
+    'No hay conexión con la nube en este momento. El catálogo y las ventas de este equipo no se borraron. El corte se puede guardar aquí y se sube cuando vuelva la conexión.';
+
   const markCloudDown = (message?: string) => {
     setCloudSynced(false);
-    setSessionError(
-      message ||
-        'No hay conexión con la nube en este momento. El catálogo y las ventas de este equipo no se borraron. El corte se puede guardar aquí y se sube cuando vuelva la conexión.'
-    );
+    setSessionError(message || CLOUD_DOWN_MESSAGE);
+  };
+
+  const markCloudUp = () => {
+    setCloudSynced(true);
+    setSessionError((prev) => (prev === CLOUD_DOWN_MESSAGE ? null : prev));
   };
 
   const publishCatalogFromCloud = (cloud: Product[]) => {
@@ -316,7 +322,7 @@ export default function Dashboard({
         if (prods && prods.length > 0) {
           cloudProductsRef.current = prods;
           publishCatalogFromCloud(prods);
-          setCloudSynced(true);
+          markCloudUp();
         }
       },
       () => markCloudDown()
@@ -441,20 +447,17 @@ export default function Dashboard({
       () => markCloudDown()
     );
 
-    const unsubRepairDeletions = subscribeToRepairDeletions(
-      (ids) => {
-        mergeDeletedRepairIds(ids);
-        const skip = deletedRepairIdsRef.current;
-        localOnlyRef.current.repairs = excludeDeletedRepairs(localOnlyRef.current.repairs, skip);
-        setRepairRecords((prev) => {
-          const next = excludeDeletedRepairs(prev, skip);
-          if (next.length === prev.length) return prev;
-          scheduleSaveCachedList('repairs', next);
-          return next;
-        });
-      },
-      () => markCloudDown()
-    );
+    const unsubRepairDeletions = subscribeToRepairDeletions((ids) => {
+      mergeDeletedRepairIds(ids);
+      const skip = deletedRepairIdsRef.current;
+      localOnlyRef.current.repairs = excludeDeletedRepairs(localOnlyRef.current.repairs, skip);
+      setRepairRecords((prev) => {
+        const next = excludeDeletedRepairs(prev, skip);
+        if (next.length === prev.length) return prev;
+        scheduleSaveCachedList('repairs', next);
+        return next;
+      });
+    });
 
     const unsubAgenda = subscribeToAgendaTasks(
       (rows) => {
@@ -1480,7 +1483,7 @@ export default function Dashboard({
 
   /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
   const persistRepairRecord = async (record: RepairRecord): Promise<RepairRecord> => {
-    if (deletedRepairIdsRef.current.has(record.id)) {
+    if (deletedRepairIdsRef.current.has(record.id) || isDeletedRepair(record)) {
       throw new Error('Esta reparación fue eliminada.');
     }
     const previous = repairRecordsRef.current.find((r) => r.id === record.id);

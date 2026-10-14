@@ -14,6 +14,7 @@ import {
   canDeleteRepair,
   cancelRepairRecord,
   excludeDeletedRepairs,
+  isDeletedRepair,
   rememberDeletedRepairIds,
   isPendingRepair,
   markRepairDelivered,
@@ -42,6 +43,7 @@ assert(normalizeRepairStatus('ready') === 'en_taller', 'ready también entra a t
 assert(normalizeRepairStatus('en_taller') === 'en_taller', 'en taller se conserva');
 assert(normalizeRepairStatus('entregado') === 'entregado', 'entregado se conserva');
 assert(normalizeRepairStatus('cancelado') === 'cancelado', 'cancelado se conserva');
+assert(normalizeRepairStatus('eliminado') === 'eliminado', 'eliminado no se lee como en taller');
 assert(repairStatusLabel('listo') === 'En taller', 'la etiqueta de listo es En taller');
 
 const pending: RepairRecord = {
@@ -113,6 +115,15 @@ assert(!canDeleteRepair(undefined), 'sin rol no se elimina');
   const kept = excludeDeletedRepairs([pending, { ...pending, id: 'REP-2' }], ['REP-1']);
   assert(kept.length === 1 && kept[0].id === 'REP-2', 'las fichas eliminadas no aparecen');
   assert(excludeDeletedRepairs([pending], []).length === 1, 'sin tombstone no se filtra');
+  const marked = { ...pending, status: 'eliminado' as const };
+  assert(isDeletedRepair(marked), 'status eliminado se reconoce');
+  assert(!isPendingRepair(marked), 'eliminado ya no está en taller');
+  assert(
+    excludeDeletedRepairs([pending, marked], []).every((row) => !isDeletedRepair(row)),
+    'una ficha con status eliminado no se lista aunque no haya tombstone local'
+  );
+  const mergedGone = assembleRepairRecords([{ ...pending, status: 'en_taller' }], [marked]);
+  assert(mergedGone.length === 1 && mergedGone[0].status === 'eliminado', 'un ticket viejo no revive lo eliminado');
   const ids = rememberDeletedRepairIds(['REP-1'], ['REP-2', 'REP-1', '']);
   assert(ids.includes('REP-1') && ids.includes('REP-2') && ids.length === 2, 'los tombstones no se duplican');
 }
