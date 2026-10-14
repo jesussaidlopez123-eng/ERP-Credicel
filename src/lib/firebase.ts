@@ -1,6 +1,9 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection,
   doc,
   getDoc,
@@ -70,7 +73,29 @@ const firebaseConfig = {
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app, firebaseConfigData.firestoreDatabaseId || '(default)');
+
+function createFirestore() {
+  const databaseId = firebaseConfigData.firestoreDatabaseId || '(default)';
+  // En Node (scripts) no hay IndexedDB. En caja, el caché evita reler todo el catálogo al recargar.
+  if (typeof window === 'undefined') {
+    return getFirestore(app, databaseId);
+  }
+  try {
+    return initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager()
+        })
+      },
+      databaseId
+    );
+  } catch {
+    return getFirestore(app, databaseId);
+  }
+}
+
+export const db = createFirestore();
 
 // Root Collections Definitions
 export const SESIONES_CAJA_COLLECTION = 'sesiones_caja';
@@ -2353,14 +2378,13 @@ export function subscribeToRepairRecords(
 ) {
   const colRef = collection(db, REPAIR_RECORDS_COLLECTION);
   let taller: RepairRecord[] = [];
-  let listo: RepairRecord[] = [];
   let recent: RepairRecord[] = [];
   let stopped = false;
   const unsubs: Array<() => void> = [];
 
   const emit = () => {
     if (stopped) return;
-    onUpdate(mergeByIdKeep(mergeByIdKeep(recent, taller), listo));
+    onUpdate(mergeByIdKeep(recent, taller));
   };
 
   unsubs.push(
@@ -2372,19 +2396,6 @@ export function subscribeToRepairRecords(
       },
       (err) => {
         console.error('[Firestore] subscribeToRepairRecords en_taller:', err);
-        if (onError) onError(err);
-      }
-    )
-  );
-  unsubs.push(
-    onSnapshot(
-      query(colRef, where('status', '==', 'listo')),
-      (snapshot) => {
-        listo = mapSnapDocs<RepairRecord>(snapshot);
-        emit();
-      },
-      (err) => {
-        console.error('[Firestore] subscribeToRepairRecords listo:', err);
         if (onError) onError(err);
       }
     )

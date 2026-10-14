@@ -320,9 +320,38 @@ export default function Dashboard({
 
   // -----------------------------------------------------------
   // Real-time Firestore Subscriptions
+  // No se piden todas las colecciones al abrir Notas: eso agotaba la cuota.
   // -----------------------------------------------------------
+  const needsCatalog =
+    activeModule === 'pos' ||
+    activeModule === 'inventory' ||
+    activeModule === 'purchases' ||
+    activeModule === 'sales' ||
+    activeModule === 'executive';
+  const needsCajaFeed = activeModule === 'pos' || activeModule === 'sales' || activeModule === 'executive';
+  const needsRepairsFeed =
+    activeModule === 'pos' || activeModule === 'repairs' || activeModule === 'executive' || activeModule === 'sales';
+  const needsAgendaFeed = isAgendaOpen || activeModule === 'credicelDashboard';
+
   useEffect(() => {
-    const unsubProducts = subscribeToProducts(
+    const unsubNotifs = subscribeToNotifications((notifs) => {
+      setNotifications(Array.isArray(notifs) ? notifs : []);
+    });
+    const unsubFunds = subscribeToBranchFunds((funds) => {
+      if (funds && typeof funds === 'object') {
+        setBranchCashFunds((prev) => ({ ...prev, ...funds }));
+      }
+    });
+    void ensureBranchFundsZeroedOnce();
+    return () => {
+      unsubNotifs();
+      unsubFunds();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!needsCatalog) return;
+    return subscribeToProducts(
       (prods) => {
         if (prods && prods.length > 0) {
           cloudProductsRef.current = prods;
@@ -332,7 +361,10 @@ export default function Dashboard({
       },
       () => markCloudDown()
     );
+  }, [needsCatalog]);
 
+  useEffect(() => {
+    if (!needsCajaFeed) return;
     const unsubSales = subscribeToSales(
       (sales) => {
         setSalesTickets((prev) => {
@@ -356,7 +388,6 @@ export default function Dashboard({
       },
       () => markCloudDown()
     );
-
     const unsubExpenses = subscribeToExpenses(
       (exps) => {
         setExpenses((prev) => {
@@ -375,21 +406,6 @@ export default function Dashboard({
       },
       () => markCloudDown()
     );
-
-    const unsubRepairPrices = subscribeToRepairPrices((prices) => {
-      const cloud = prices || [];
-      const result = mergeRepairPriceCatalog(INITIAL_REPAIR_PRICES, cloud);
-      setRepairPrices(result.next);
-      if (!repairPriceSeedRef.current) {
-        const cloudFps = new Set(cloud.map((item) => repairPriceFingerprint(item)));
-        const missing = result.next.filter((item) => !cloudFps.has(repairPriceFingerprint(item)));
-        if (missing.length) {
-          repairPriceSeedRef.current = true;
-          void saveRepairPriceCatalogToFirestore(missing);
-        }
-      }
-    });
-
     const unsubCortes = subscribeToCortesX(
       (cortes) => {
         setCortesX((prev) => {
@@ -409,27 +425,47 @@ export default function Dashboard({
       },
       () => markCloudDown()
     );
+    return () => {
+      unsubSales();
+      unsubExpenses();
+      unsubCortes();
+    };
+  }, [needsCajaFeed]);
 
-    const unsubNotifs = subscribeToNotifications((notifs) => {
-      setNotifications(Array.isArray(notifs) ? notifs : []);
+  useEffect(() => {
+    if (activeModule !== 'pos') return;
+    return subscribeToRepairPrices((prices) => {
+      const cloud = prices || [];
+      const result = mergeRepairPriceCatalog(INITIAL_REPAIR_PRICES, cloud);
+      setRepairPrices(result.next);
+      if (!repairPriceSeedRef.current) {
+        const cloudFps = new Set(cloud.map((item) => repairPriceFingerprint(item)));
+        const missing = result.next.filter((item) => !cloudFps.has(repairPriceFingerprint(item)));
+        if (missing.length) {
+          repairPriceSeedRef.current = true;
+          void saveRepairPriceCatalogToFirestore(missing);
+        }
+      }
     });
+  }, [activeModule]);
 
-    const unsubMovements = subscribeToInventoryMovements((movs) => {
+  useEffect(() => {
+    if (activeModule !== 'inventory') return;
+    return subscribeToInventoryMovements((movs) => {
       setInventoryMovements((prev) => mergeByIdKeep(prev, movs));
       if (movs.length < LIVE_LIMIT.movements) setMovementsHasMore(false);
     });
+  }, [activeModule]);
 
-    const unsubFunds = subscribeToBranchFunds((funds) => {
-      if (funds && typeof funds === 'object') {
-        setBranchCashFunds((prev) => ({ ...prev, ...funds }));
-      }
-    });
-    void ensureBranchFundsZeroedOnce();
-
-    const unsubCredits = subscribeToCreditAccounts((accounts) => {
+  useEffect(() => {
+    if (activeModule !== 'pos' && activeModule !== 'sales') return;
+    return subscribeToCreditAccounts((accounts) => {
       setCreditAccounts(accounts || []);
     });
+  }, [activeModule]);
 
+  useEffect(() => {
+    if (!needsRepairsFeed) return;
     const unsubRepairs = subscribeToRepairRecords(
       (records) => {
         const visible = excludeDeletedRepairs(records, deletedRepairIdsRef.current);
@@ -456,7 +492,6 @@ export default function Dashboard({
         console.warn('[Taller] escucha de reparaciones:', err);
       }
     );
-
     const unsubRepairDeletions = subscribeToRepairDeletions((ids) => {
       mergeDeletedRepairIds(ids);
       const skip = deletedRepairIdsRef.current;
@@ -468,8 +503,15 @@ export default function Dashboard({
         return next;
       });
     });
+    return () => {
+      unsubRepairs();
+      unsubRepairDeletions();
+    };
+  }, [needsRepairsFeed]);
 
-    const unsubAgenda = subscribeToAgendaTasks((rows) => {
+  useEffect(() => {
+    if (!needsAgendaFeed) return;
+    return subscribeToAgendaTasks((rows) => {
       setAgendaTasks((prev) => {
         const fromCloud = keepIfCloudEmpty(rows, prev);
         const next = mergeByIdKeep(prev, fromCloud)
@@ -481,22 +523,7 @@ export default function Dashboard({
         return next;
       });
     });
-
-    return () => {
-      unsubProducts();
-      unsubSales();
-      unsubExpenses();
-      unsubRepairPrices();
-      unsubCortes();
-      unsubNotifs();
-      unsubMovements();
-      unsubFunds();
-      unsubCredits();
-      unsubRepairs();
-      unsubRepairDeletions();
-      unsubAgenda();
-    };
-  }, []);
+  }, [needsAgendaFeed]);
 
   const pullOlderSales = useCallback(async (): Promise<{ added: number; done: boolean }> => {
     const before = oldestTimestamp(salesTicketsRef.current, 'timestamp');
@@ -944,10 +971,11 @@ export default function Dashboard({
   }, [currentBranch.id, currentBranch.name, currentOperator.id, currentOperator.name]);
 
   useEffect(() => {
+    if (activeModule !== 'sales' && activeModule !== 'executive') return;
     return subscribeToAllOpenCashSessions((sessions) => {
       setOpenSessionsByBranch(sessions);
     });
-  }, []);
+  }, [activeModule]);
 
   useEffect(() => {
     if (!activeCashSession?.id || !hasCashTill(currentBranch.id)) return;

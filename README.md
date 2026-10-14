@@ -41,7 +41,7 @@ El objetivo es simple: **no perder ninguna venta del día**, aunque se caiga el 
 3. Un trabajador va subiendo la cola a Firestore: en orden, con reintentos y esperas crecientes.
 4. Nada se borra de la cola hasta que la nube confirma. Reintentar es inofensivo porque cada documento sube con su id fijo.
 
-**Cuota de Firebase (plan gratis):** si se acaban las lecturas del día, el POS **no borra** ventas ni notas. Siguen en esa computadora y en la cola. No se reintenta cada segundo (eso gasta más cuota). Al día siguiente, cuando Firestore se desahoga, se vuelve a enganchar. No borres datos del navegador ni cambies de equipo para “arreglarlo”.
+**Cuota de Firebase (plan gratis):** el plan Spark corta las lecturas al llegar al tope del día. El POS **no borra** ventas ni notas; siguen en esa computadora. **Solución de fondo:** en [Firebase Console](https://console.firebase.google.com/) → proyecto `effective-airline-9gtt6` → **Actualizar a Blaze** (pago por uso). Tres cajas CREDI CEL suelen costar centavos al día; sin eso el corte de cuota se repite. En el POS, al recargar se usa caché en disco y **Notas no pide ventas ni inventario** hasta abrir esos módulos. No borres datos del navegador.
 
 **Orden de los datos.** La cola respeta el orden **por sucursal**: si un ticket de Navojoa no sube, su corte espera. Nunca se guarda un corte sin sus ventas. Huatabampo sigue subiendo aparte, sin trabarse.
 
