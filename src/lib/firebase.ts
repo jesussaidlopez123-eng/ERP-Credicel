@@ -61,6 +61,7 @@ import { registerOutboxExecutor } from './outbox';
 import { mergeByIdKeep } from './listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from './queryLimits';
 import { listenSnapshotWithRetry } from './firestoreListen';
+import { cashDayQueryBounds, docBelongsToOpenShift } from './shiftDocs';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -530,6 +531,34 @@ async function queryDocsByField<T extends { id: string }>(
   }
 }
 
+async function queryDocsByTimestampRange<T extends { id: string }>(
+  collectionName: string,
+  start: string,
+  end: string
+): Promise<T[]> {
+  try {
+    const qRange = query(
+      collection(db, collectionName),
+      where('timestamp', '>=', start),
+      where('timestamp', '<', end)
+    );
+    const snap = await getDocs(qRange);
+    return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+  } catch (err) {
+    console.warn(`[Firestore] query ${collectionName} por día falló:`, err);
+    return [];
+  }
+}
+
+async function readOpenSessionId(branchId: string): Promise<string> {
+  try {
+    const snap = await getDoc(doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normalizeBranchId(branchId)));
+    return String(snap.data()?.openSessionId || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Tickets y gastos reales de este turno (todos los equipos), no solo lo que ve una pantalla.
  */
@@ -540,28 +569,37 @@ export async function loadUnclosedDocsForSession(
   localExpenses: Expense[] = []
 ): Promise<{ tickets: SaleTicket[]; expenses: Expense[] }> {
   const normBId = normalizeBranchId(branchId);
-  const [salesA, salesB, expA, expB] = await Promise.all([
+  let dateKey = getHermosilloClock().dateKey;
+  try {
+    const ses = await getDoc(doc(db, SESIONES_CAJA_COLLECTION, sessionId));
+    const opened = hermosilloDateKey((ses.data() as SesionCaja | undefined)?.fecha_apertura);
+    if (opened) dateKey = opened;
+  } catch {
+    // se usa el día de caja actual
+  }
+  const bounds = cashDayQueryBounds(dateKey);
+  const sessionFilter = { id: sessionId, branchId: normBId, dateKey };
+
+  const [salesA, salesB, expA, expB, dayVentas, daySales, dayGastos, dayExpenses] = await Promise.all([
     queryDocsBySession<SaleTicket>(SALES_COLLECTION, sessionId),
     queryDocsBySession<SaleTicket>(VENTAS_COLLECTION, sessionId),
     queryDocsBySession<Expense>(EXPENSES_COLLECTION, sessionId),
-    queryDocsBySession<Expense>(GASTOS_COLLECTION, sessionId)
+    queryDocsBySession<Expense>(GASTOS_COLLECTION, sessionId),
+    queryDocsByTimestampRange<SaleTicket>(VENTAS_COLLECTION, bounds.start, bounds.end),
+    queryDocsByTimestampRange<SaleTicket>(SALES_COLLECTION, bounds.start, bounds.end),
+    queryDocsByTimestampRange<Expense>(GASTOS_COLLECTION, bounds.start, bounds.end),
+    queryDocsByTimestampRange<Expense>(EXPENSES_COLLECTION, bounds.start, bounds.end)
   ]);
 
-  const tickets = mergeById(mergeById(salesA, salesB), localTickets).filter((t) => {
-    const b = normalizeBranchId(t.branchId || t.sucursal_id || '');
-    if (b && b !== normBId) return false;
-    if (t.corteXId && t.corteXId !== sessionId) return false;
-    if (t.sesion_caja_id && t.sesion_caja_id !== sessionId) return false;
-    return true;
-  });
+  const tickets = mergeById(
+    mergeById(mergeById(mergeById(salesA, salesB), dayVentas), daySales),
+    localTickets
+  ).filter((t) => docBelongsToOpenShift(t, sessionFilter));
 
-  const expenses = mergeById(mergeById(expA, expB), localExpenses).filter((e) => {
-    const b = normalizeBranchId(e.branchId || e.sucursal_id || '');
-    if (b && b !== normBId) return false;
-    if (e.corteXId && e.corteXId !== sessionId) return false;
-    if (e.sesion_caja_id && e.sesion_caja_id !== sessionId) return false;
-    return true;
-  });
+  const expenses = mergeById(
+    mergeById(mergeById(mergeById(expA, expB), dayGastos), dayExpenses),
+    localExpenses
+  ).filter((e) => docBelongsToOpenShift(e, sessionFilter));
 
   return { tickets, expenses };
 }
@@ -1539,10 +1577,15 @@ export async function allocateSaleFolio(branchId: string): Promise<string> {
 export async function saveSaleTicketToFirestore(ticket: SaleTicket) {
   try {
     const normBId = normalizeBranchId(ticket.branchId || ticket.sucursal_id);
+    let sessionId = String(ticket.sesion_caja_id || '').trim();
+    if (!sessionId && !ticket.corteXId) {
+      sessionId = await readOpenSessionId(normBId);
+    }
     const enrichedTicket: SaleTicket = {
       ...ticket,
       branchId: normBId,
       sucursal_id: normBId,
+      sesion_caja_id: sessionId || ticket.sesion_caja_id,
       estado: ticket.estado || 'COMPLETADA'
     };
 
@@ -1591,11 +1634,16 @@ export async function fetchOlderExpenses(beforeTimestamp: string, pageSize = HIS
 export async function saveExpenseToFirestore(expense: Expense) {
   try {
     const normBId = normalizeBranchId(expense.branchId || expense.sucursal_id);
+    let sessionId = String(expense.sesion_caja_id || '').trim();
+    if (!sessionId && !expense.corteXId) {
+      sessionId = await readOpenSessionId(normBId);
+    }
     const enrichedExpense: Expense = {
       ...expense,
       amount: money(Number(expense.amount) || 0),
       branchId: normBId,
-      sucursal_id: normBId
+      sucursal_id: normBId,
+      sesion_caja_id: sessionId || expense.sesion_caja_id
     };
 
     const cleanData = cleanForFirestore(enrichedExpense);
