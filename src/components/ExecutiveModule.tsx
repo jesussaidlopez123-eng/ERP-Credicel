@@ -902,6 +902,13 @@ export default function ExecutiveModule({
         <div className="flex items-end justify-between gap-3 mb-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Semanas</h2>
+            {linePeriod !== 'rango' && (
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {linePeriod === 'semana'
+                  ? 'La línea de arriba muestra los 7 días de la semana elegida.'
+                  : 'La línea de arriba muestra el mes de la semana elegida.'}
+              </p>
+            )}
           </div>
         </div>
         {weeks.length === 0 ? (
