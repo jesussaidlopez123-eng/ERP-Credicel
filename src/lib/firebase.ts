@@ -57,6 +57,7 @@ import {
 import { registerOutboxExecutor } from './outbox';
 import { mergeByIdKeep } from './listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from './queryLimits';
+import { listenSnapshotWithRetry } from './firestoreListen';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -1299,8 +1300,8 @@ export function subscribeToProducts(
 ) {
   const productsCol = collection(db, PRODUCTS_COLLECTION);
 
-  return onSnapshot(
-    productsCol,
+  return listenSnapshotWithRetry<QuerySnapshot>(
+    (onNext, onListenError) => onSnapshot(productsCol, onNext, onListenError),
     (snapshot) => {
       if (snapshot.empty) {
         console.warn(
@@ -1315,7 +1316,7 @@ export function subscribeToProducts(
       onProductsUpdate(loaded);
     },
     (err) => {
-      console.error('[Firestore] subscribeToProducts error:', err);
+      console.warn('[Firestore] subscribeToProducts error:', err);
       if (onError) onError(err);
     }
   );

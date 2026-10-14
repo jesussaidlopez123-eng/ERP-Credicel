@@ -285,18 +285,23 @@ export default function Dashboard({
   agendaTasksRef.current = agendaTasks;
   productsRef.current = products;
 
-  const CLOUD_DOWN_MESSAGE =
+  const LEGACY_CLOUD_DOWN_MESSAGE =
     'No hay conexión con la nube en este momento. El catálogo y las ventas de este equipo no se borraron. El corte se puede guardar aquí y se sube cuando vuelva la conexión.';
 
+  /** Un fallo de escucha no debe tapar caja con la franja roja: el catálogo y las ventas siguen en este equipo. */
   const markCloudDown = (message?: string) => {
     setCloudSynced(false);
-    setSessionError(message || CLOUD_DOWN_MESSAGE);
+    if (message) setSessionError(message);
   };
 
   const markCloudUp = () => {
     setCloudSynced(true);
-    setSessionError((prev) => (prev === CLOUD_DOWN_MESSAGE ? null : prev));
+    setSessionError((prev) => (prev === LEGACY_CLOUD_DOWN_MESSAGE ? null : prev));
   };
+
+  useEffect(() => {
+    setSessionError((prev) => (prev === LEGACY_CLOUD_DOWN_MESSAGE ? null : prev));
+  }, []);
 
   const publishCatalogFromCloud = (cloud: Product[]) => {
     const byId = new Map(cloud.map((p) => [p.id, p]));
