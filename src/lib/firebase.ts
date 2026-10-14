@@ -1626,19 +1626,19 @@ export function subscribeToOperators(
   onError?: (err: any) => void
 ) {
   const opCol = collection(db, OPERATORS_COLLECTION);
-  return onSnapshot(
-    opCol,
+  return listenSnapshotWithRetry<QuerySnapshot>(
+    (onNext, onListenError) => onSnapshot(opCol, onNext, onListenError),
     (snapshot) => {
       if (snapshot.empty) {
-        console.warn('[Firestore] La colección operators está vacía. No se siembran usuarios de demo.');
+        console.warn('[Firestore] La colección operators está vacía. Se conservan los usuarios de esta caja.');
         onOperatorsUpdate([]);
-      } else {
-        const loaded: Operator[] = [];
-        snapshot.forEach((d) => {
-          loaded.push({ ...(d.data() as Operator), id: d.id });
-        });
-        onOperatorsUpdate(loaded);
+        return;
       }
+      const loaded: Operator[] = [];
+      snapshot.forEach((d) => {
+        loaded.push({ ...(d.data() as Operator), id: d.id });
+      });
+      onOperatorsUpdate(loaded);
     },
     (err) => {
       console.error('[Firestore] subscribeToOperators error:', err);
@@ -1660,7 +1660,7 @@ export async function saveOperatorToFirestore(operator: Operator) {
 export async function deleteOperatorFromFirestore(operatorId: string) {
   try {
     const docRef = doc(db, OPERATORS_COLLECTION, operatorId);
-    await deleteDoc(docRef);
+    await setDoc(docRef, { removedAt: new Date().toISOString() }, { merge: true });
   } catch (err) {
     console.error('[Firestore] Error deleting operator:', err);
     throw err;

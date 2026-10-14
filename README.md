@@ -53,6 +53,7 @@ El objetivo es simple: **no perder ninguna venta del día**, aunque se caiga el 
 
 - **Reloj:** si la fecha de la computadora se atrasa, el sistema usa la última hora buena y avisa. Un equipo mal configurado no manda ventas al día equivocado.
 - **La nube vacía no borra la pantalla:** si Firestore no responde, se conserva lo del equipo.
+- **Usuarios:** la nube no sustituye la lista de la caja. Cada equipo reescribe en Firestore a los operadores que todavía tiene.
 - **Cortes:** el sistema ya no borra cortes guardados; si hay que revertir uno, se marca como `reverted`.
 - **Navegador sin IndexedDB:** cae a un modo reducido y avisa que conviene subir el día antes de cerrar.
 
@@ -72,7 +73,7 @@ npm run dev
 
 La app queda en `http://127.0.0.1:43127`.
 
-Los operadores y contraseñas viven en **Usuarios** (Firestore). No hay usuarios de demostración en producción.
+Los operadores y contraseñas viven en **Usuarios** (Firestore) y también en cada caja. Si la nube vuelve incompleta (cuota o un recorte), **esa computadora no borra a nadie del inicio de sesión**: junta la lista local con la de Firestore y **vuelve a subir** a quien le falte. No borres datos del navegador: ahí está el respaldo de usuarios de esa tienda. Un alta de baja hecha por el admin queda marcada y no se resucita sola. No hay usuarios de demostración en producción.
 
 Roles: **Administrador** (todo el menú), **Encargado** (notas, punto de venta, inventario, ventas y cortes) y **Cajero** (solo punto de venta). Un administrador puede **cambiar la sucursal** de un usuario y **marcar a qué módulos entra**. Si no se eligen módulos, se usan los del rol. Usuarios queda solo para administradores. Si el usuario tiene más de una sucursal, la elige al iniciar sesión.
 

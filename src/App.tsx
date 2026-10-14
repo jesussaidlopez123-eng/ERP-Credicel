@@ -8,6 +8,11 @@ import { ALL_BRANCHES, hasCashTill } from './data/initialBranches';
 import { resolveOperatorWorkspace } from './lib/roles';
 import { subscribeToOperators, saveOperatorToFirestore, deleteOperatorFromFirestore } from './lib/firebase';
 import { getHermosilloClock } from './lib/shiftHours';
+import {
+  mergeOperatorLists,
+  operatorsNeedPersist,
+  visibleOperators
+} from './lib/operatorsSync';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const SESSION_STORAGE_KEY = 'erp_auth_session_v1';
@@ -54,6 +59,9 @@ export default function App() {
   currentOperatorRef.current = currentOperator;
   const currentBranchRef = useRef<Branch | null>(currentBranch);
   currentBranchRef.current = currentBranch;
+  const operatorsRef = useRef<Operator[]>(operators);
+  operatorsRef.current = operators;
+  const restoredOperatorIdsRef = useRef<Set<string>>(new Set());
 
   const persistSession = (operator: Operator, branch: Branch) => {
     setCurrentOperator(operator);
@@ -72,20 +80,38 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = subscribeToOperators((firestoreOps) => {
-      if (firestoreOps && firestoreOps.length > 0) {
-        setOperators(firestoreOps);
-        saveStoredOperators(firestoreOps);
+      const local = operatorsRef.current;
+      const session = currentOperatorRef.current;
+      const { merged, missingInCloud } = mergeOperatorLists(
+        local,
+        Array.isArray(firestoreOps) ? firestoreOps : [],
+        session
+      );
 
-        const current = currentOperatorRef.current;
-        if (current) {
-          const matched = firestoreOps.find((o) => o.id === current.id);
-          if (matched) {
-            persistSession(
-              matched,
-              resolveOperatorWorkspace(matched, currentBranchRef.current, ALL_BRANCHES)
-            );
-          }
+      if (operatorsNeedPersist(local, merged)) {
+        operatorsRef.current = merged;
+        setOperators(merged);
+        saveStoredOperators(merged);
+      }
+
+      const current = currentOperatorRef.current;
+      if (current) {
+        const matched = merged.find((o) => o.id === current.id);
+        if (matched && !matched.removedAt && operatorsNeedPersist([current], [matched])) {
+          persistSession(
+            matched,
+            resolveOperatorWorkspace(matched, currentBranchRef.current, ALL_BRANCHES)
+          );
         }
+      }
+
+      for (const op of missingInCloud) {
+        if (restoredOperatorIdsRef.current.has(op.id)) continue;
+        restoredOperatorIdsRef.current.add(op.id);
+        saveOperatorToFirestore(op).catch((err) => {
+          restoredOperatorIdsRef.current.delete(op.id);
+          console.error(`[Firestore] No se pudo restaurar el usuario ${op.username}:`, err);
+        });
       }
     });
     return () => unsubscribe();
@@ -213,11 +239,13 @@ export default function App() {
     }
   };
 
+  const loginOperators = visibleOperators(operators);
+
   if (!isAuthenticated || !currentBranch || !currentOperator) {
     return (
       <Login 
         onLogin={handleLogin}
-        operators={operators.length > 0 ? operators : INITIAL_OPERATORS}
+        operators={loginOperators.length > 0 ? loginOperators : INITIAL_OPERATORS}
         branches={ALL_BRANCHES}
       />
     );
@@ -229,7 +257,7 @@ export default function App() {
         <Dashboard 
           currentBranch={currentBranch}
           currentOperator={currentOperator}
-          operators={operators}
+          operators={loginOperators}
           onUpdateOperators={handleUpdateOperators}
           onLogout={handleLogout}
         />

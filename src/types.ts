@@ -16,6 +16,8 @@ export interface Operator {
   moduleIds?: ModuleId[];
   isMainAdmin?: boolean;
   createdAt?: string;
+  /** Si tiene fecha, el usuario se dio de baja y no debe entrar ni resubirse. */
+  removedAt?: string;
 }
 
 export type NoticeUrgency = 'normal' | 'urgente';
