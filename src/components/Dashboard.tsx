@@ -347,6 +347,7 @@ export default function Dashboard({
         if (cloudProductsRef.current.length > 0) {
           publishCatalogFromCloud(cloudProductsRef.current);
         }
+        markCloudUp();
       },
       () => markCloudDown()
     );
@@ -365,6 +366,7 @@ export default function Dashboard({
           expensesHasMoreRef.current = false;
           setExpensesHasMore(false);
         }
+        markCloudUp();
       },
       () => markCloudDown()
     );
@@ -398,6 +400,7 @@ export default function Dashboard({
           setCortesHasMore(false);
         }
         setLiveHistoryReady(true);
+        markCloudUp();
       },
       () => markCloudDown()
     );
@@ -444,7 +447,9 @@ export default function Dashboard({
           return next;
         });
       },
-      () => markCloudDown()
+      (err) => {
+        console.warn('[Taller] escucha de reparaciones:', err);
+      }
     );
 
     const unsubRepairDeletions = subscribeToRepairDeletions((ids) => {
@@ -459,21 +464,18 @@ export default function Dashboard({
       });
     });
 
-    const unsubAgenda = subscribeToAgendaTasks(
-      (rows) => {
-        setAgendaTasks((prev) => {
-          const fromCloud = keepIfCloudEmpty(rows, prev);
-          const next = mergeByIdKeep(prev, fromCloud)
-            .map((row) => normalizeAgendaTask(row))
-            .filter((row): row is AgendaTask => Boolean(row))
-            .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.createdAt.localeCompare(b.createdAt));
-          agendaTasksRef.current = next;
-          scheduleSaveCachedList('agenda', next);
-          return next;
-        });
-      },
-      () => markCloudDown()
-    );
+    const unsubAgenda = subscribeToAgendaTasks((rows) => {
+      setAgendaTasks((prev) => {
+        const fromCloud = keepIfCloudEmpty(rows, prev);
+        const next = mergeByIdKeep(prev, fromCloud)
+          .map((row) => normalizeAgendaTask(row))
+          .filter((row): row is AgendaTask => Boolean(row))
+          .sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.createdAt.localeCompare(b.createdAt));
+        agendaTasksRef.current = next;
+        scheduleSaveCachedList('agenda', next);
+        return next;
+      });
+    });
 
     return () => {
       unsubProducts();

@@ -5,11 +5,13 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  setDoc
+  setDoc,
+  type QuerySnapshot
 } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 import { CredicelDashAttachment, CredicelDashDoc } from '../types';
 import { cleanForFirestore, db } from './firebase';
+import { listenSnapshotWithRetry } from './firestoreListen';
 import {
   dashDocForCloud,
   deleteDashFile,
@@ -35,8 +37,8 @@ export function subscribeToCredicelDashDocs(
   onError?: (err: unknown) => void
 ) {
   const col = collection(db, CREDICEL_DASH_COLLECTION);
-  return onSnapshot(
-    col,
+  return listenSnapshotWithRetry<QuerySnapshot>(
+    (onNext, onListenError) => onSnapshot(col, onNext, onListenError),
     (snapshot) => {
       const loaded = snapshot.docs
         .map((d) => normalizeDashDoc({ ...(d.data() as CredicelDashDoc), id: d.id }))
@@ -45,7 +47,7 @@ export function subscribeToCredicelDashDocs(
       onUpdate(loaded);
     },
     (err) => {
-      console.error('[Firestore] CREDICEL Dashboard:', err);
+      console.warn('[Firestore] CREDICEL Dashboard:', err);
       if (onError) onError(err);
     }
   );

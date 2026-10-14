@@ -359,7 +359,7 @@ export default function CredicelDashboardModule({
         setLoading(false);
       },
       () => {
-        setCloudError('La nube no respondió. Los documentos de este equipo siguen disponibles.');
+        setCloudError('No se pudieron actualizar las notas en la nube. Las de este equipo siguen aquí.');
         setLoading(false);
       }
     );

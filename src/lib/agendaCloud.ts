@@ -1,7 +1,8 @@
-import { collection, deleteDoc, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, onSnapshot, setDoc, type QuerySnapshot } from 'firebase/firestore';
 import { AgendaTask } from '../types';
 import { cleanForFirestore, db } from './firebase';
 import { normalizeAgendaTask } from './agenda';
+import { listenSnapshotWithRetry } from './firestoreListen';
 
 export const AGENDA_COLLECTION = 'agendaTasks';
 
@@ -10,8 +11,8 @@ export function subscribeToAgendaTasks(
   onError?: (err: unknown) => void
 ) {
   const col = collection(db, AGENDA_COLLECTION);
-  return onSnapshot(
-    col,
+  return listenSnapshotWithRetry<QuerySnapshot>(
+    (onNext, onListenError) => onSnapshot(col, onNext, onListenError),
     (snapshot) => {
       const loaded = snapshot.docs
         .map((d) => normalizeAgendaTask({ ...(d.data() as AgendaTask), id: d.id }))
@@ -20,7 +21,7 @@ export function subscribeToAgendaTasks(
       onUpdate(loaded);
     },
     (err) => {
-      console.error('[Firestore] agendaTasks:', err);
+      console.warn('[Firestore] agendaTasks:', err);
       if (onError) onError(err);
     }
   );
