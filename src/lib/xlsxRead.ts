@@ -138,6 +138,12 @@ export function parseDelimitedText(text: string): string[][] {
     : (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length
       ? ';'
       : ',';
+  if (delimiter === '\t') {
+    return raw
+      .split(/\r?\n/)
+      .map((line) => line.split('\t').map((cell) => cell.trim()))
+      .filter((row) => row.some((cell) => cell));
+  }
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';

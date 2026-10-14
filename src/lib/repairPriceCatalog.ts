@@ -15,6 +15,9 @@ const PRICE_HEADERS = new Set([
   'preciopantalla',
   'preciolcd',
   'preciooled',
+  'precioventa',
+  'precioventax27',
+  'preciodeventa',
   'lcd',
   'oled',
   'original',
@@ -28,7 +31,8 @@ const MODEL_HEADERS = new Set([
   'pantalla',
   'dispositivo',
   'referencia',
-  'nombre'
+  'nombre',
+  'producto'
 ]);
 const BRAND_HEADERS = new Set(['marca', 'brand']);
 const SERVICE_HEADERS = new Set([
@@ -61,6 +65,17 @@ export function repairPriceFingerprint(
   return normalizeRepairPriceQuery(`${item.brand || ''} ${item.model || ''} ${item.serviceName || ''}`);
 }
 
+export function stableRepairPriceId(fp: string): string {
+  const key = String(fp || '').trim() || 'item';
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const slug = key.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 56);
+  return `pant-${(hash >>> 0).toString(36)}-${slug}`.slice(0, 120);
+}
+
 export function parseRepairPriceAmount(raw: unknown): number | null {
   let s = String(raw ?? '').trim();
   if (!s) return null;
@@ -81,18 +96,35 @@ export function parseRepairPriceAmount(raw: unknown): number | null {
 export function inferRepairBrand(model: string, brand = ''): string {
   const given = String(brand || '').trim();
   if (given) return given;
-  const hay = normalizeRepairPriceQuery(model);
-  if (hay.includes('iphone') || hay.includes('ipad') || hay.startsWith('apple')) return 'Apple';
-  if (hay.includes('galaxy') || hay.includes('samsung')) return 'Samsung';
-  if (hay.includes('moto') || hay.includes('motorola')) return 'Motorola';
-  if (hay.includes('redmi') || hay.includes('poco') || hay.includes('xiaomi')) return 'Xiaomi';
-  if (hay.includes('huawei')) return 'Huawei';
-  if (hay.includes('honor')) return 'Honor';
-  if (hay.includes('oppo')) return 'Oppo';
-  if (hay.includes('realme')) return 'Realme';
-  if (hay.includes('nokia')) return 'Nokia';
-  if (hay.includes('zte')) return 'ZTE';
-  if (hay.includes('lg ')) return 'LG';
+  const hay = ` ${normalizeRepairPriceQuery(model)} `;
+  if (hay.includes(' iphone ') || hay.includes(' ipad ') || hay.includes(' apple ')) return 'Apple';
+  if (hay.includes(' samsung ') || hay.includes(' galaxy ') || / sam [a-z0-9]/.test(hay) || hay.includes(' sam note ') || hay.includes(' sam s')) {
+    return 'Samsung';
+  }
+  if (hay.includes(' motorola ') || hay.includes(' moto ')) return 'Motorola';
+  if (
+    hay.includes(' xiaomi ') ||
+    hay.includes(' xiao ') ||
+    hay.includes(' redmi ') ||
+    hay.includes(' poco ')
+  ) {
+    return 'Xiaomi';
+  }
+  if (hay.includes(' honor ')) return 'Honor';
+  if (hay.includes(' huawei ')) return 'Huawei';
+  if (hay.includes(' google ') || hay.includes(' pixel ')) return 'Google';
+  if (hay.includes(' cubot ')) return 'Cubot';
+  if (hay.includes(' hisense ')) return 'Hisense';
+  if (hay.includes(' oneplus ') || hay.includes(' one plus ')) return 'OnePlus';
+  if (hay.includes(' oppo ')) return 'Oppo';
+  if (hay.includes(' realme ')) return 'Realme';
+  if (hay.includes(' vivo ')) return 'Vivo';
+  if (hay.includes(' nokia ')) return 'Nokia';
+  if (hay.includes(' zte ') || hay.includes(' nubia ') || hay.includes(' axon ') || hay.includes(' vsmart ')) {
+    return 'ZTE';
+  }
+  if (hay.includes(' lg ')) return 'LG';
+  if (hay.includes(' blue ')) return 'Blue';
   return 'Multimarca';
 }
 
@@ -123,7 +155,9 @@ function mapHeaders(row: string[]): Record<string, number> {
     else if (MODEL_HEADERS.has(key)) map.model = idx;
     else if (SERVICE_HEADERS.has(key)) map.service = idx;
     else if (CATEGORY_HEADERS.has(key)) map.category = idx;
-    else if (PRICE_HEADERS.has(key)) map.price = idx;
+    else if (PRICE_HEADERS.has(key) || key.startsWith('precioventa') || (key.startsWith('precio') && key.includes('venta'))) {
+      map.price = idx;
+    }
   });
   return map;
 }
@@ -178,12 +212,19 @@ export function repairPricesFromTable(rows: string[][]): RepairPriceItem[] {
       category,
       price
     };
-    const fp = repairPriceFingerprint(item);
+    let fp = repairPriceFingerprint(item);
     if (!fp) continue;
     const prev = seen.get(fp);
+    if (prev && prev.price !== price) {
+      item.serviceName = `${item.serviceName} · $${price.toFixed(2)}`;
+      fp = repairPriceFingerprint(item);
+    } else if (prev) {
+      seen.set(fp, { ...item, id: prev.id });
+      continue;
+    }
     seen.set(fp, {
       ...item,
-      id: prev?.id || `rep-price-${fp.replace(/\s+/g, '-').slice(0, 48)}`
+      id: stableRepairPriceId(fp)
     });
   }
   return [...seen.values()];
@@ -223,17 +264,20 @@ export function mergeRepairPriceCatalog(
   return { next: [...byFp.values()], added, updated };
 }
 
-export function searchRepairPrices(prices: RepairPriceItem[], query: string, limit = 12): RepairPriceItem[] {
+export function searchRepairPrices(prices: RepairPriceItem[], query: string, limit = 20): RepairPriceItem[] {
   const q = normalizeRepairPriceQuery(query);
   const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  if (!tokens.length) return [];
   const ranked = (prices || [])
     .map((item) => {
       const hay = repairPriceHaystack(item);
-      if (tokens.length && !tokens.every((token) => hay.includes(token))) return null;
+      if (!tokens.every((token) => hay.includes(token))) return null;
       const model = normalizeRepairPriceQuery(item.model);
-      const starts = q && model.startsWith(q) ? 2 : 0;
+      const phrase = hay.includes(q) ? 6 : 0;
+      const starts = model.startsWith(q) ? 4 : model.includes(` ${q} `) || model.includes(q) ? 2 : 0;
+      const tight = Math.max(0, 8 - Math.abs(model.length - q.length) / 6);
       const pant = String(item.category || '').toLowerCase() === 'pantalla' ? 1 : 0;
-      return { item, score: starts + pant };
+      return { item, score: phrase + starts + tight + pant };
     })
     .filter((row): row is { item: RepairPriceItem; score: number } => Boolean(row))
     .sort((a, b) => b.score - a.score || a.item.model.localeCompare(b.item.model, 'es'));

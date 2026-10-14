@@ -1654,15 +1654,14 @@ export function subscribeToRepairPrices(
     col,
     (snapshot) => {
       if (snapshot.empty) {
-        console.warn('[Firestore] La colección repairPrices está vacía. No se siembra el catálogo de demo.');
         onPricesUpdate([]);
-      } else {
-        const loaded: RepairPriceItem[] = [];
-        snapshot.forEach((d) => {
-          loaded.push({ ...(d.data() as RepairPriceItem), id: d.id });
-        });
-        onPricesUpdate(loaded);
+        return;
       }
+      const loaded: RepairPriceItem[] = [];
+      snapshot.forEach((d) => {
+        loaded.push({ ...(d.data() as RepairPriceItem), id: d.id });
+      });
+      onPricesUpdate(loaded);
     },
     (err) => {
       console.error('[Firestore] subscribeToRepairPrices error:', err);
@@ -1678,6 +1677,14 @@ export async function saveRepairPriceToFirestore(item: RepairPriceItem) {
   } catch (err) {
     console.error('[Firestore] Error saving repair price:', err);
     throw err;
+  }
+}
+
+export async function saveRepairPriceCatalogToFirestore(items: RepairPriceItem[]): Promise<void> {
+  const chunkSize = 40;
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    await Promise.all(chunk.map((item) => saveRepairPriceToFirestore(item)));
   }
 }
 

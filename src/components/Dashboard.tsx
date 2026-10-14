@@ -16,6 +16,7 @@ import {
   subscribeToExpenses,
   subscribeToRepairPrices,
   saveRepairPriceToFirestore,
+  saveRepairPriceCatalogToFirestore,
   deleteRepairPriceFromFirestore,
   subscribeToNotifications,
   saveNotificationToFirestore,
@@ -234,6 +235,7 @@ export default function Dashboard({
   const saleInFlightIdsRef = useRef(new Set<string>());
   const loggedInAtRef = useRef(Date.now());
   const nightCloseRanRef = useRef(false);
+  const repairPriceSeedRef = useRef(false);
   const salesTicketsRef = useRef(salesTickets);
   const expensesRef = useRef(expenses);
   const cortesRef = useRef(cortesX);
@@ -348,8 +350,16 @@ export default function Dashboard({
     );
 
     const unsubRepairPrices = subscribeToRepairPrices((prices) => {
-      if (prices && prices.length > 0) {
-        setRepairPrices(prices);
+      const cloud = prices || [];
+      const result = mergeRepairPriceCatalog(INITIAL_REPAIR_PRICES, cloud);
+      setRepairPrices(result.next);
+      if (!repairPriceSeedRef.current) {
+        const cloudFps = new Set(cloud.map((item) => repairPriceFingerprint(item)));
+        const missing = result.next.filter((item) => !cloudFps.has(repairPriceFingerprint(item)));
+        if (missing.length) {
+          repairPriceSeedRef.current = true;
+          void saveRepairPriceCatalogToFirestore(missing);
+        }
       }
     });
 
@@ -1047,13 +1057,8 @@ export default function Dashboard({
     const result = mergeRepairPriceCatalog(repairPrices, incoming);
     setRepairPrices(result.next);
     const imported = new Set(incoming.map((item) => repairPriceFingerprint(item)));
-    await Promise.all(
-      result.next
-        .filter((item) => imported.has(repairPriceFingerprint(item)))
-        .map((item) =>
-          saveRepairPriceToFirestore(item).catch((err) => console.error('Error importing repair price:', err))
-        )
-    );
+    const toSave = result.next.filter((item) => imported.has(repairPriceFingerprint(item)));
+    await saveRepairPriceCatalogToFirestore(toSave);
   };
 
   // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)

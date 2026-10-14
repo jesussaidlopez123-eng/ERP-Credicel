@@ -16,7 +16,7 @@ export default function RepairPriceSearch({
   prices,
   selectedId,
   onSelect,
-  placeholder = 'Buscar modelo o pantalla…'
+  placeholder = 'Escribe el modelo (iPhone 11, A54, G54…)'
 }: RepairPriceSearchProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -25,7 +25,7 @@ export default function RepairPriceSearch({
   const debounced = useDebouncedValue(query, 80);
 
   const selected = useMemo(() => prices.find((item) => item.id === selectedId), [prices, selectedId]);
-  const rows = useMemo(() => searchRepairPrices(prices, debounced, 14), [prices, debounced]);
+  const rows = useMemo(() => searchRepairPrices(prices, debounced, 20), [prices, debounced]);
 
   useEffect(() => {
     if (!open) return;
@@ -96,7 +96,11 @@ export default function RepairPriceSearch({
           className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg"
         >
           {rows.length === 0 ? (
-            <li className="px-3 py-2.5 text-xs text-slate-500">Ningún modelo coincide con “{query}”.</li>
+            <li className="px-3 py-2.5 text-xs text-slate-500">
+              {query.trim()
+                ? `Ningún modelo coincide con “${query}”.`
+                : 'Escribe marca o modelo para ver el precio de esa pantalla.'}
+            </li>
           ) : (
             rows.map((item, idx) => (
               <li key={item.id} role="option" aria-selected={item.id === selectedId}>
