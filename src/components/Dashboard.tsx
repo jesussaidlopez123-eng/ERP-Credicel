@@ -75,6 +75,7 @@ import {
 } from '../lib/historyWindow';
 import { money, newUniqueId } from '../lib/ids';
 import { persistLocalBranchFund, resolveOpeningCashFund } from '../lib/cashFund';
+import { mergeRepairPriceCatalog, repairPriceFingerprint } from '../lib/repairPriceCatalog';
 import {
   canOpenNewCashSession,
   getHermosilloClock,
@@ -1040,6 +1041,19 @@ export default function Dashboard({
   const handleDeleteRepairPrice = (id: string) => {
     setRepairPrices((prev) => prev.filter((p) => p.id !== id));
     deleteRepairPriceFromFirestore(id).catch((err) => console.error('Error deleting repair price:', err));
+  };
+
+  const handleImportRepairPrices = async (incoming: RepairPriceItem[]) => {
+    const result = mergeRepairPriceCatalog(repairPrices, incoming);
+    setRepairPrices(result.next);
+    const imported = new Set(incoming.map((item) => repairPriceFingerprint(item)));
+    await Promise.all(
+      result.next
+        .filter((item) => imported.has(repairPriceFingerprint(item)))
+        .map((item) =>
+          saveRepairPriceToFirestore(item).catch((err) => console.error('Error importing repair price:', err))
+        )
+    );
   };
 
   // Complete Sale Handler (Deducts stock & records ticket with strict IMEI removal, inventory movement log and Firestore Sync)
@@ -2150,6 +2164,7 @@ export default function Dashboard({
   const stableAddRepairPrice = useStableCallback(handleAddRepairPrice);
   const stableUpdateRepairPrice = useStableCallback(handleUpdateRepairPrice);
   const stableDeleteRepairPrice = useStableCallback(handleDeleteRepairPrice);
+  const stableImportRepairPrices = useStableCallback(handleImportRepairPrices);
   const stableAddRepairRecord = useStableCallback(handleAddRepairRecord);
   const stableUpdateRepairRecord = useStableCallback(handleUpdateRepairRecord);
   const stableCancelRepairRecord = useStableCallback(handleCancelRepairRecord);
@@ -2195,6 +2210,7 @@ export default function Dashboard({
             onAddRepairPrice={stableAddRepairPrice}
             onUpdateRepairPrice={stableUpdateRepairPrice}
             onDeleteRepairPrice={stableDeleteRepairPrice}
+            onImportRepairPrices={stableImportRepairPrices}
             isRepairPriceCatalogOpen={isRepairPriceCatalogOpen}
             setIsRepairPriceCatalogOpen={setIsRepairPriceCatalogOpen}
             cortesX={cortesX}
@@ -2502,6 +2518,7 @@ export default function Dashboard({
           onAddRepairPrice={stableAddRepairPrice}
           onUpdateRepairPrice={stableUpdateRepairPrice}
           onDeleteRepairPrice={stableDeleteRepairPrice}
+          onImportRepairPrices={stableImportRepairPrices}
         />
       </LazyWhen>
 

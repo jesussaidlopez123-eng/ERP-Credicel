@@ -65,6 +65,7 @@ interface PosModuleProps {
   onAddRepairPrice?: (item: RepairPriceItem) => void;
   onUpdateRepairPrice?: (item: RepairPriceItem) => void;
   onDeleteRepairPrice?: (id: string) => void;
+  onImportRepairPrices?: (items: RepairPriceItem[]) => void | Promise<void>;
   isRepairPriceCatalogOpen?: boolean;
   setIsRepairPriceCatalogOpen?: (open: boolean) => void;
   onFinalizeCorteX?: (corteRecord: CorteXRecord) => void;
@@ -99,6 +100,7 @@ function PosModule({
   onAddRepairPrice = () => {},
   onUpdateRepairPrice = () => {},
   onDeleteRepairPrice = () => {},
+  onImportRepairPrices,
   isRepairPriceCatalogOpen = false,
   setIsRepairPriceCatalogOpen = () => {},
   onFinalizeCorteX,
@@ -1337,6 +1339,7 @@ function PosModule({
           onAddRepairPrice={onAddRepairPrice}
           onUpdateRepairPrice={onUpdateRepairPrice}
           onDeleteRepairPrice={onDeleteRepairPrice}
+          onImportRepairPrices={onImportRepairPrices}
           onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
         />
       </LazyWhen>
@@ -1352,6 +1355,8 @@ function PosModule({
           currentBranch={currentBranch}
           currentOperator={currentOperator}
           isAdmin={currentOperator.role === 'admin'}
+          repairPrices={repairPrices}
+          onImportRepairPrices={onImportRepairPrices}
           onEmitDirectTicket={async (ticket) => {
             await commitSale(ticket);
           }}

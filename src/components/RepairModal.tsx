@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Wrench,
   User,
@@ -13,15 +13,23 @@ import {
   Clock,
   PackageCheck,
   History,
-  Ban
+  Ban,
+  Download,
+  Upload
 } from 'lucide-react';
-import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket } from '../types';
+import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket, RepairPriceItem } from '../types';
 import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
 import { canCancelRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
 import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
+import RepairPriceSearch from './RepairPriceSearch';
+import {
+  applyRepairPriceToReception,
+  downloadRepairPriceTemplate,
+  repairPricesFromSpreadsheet
+} from '../lib/repairPriceCatalog';
 
 interface RepairModalProps {
   isOpen: boolean;
@@ -35,6 +43,8 @@ interface RepairModalProps {
   currentOperator: Operator;
   onEmitDirectTicket?: (ticket: SaleTicket) => void | Promise<void>;
   isAdmin?: boolean;
+  repairPrices?: RepairPriceItem[];
+  onImportRepairPrices?: (items: RepairPriceItem[]) => void | Promise<void>;
 }
 
 type TabId = 'recepcion' | 'entrega' | 'historial';
@@ -50,7 +60,9 @@ export default function RepairModal({
   currentBranch,
   currentOperator,
   onEmitDirectTicket,
-  isAdmin = false
+  isAdmin = false,
+  repairPrices = [],
+  onImportRepairPrices
 }: RepairModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>('recepcion');
 
@@ -61,6 +73,10 @@ export default function RepairModal({
   const [issueDescription, setIssueDescription] = useState('');
   const [totalCost, setTotalCost] = useState<string>('');
   const [advancePayment, setAdvancePayment] = useState<string>('');
+  const [selectedPriceId, setSelectedPriceId] = useState<string>('');
+  const [priceImportBusy, setPriceImportBusy] = useState(false);
+  const [priceImportMessage, setPriceImportMessage] = useState<string | null>(null);
+  const priceFileRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -103,7 +119,25 @@ export default function RepairModal({
     setIssueDescription('');
     setTotalCost('');
     setAdvancePayment('');
+    setSelectedPriceId('');
     setFormError(null);
+  };
+
+  const handleImportPriceList = async (file: File | null) => {
+    if (!file || !onImportRepairPrices) return;
+    setPriceImportBusy(true);
+    setPriceImportMessage(null);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const items = await repairPricesFromSpreadsheet(bytes, file.name);
+      await onImportRepairPrices(items);
+      setPriceImportMessage(`Lista cargada: ${items.length} precios. Cada pantalla/modelo ya tiene su tarifa.`);
+    } catch (err) {
+      setPriceImportMessage(err instanceof Error ? err.message : 'No se pudo leer el Excel.');
+    } finally {
+      setPriceImportBusy(false);
+      if (priceFileRef.current) priceFileRef.current.value = '';
+    }
   };
 
   const handleRecepcionSubmit = async (e: React.FormEvent) => {
@@ -446,6 +480,60 @@ export default function RepairModal({
               </div>
             </div>
 
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1">
+                  <Search className="w-3.5 h-3.5 text-amber-700" />
+                  Precio de lista (pantalla / modelo)
+                </label>
+                {isAdmin && onImportRepairPrices && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => downloadRepairPriceTemplate()}
+                      className="inline-flex items-center gap-1 px-2 py-1 border border-amber-300 bg-white text-amber-900 rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      <Download className="w-3 h-3" />
+                      Plantilla
+                    </button>
+                    <button
+                      type="button"
+                      disabled={priceImportBusy}
+                      onClick={() => priceFileRef.current?.click()}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-amber-700 text-white rounded-lg text-[10px] font-bold cursor-pointer disabled:opacity-60"
+                    >
+                      <Upload className="w-3 h-3" />
+                      {priceImportBusy ? 'Leyendo…' : 'Importar Excel'}
+                    </button>
+                    <input
+                      ref={priceFileRef}
+                      type="file"
+                      accept=".xlsx,.xlsm,.csv,.txt"
+                      className="hidden"
+                      onChange={(e) => void handleImportPriceList(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                )}
+              </div>
+              <RepairPriceSearch
+                prices={repairPrices}
+                selectedId={selectedPriceId}
+                onSelect={(item) => {
+                  const applied = applyRepairPriceToReception(item);
+                  setSelectedPriceId(item.id);
+                  setDeviceModel(applied.deviceModel);
+                  setIssueDescription(applied.issueDescription);
+                  setTotalCost(applied.totalCost);
+                }}
+              />
+              <p className="text-[11px] text-slate-600">
+                Escribe el modelo: se carga el precio de esa pantalla. Si no está en la lista, llena el modelo y el costo a mano.
+              </p>
+              {priceImportMessage && (
+                <p className="text-[11px] font-semibold text-amber-950">{priceImportMessage}</p>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
@@ -457,7 +545,10 @@ export default function RepairModal({
                   required
                   placeholder="Ej. iPhone 12 Pro Max 128GB"
                   value={deviceModel}
-                  onChange={(e) => setDeviceModel(e.target.value)}
+                  onChange={(e) => {
+                    setDeviceModel(e.target.value);
+                    setSelectedPriceId('');
+                  }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
                 />
               </div>
