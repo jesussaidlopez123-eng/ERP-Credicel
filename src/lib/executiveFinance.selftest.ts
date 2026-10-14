@@ -38,8 +38,8 @@ assert.equal(navojoa.ingresosPropios, 1000);
 assert.equal(navojoa.comisiones, 2000);
 assert.equal(navojoa.dineroPaso, 9300);
 assert.equal(navojoa.gastos, 150);
-assert.equal(navojoa.utilidad, 3000);
-assert.equal(navojoa.resultado, 2850);
+assert.equal(navojoa.utilidad, 1000, 'la comisión no se mezcla con el flujo de caja');
+assert.equal(navojoa.resultado, 850);
 assert.equal(navojoa.inversion, 0);
 
 const huata = buildExecutiveFinance({
@@ -49,10 +49,12 @@ const huata = buildExecutiveFinance({
   phonesSold: 1
 });
 assert.equal(huata.comisiones, 350);
-assert.equal(huata.resultado, 250);
+assert.equal(huata.utilidad, 0);
+assert.equal(huata.resultado, -100, 'el depósito de comisión no tapa el gasto de caja');
 
 const sum = addExecutiveFinance(navojoa, huata);
 assert.equal(sum.comisiones, 2350);
-assert.equal(sum.resultado, 3100);
+assert.equal(sum.utilidad, 1000);
+assert.equal(sum.resultado, 750);
 
 console.log('executiveFinance self-test ok');

@@ -183,7 +183,7 @@ export default function ExecutiveAreaChart({
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {EXECUTIVE_AREA_LEGEND.map((item) => (
             <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
@@ -194,7 +194,7 @@ export default function ExecutiveAreaChart({
                 {item.label}
               </p>
               <p className="font-mono text-sm font-black text-slate-950 mt-0.5">
-                {item.id === 'gastos' || item.id === 'retorno' ? '−' : ''}${peso(Math.abs(totals[item.id]))}
+                {item.id === 'gastos' || item.id === 'retorno' ? '−' : ''}${peso(Math.abs(totals[item.id] || 0))}
               </p>
               <p className="text-[10px] text-slate-400 leading-tight">{item.hint}</p>
             </div>

@@ -37,8 +37,9 @@ export type ExecutiveFinanceTotals = {
   inversion: number;
   /** Costo interno del taller en la semana (refacción + mano de obra + otro). */
   tallerCostos: number;
-  /** Accesorios + margen de taller + comisiones (aún sin restar gastos de caja). */
+  /** Accesorios + margen de taller. No incluye comisiones: esas no pasan por caja. */
   utilidad: number;
+  /** Utilidad de caja menos gastos de caja. Las comisiones no entran. */
   resultado: number;
 };
 
@@ -69,7 +70,7 @@ export function buildExecutiveFinance(input: {
   const gastos = money(Math.max(0, input.gastos || 0));
   const tallerCostos = money(Math.max(0, input.tallerCostos || 0));
   const inversion = money(Math.max(0, input.inversion || 0));
-  const utilidad = money(ingresosPropios - tallerCostos + comisiones);
+  const utilidad = money(ingresosPropios - tallerCostos);
   return {
     ingresosPropios,
     comisiones,

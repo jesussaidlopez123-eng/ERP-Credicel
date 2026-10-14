@@ -31,6 +31,7 @@ import { repairCostFinanceDateKey } from './repairUtils';
 
 export const EXECUTIVE_AREA_COLORS = {
   utilidad: '#16a34a',
+  comisiones: '#7c3aed',
   inversion: '#2563eb',
   gastos: '#e11d48',
   retorno: '#eab308'
@@ -39,7 +40,8 @@ export const EXECUTIVE_AREA_COLORS = {
 export type ExecutiveAreaKey = keyof typeof EXECUTIVE_AREA_COLORS;
 
 export const EXECUTIVE_AREA_LEGEND: { id: ExecutiveAreaKey; label: string; hint: string }[] = [
-  { id: 'utilidad', label: 'Utilidad', hint: 'Accesorios + margen de taller + comisiones' },
+  { id: 'utilidad', label: 'Utilidad', hint: 'Accesorios + margen de taller (flujo de caja)' },
+  { id: 'comisiones', label: 'Comisiones', hint: 'Depósito aparte · no entra a caja' },
   { id: 'inversion', label: 'Inversión', hint: 'Refacciones / repuestos de taller' },
   { id: 'gastos', label: 'Gastos', hint: 'Gastos de caja (sin refacciones de taller)' },
   { id: 'retorno', label: 'Retorno', hint: 'Equipos, abonos y recargas que se regresan' }
@@ -55,6 +57,7 @@ export const EXECUTIVE_LINE_PERIODS: { id: ExecutiveLinePeriod; label: string }[
 
 export type ExecutiveAreaTotals = {
   utilidad: number;
+  comisiones: number;
   inversion: number;
   gastos: number;
   retorno: number;
@@ -146,6 +149,7 @@ export function sumRepairCostLinesInWeek(
 export function areaTotalsFromFinance(finance: ExecutiveFinanceTotals): ExecutiveAreaTotals {
   return {
     utilidad: money(finance.utilidad),
+    comisiones: money(finance.comisiones),
     inversion: money(finance.inversion),
     gastos: money(finance.gastos),
     retorno: money(finance.dineroPaso)
@@ -153,7 +157,7 @@ export function areaTotalsFromFinance(finance: ExecutiveFinanceTotals): Executiv
 }
 
 export function emptyExecutiveAreaTotals(): ExecutiveAreaTotals {
-  return { utilidad: 0, inversion: 0, gastos: 0, retorno: 0 };
+  return { utilidad: 0, comisiones: 0, inversion: 0, gastos: 0, retorno: 0 };
 }
 
 export function addExecutiveAreaTotals(
@@ -162,6 +166,7 @@ export function addExecutiveAreaTotals(
 ): ExecutiveAreaTotals {
   return {
     utilidad: money(acc.utilidad + next.utilidad),
+    comisiones: money(acc.comisiones + next.comisiones),
     inversion: money(acc.inversion + next.inversion),
     gastos: money(acc.gastos + next.gastos),
     retorno: money(acc.retorno + next.retorno)
@@ -172,6 +177,7 @@ export function addExecutiveAreaTotals(
 export function areaStackValues(totals: ExecutiveAreaTotals): ExecutiveAreaTotals {
   return {
     utilidad: money(Math.max(0, totals.utilidad)),
+    comisiones: money(Math.max(0, totals.comisiones)),
     inversion: money(Math.max(0, totals.inversion)),
     gastos: money(Math.max(0, totals.gastos)),
     retorno: money(Math.max(0, totals.retorno))
@@ -188,7 +194,9 @@ export type ExecutiveTramoSegment = {
 /** Partes de un solo tramo (como la barra de almacenamiento del iPhone). */
 export function executiveTramoSegments(totals: ExecutiveAreaTotals): ExecutiveTramoSegment[] {
   const stacked = areaStackValues(totals);
-  const whole = money(stacked.utilidad + stacked.inversion + stacked.gastos + stacked.retorno);
+  const whole = money(
+    stacked.utilidad + stacked.comisiones + stacked.inversion + stacked.gastos + stacked.retorno
+  );
   return EXECUTIVE_AREA_LEGEND.map((item) => ({
     id: item.id,
     label: item.label,

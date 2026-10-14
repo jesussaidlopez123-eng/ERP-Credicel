@@ -160,7 +160,7 @@ type WeekBlock = {
 const OURS: { id: CategoryId; label: string; hint: string }[] = [
   { id: 'accesorios', label: 'Accesorios', hint: 'Sí es ingreso' },
   { id: 'reparaciones', label: 'Reparaciones', hint: 'Cobrado al cliente · la utilidad usa el margen' },
-  { id: 'comisiones', label: 'Comisiones', hint: 'Navojoa $1,000 · Huatabampo $350' },
+  { id: 'comisiones', label: 'Comisiones', hint: 'Depósito aparte · no entra a caja · Matriz/Navojoa $1,000 · Huatabampo $350' },
   { id: 'gastos', label: 'Gastos', hint: 'Se restan del resultado' }
 ];
 
@@ -706,14 +706,17 @@ function WeekBoard({
           <p className="text-sm text-slate-400">{week.workedLabel}</p>
         </div>
         <div className="sm:text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Utilidad</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Utilidad de caja</p>
           <p className={`font-mono text-3xl font-bold tabular-nums ${
             financeRow.utilidad >= 0 ? 'text-white' : 'text-rose-300'
           }`}>
             ${peso(financeRow.utilidad)}
           </p>
+          <p className="text-xs text-violet-200 mt-1 font-semibold">
+            Comisiones ${peso(financeRow.finance.comisiones)}
+          </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Accesorios + margen de taller + comisiones − gastos
+            Accesorios + margen de taller − gastos. Las comisiones se depositan aparte.
           </p>
         </div>
       </div>
@@ -761,10 +764,14 @@ function WeekBoard({
         />
       </div>
 
-      <div className="px-4 sm:px-5 py-3 border-t border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50">
+      <div className="px-4 sm:px-5 py-3 border-t border-slate-200 grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Utilidad</p>
           <p className="font-mono text-sm font-black text-emerald-950">${peso(financeRow.finance.utilidad)}</p>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-800">Comisiones</p>
+          <p className="font-mono text-sm font-black text-violet-950">${peso(financeRow.finance.comisiones)}</p>
         </div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-wider text-blue-800">Inversión</p>

@@ -79,22 +79,24 @@ const fin = buildExecutiveFinance({
 assert.equal(fin.inversion, 400);
 assert.equal(fin.tallerCostos, 550);
 assert.equal(fin.comisiones, 2000);
-assert.equal(fin.utilidad, 2750);
-assert.equal(fin.resultado, 2650);
+assert.equal(fin.utilidad, 750, 'comisión fuera de la utilidad de caja');
+assert.equal(fin.resultado, 650);
 assert.equal(fin.dineroPaso, 2000);
 
-const stacked = areaStackValues({ utilidad: -20, inversion: 400, gastos: 100, retorno: 50 });
+const stacked = areaStackValues({ utilidad: -20, comisiones: 80, inversion: 400, gastos: 100, retorno: 50 });
 assert.equal(stacked.utilidad, 0);
+assert.equal(stacked.comisiones, 80);
 assert.equal(stacked.inversion, 400);
 
 const sum = addExecutiveAreaTotals(
-  { utilidad: 100, inversion: 10, gastos: 5, retorno: 1 },
-  { utilidad: 50, inversion: 20, gastos: 5, retorno: 2 }
+  { utilidad: 100, comisiones: 40, inversion: 10, gastos: 5, retorno: 1 },
+  { utilidad: 50, comisiones: 10, inversion: 20, gastos: 5, retorno: 2 }
 );
 assert.equal(sum.utilidad, 150);
+assert.equal(sum.comisiones, 50);
 assert.equal(sum.inversion, 30);
 
-const tramo = executiveTramoSegments({ utilidad: 50, inversion: 30, gastos: 20, retorno: 0 });
+const tramo = executiveTramoSegments({ utilidad: 50, comisiones: 0, inversion: 30, gastos: 20, retorno: 0 });
 assert.equal(tramo.length, 3);
 assert.equal(tramo[0].id, 'utilidad');
 assert.equal(tramo[0].pct, 50);
@@ -163,6 +165,7 @@ const points = buildExecutiveLinePoints({
 assert.equal(points.length, 3);
 assert.equal(points[0].utilidad, 0);
 assert.equal(points[1].utilidad, -350);
+assert.equal(points[1].comisiones, 0);
 assert.equal(points[1].inversion, 400);
 assert.equal(points[2].inversion, 0);
 
@@ -217,5 +220,35 @@ const navojoaLate = buildExecutiveLinePoints({
 });
 assert.equal(navojoaLate[0].inversion, 220);
 assert.equal(navojoaLate[0].utilidad, -220);
+
+const phoneTicket: SaleTicket = {
+  id: 't-phone',
+  timestamp: '2026-09-08T19:00:00-07:00',
+  branchId: 'b-navojoa',
+  operatorName: 'Op',
+  total: 1500,
+  paymentMethod: 'Efectivo',
+  items: [
+    {
+      cartItemId: 'p1',
+      product: { id: 'eq', code: 'EQ', name: 'A16', category: 'equipo_credito', price: 1500, stock: 1 },
+      quantity: 1,
+      unitPrice: 1500,
+      totalPrice: 1500,
+      metadata: { saleType: 'contado', imei: '351111111111111', deviceModel: 'A16' }
+    }
+  ]
+};
+const phonePoints = buildExecutiveLinePoints({
+  days: ['2026-09-08'],
+  tickets: [phoneTicket],
+  expenses: [],
+  repairs: [],
+  branchId: 'b-navojoa',
+  period: 'semana'
+});
+assert.equal(phonePoints[0].comisiones, 1000);
+assert.equal(phonePoints[0].utilidad, 0, 'la comisión no se suma al verde de caja');
+assert.equal(phonePoints[0].retorno, 1500);
 
 console.log('executiveArea self-test ok');
