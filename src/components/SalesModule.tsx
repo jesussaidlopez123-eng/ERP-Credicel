@@ -29,7 +29,7 @@ import {
   X,
   Lock
 } from 'lucide-react';
-import { SaleTicket, Branch, Expense, Operator, CorteXRecord, SesionCaja } from '../types';
+import { SaleTicket, Branch, Expense, Operator, CorteXRecord, RepairRecord, SesionCaja } from '../types';
 import { formatCashDateLabel, parseSafeDate, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { corteShiftHours, formatCorteDayHeading } from '../lib/corteDayHours';
 import { buildCortesRoster, cashierNameFromSession, CORTES_VISIBLE_DAYS, todayBranchStats } from '../lib/salesCortesBuild';
@@ -67,6 +67,7 @@ interface SalesModuleProps {
   historyBusy?: string | null;
   operators?: Operator[];
   openSessionsByBranch?: Record<string, SesionCaja | null>;
+  repairRecords?: RepairRecord[];
 }
 
 /** Fondo de apertura: lo que dejó el cajero en branchCashFunds. Nunca inventar $1000. */
@@ -106,7 +107,8 @@ function SalesModule({
   cortesHasMore = false,
   historyBusy = null,
   operators = [],
-  openSessionsByBranch = {}
+  openSessionsByBranch = {},
+  repairRecords = []
 }: SalesModuleProps) {
 
   const [activeTab, setActiveTab] = useState<'cortes' | 'tickets' | 'expenses' | 'analytics'>('cortes');
@@ -1132,6 +1134,7 @@ function SalesModule({
           existingCorteRecord={selectedCorte}
           onFinalizeCorteX={onFinalizeCorteX}
           onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
+          repairRecords={repairRecords}
         />
       </LazyWhen>
 
@@ -1158,6 +1161,7 @@ function SalesModule({
           }
           onRequestDeleteTicket={onDeleteSaleTicket ? handlePromptDeleteTicket : undefined}
           onRequestDeleteExpense={onDeleteExpense ? handlePromptDeleteExpense : undefined}
+          repairRecords={repairRecords}
           shiftOperatorName={
             openCashiersByBranch[normalizeBranchId(selectedLiveBranch.id)] ||
             (normalizeBranchId(selectedLiveBranch.id) === normalizeBranchId(currentBranch.id)

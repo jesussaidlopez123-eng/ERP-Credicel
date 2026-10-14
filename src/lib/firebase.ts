@@ -23,6 +23,7 @@ import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotificatio
 import { formatTicketFolio, money, newSessionId, newUniqueId } from './ids';
 import { branchFolioCode, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
+import { corteExpenseTotals } from './historicSale';
 import { isNonInventorySaleItem, restoreBranchForSaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct, normalizeImei, staleInventoryMapKeys } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
@@ -641,7 +642,8 @@ export async function executeCorteSesionCajaTransaction(params: {
   const transferSales = totals.transferSales;
   const totalSales = totals.totalSales;
   const breakdown = totals.breakdown;
-  const totalExpenses = money(expensesForCorte.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
+  const expTotals = corteExpenseTotals(expensesForCorte);
+  const totalExpenses = expTotals.listed;
 
   const existing: SesionCaja | null = existingSnap.exists()
     ? { ...(existingSnap.data() as SesionCaja), id: existingSnap.id }
@@ -654,7 +656,7 @@ export async function executeCorteSesionCajaTransaction(params: {
   );
   const counted = money(efectivoContado);
   const leftFund = money(Math.max(0, fondoDejado));
-  const expectedCashInDrawer = money(initialFund + cashSales - totalExpenses);
+  const expectedCashInDrawer = money(initialFund + cashSales - expTotals.cashOut);
   const difference = money(counted - expectedCashInDrawer);
   const cashWithdrawn = money(Math.max(0, counted - leftFund));
 

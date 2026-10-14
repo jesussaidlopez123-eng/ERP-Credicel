@@ -148,7 +148,7 @@ await enqueue({
   payload: { nombre: 'pendiente-viejo' }
 });
 
-await pruneOldLocalRecords();
+await pruneOldLocalRecords(new Date('2026-08-28T18:00:00-07:00'));
 assert.equal(
   await getRecord('sale', 'TCK-VIEJO'),
   null,

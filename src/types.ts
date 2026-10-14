@@ -235,6 +235,9 @@ export interface RepairRecord {
   }[];
   /** Gastos internos del taller, aparte de la caja del día. */
   costLines?: RepairCostLine[];
+  /** El técnico cerró el costo aunque no hubo compra de pieza (stock, garantía). */
+  costCaptureSettledAt?: string;
+  costCaptureSettledBy?: string;
 }
 
 export interface RepairPriceItem {
@@ -259,6 +262,8 @@ export interface CartItem {
 
 export type SaleItem = CartItem;
 
+export type ExpenseKind = 'caja' | 'refaccion_taller';
+
 export interface Expense {
   id: string;
   amount: number;
@@ -271,6 +276,15 @@ export interface Expense {
   sesion_caja_id?: string;
   corteXId?: string;
   corteXClosedAt?: string;
+  /** Origen del movimiento. Falta = gasto de caja normal. */
+  kind?: ExpenseKind;
+  /** Folio de taller si este gasto nació de una refacción. */
+  repairId?: string;
+  /**
+   * Si es false, cuenta en gastos/neto del Corte X pero no baja el efectivo esperado del cajón.
+   * La refacción de taller se paga fuera de la caja de Matriz.
+   */
+  countsAsCashOut?: boolean;
 }
 
 export interface SaleTicket {

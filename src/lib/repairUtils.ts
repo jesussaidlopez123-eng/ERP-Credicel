@@ -139,10 +139,47 @@ export function repairInternalCost(record: RepairRecord | null | undefined): num
   return money((record?.costLines || []).reduce((sum, line) => sum + money(line.amount), 0));
 }
 
+export function isRepairCostSettled(record: RepairRecord | null | undefined): boolean {
+  if (!record) return false;
+  if (repairInternalCost(record) > 0) return true;
+  return Boolean(String(record.costCaptureSettledAt || '').trim());
+}
+
 /** Entrega hecha en caja y todavía sin refacción / mano de obra capturada. */
 export function needsRepairCostCapture(record: RepairRecord | null | undefined): boolean {
   if (!record) return false;
-  return record.status === 'entregado' && repairInternalCost(record) <= 0;
+  return record.status === 'entregado' && !isRepairCostSettled(record);
+}
+
+export function settleRepairCostCapture(record: RepairRecord, operatorName: string, atIso: string): RepairRecord {
+  return {
+    ...record,
+    costCaptureSettledAt: atIso,
+    costCaptureSettledBy: operatorName
+  };
+}
+
+/** Día de caja al que pertenece el costo para Dirección / Corte X. Si se capturó después de entregar, cae en el día de entrega. */
+export function repairCostFinanceDateKey(
+  record: Pick<RepairRecord, 'deliveredAtIso' | 'deliveredAt' | 'status'>,
+  line: { at?: string }
+): string {
+  const lineKey = safeDateIsoKey(line.at);
+  const deliveredKey = safeDateIsoKey(record.deliveredAtIso || record.deliveredAt);
+  if (deliveredKey && lineKey && lineKey > deliveredKey) return deliveredKey;
+  return lineKey;
+}
+
+export function deliveredRepairsMissingCost(
+  records: RepairRecord[] | undefined,
+  dateKey: string
+): RepairRecord[] {
+  const key = String(dateKey || '').slice(0, 10);
+  if (!key) return [];
+  return (records || []).filter((row) => {
+    if (!needsRepairCostCapture(row)) return false;
+    return safeDateIsoKey(row.deliveredAtIso || row.deliveredAt) === key;
+  });
 }
 
 export function repairCostDueNotificationId(repairId: string): string {
@@ -157,7 +194,7 @@ export function buildRepairCostDueNotification(
   return {
     urgency: 'urgente',
     title: `Falta gasto de reparación · ${record.id}`,
-    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch}. El costo de refacción está en $0. Captúrelo en Reparaciones → Costo de refacción. La caja ya no espera ese dato.`,
+    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch} sin costo de pieza. La orden parpadea al inicio de Reparaciones. Al capturarlo se carga a Matriz y ajusta el Corte X del día de entrega.`,
     authorName: cashierName,
     branchId: 'all',
     targetOperatorId: 'all',
@@ -185,7 +222,7 @@ export function repairCostDueNotificationPlan(
   if (next.status !== 'entregado') {
     return { add: null, dismissIds: related.map((n) => n.id) };
   }
-  if (repairInternalCost(next) > 0) {
+  if (isRepairCostSettled(next)) {
     return { add: null, dismissIds: relatedIds };
   }
 
@@ -266,6 +303,14 @@ export function compareRepairsNewestFirst(
   return repairReceivedSortKey(b).localeCompare(repairReceivedSortKey(a));
 }
 
+/** Entregadas sin pieza primero (parpadean); el resto, las más nuevas arriba. */
+export function compareRepairsShopQueue(a: RepairRecord, b: RepairRecord): number {
+  const dueA = needsRepairCostCapture(a) ? 1 : 0;
+  const dueB = needsRepairCostCapture(b) ? 1 : 0;
+  if (dueA !== dueB) return dueB - dueA;
+  return compareRepairsNewestFirst(a, b);
+}
+
 export function newestRepairCostLines(record: RepairRecord | null | undefined): RepairCostLine[] {
   return [...(record?.costLines || [])].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 }
@@ -337,7 +382,9 @@ export function normalizeRepairRecord(
     cancelReason: raw.cancelReason ? String(raw.cancelReason) : undefined,
     deliveryTicketId: raw.deliveryTicketId ? String(raw.deliveryTicketId) : undefined,
     costUpdates: Array.isArray(raw.costUpdates) ? raw.costUpdates : undefined,
-    costLines
+    costLines,
+    costCaptureSettledAt: raw.costCaptureSettledAt ? String(raw.costCaptureSettledAt) : undefined,
+    costCaptureSettledBy: raw.costCaptureSettledBy ? String(raw.costCaptureSettledBy) : undefined
   };
 }
 
@@ -409,6 +456,8 @@ export function combineRepairRecords(prev: RepairRecord, incoming: RepairRecord)
     cancelledAt: incoming.cancelledAt || prev.cancelledAt,
     cancelledByName: incoming.cancelledByName || prev.cancelledByName,
     cancelReason: incoming.cancelReason || prev.cancelReason,
+    costCaptureSettledAt: incoming.costCaptureSettledAt || prev.costCaptureSettledAt,
+    costCaptureSettledBy: incoming.costCaptureSettledBy || prev.costCaptureSettledBy,
     passcodePattern: incoming.passcodePattern || prev.passcodePattern,
     issueDescription: incoming.issueDescription || prev.issueDescription,
     deviceId: incoming.deviceId || prev.deviceId,

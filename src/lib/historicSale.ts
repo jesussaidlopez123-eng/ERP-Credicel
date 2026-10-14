@@ -62,14 +62,33 @@ export function findClosedCorteForDay(
   return matches[0] || null;
 }
 
+/** Gasto de caja que sí salió del cajón. La refacción de taller no. */
+export function expenseCountsAsCashOut(expense: Expense | null | undefined): boolean {
+  if (!expense) return false;
+  if (expense.countsAsCashOut === false) return false;
+  if (expense.kind === 'refaccion_taller') return false;
+  return true;
+}
+
+export function corteExpenseTotals(expenses: Expense[] | undefined): { listed: number; cashOut: number } {
+  let listed = 0;
+  let cashOut = 0;
+  for (const exp of expenses || []) {
+    const amount = money(Number(exp.amount) || 0);
+    listed += amount;
+    if (expenseCountsAsCashOut(exp)) cashOut += amount;
+  }
+  return { listed: money(listed), cashOut: money(cashOut) };
+}
+
 export function rebuildCorteTotals(
   corte: CorteXRecord,
   tickets: SaleTicket[],
   expenses: Expense[]
 ): CorteXRecord {
   const totals = summarizeTickets(tickets);
-  const totalExpenses = money(expenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0));
-  const expected = money(Number(corte.initialCashFund || 0) + totals.cashSales - totalExpenses);
+  const expTotals = corteExpenseTotals(expenses);
+  const expected = money(Number(corte.initialCashFund || 0) + totals.cashSales - expTotals.cashOut);
   const counted = corte.countedCash;
   return {
     ...corte,
@@ -77,8 +96,8 @@ export function rebuildCorteTotals(
     cardSales: totals.cardSales,
     transferSales: totals.transferSales,
     totalSales: totals.totalSales,
-    totalExpenses,
-    netIncome: money(totals.totalSales - totalExpenses),
+    totalExpenses: expTotals.listed,
+    netIncome: money(totals.totalSales - expTotals.listed),
     expectedCashInDrawer: expected,
     cashDifference:
       counted == null ? corte.cashDifference : money(Number(counted) - expected),
@@ -94,6 +113,13 @@ export function applyTicketToCorte(corte: CorteXRecord, ticket: SaleTicket): Cor
   const tickets = [...(corte.ticketsSnapshot || [])].filter((row) => row.id !== ticket.id);
   tickets.push(ticket);
   const expenses = [...(corte.expensesSnapshot || [])];
+  return rebuildCorteTotals(corte, tickets, expenses);
+}
+
+export function applyExpenseToCorte(corte: CorteXRecord, expense: Expense): CorteXRecord {
+  const expenses = [...(corte.expensesSnapshot || [])].filter((row) => row.id !== expense.id);
+  expenses.push(expense);
+  const tickets = [...(corte.ticketsSnapshot || [])];
   return rebuildCorteTotals(corte, tickets, expenses);
 }
 

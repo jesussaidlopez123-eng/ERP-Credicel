@@ -3,6 +3,7 @@ import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranch
 import { fillCashDateSpan, parseSafeDate, safeDateIsoKey, safeFormatDate } from './dateUtils';
 import { isAfterCashClose, isPrematureAutoCorteRecord } from './shiftHours';
 import { money } from './ids';
+import { corteExpenseTotals } from './historicSale';
 import { branchDateKey, datesFromBranchDateIndex, indexByBranchDate } from './branchDateIndex';
 import { emptyDayCorte, foldOnePerBranchPerDay } from './corteDayRoster';
 
@@ -77,7 +78,8 @@ function liveShiftRow(
   sessionCashier?: string
 ): CorteXRecord {
   const pay = paymentTotals(tickets);
-  const totalExp = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const expTotals = corteExpenseTotals(expenses);
+  const totalExp = expTotals.listed;
   const fund = openingFund(branch.id);
   let shiftLoginTime = '09:00 a.m.';
   try {
@@ -110,7 +112,7 @@ function liveShiftRow(
     totalSales: pay.total,
     totalExpenses: totalExp,
     netIncome: pay.total - totalExp,
-    expectedCashInDrawer: fund + pay.cash - totalExp,
+    expectedCashInDrawer: fund + pay.cash - expTotals.cashOut,
     ticketIds: tickets.map((t) => t.id),
     expenseIds: expenses.map((e) => e.id),
     breakdown: {
@@ -130,7 +132,8 @@ function liveShiftRow(
 
 function reconciledRow(branch: Branch, dateKey: string, tickets: SaleTicket[], expenses: Expense[]): CorteXRecord {
   const pay = paymentTotals(tickets);
-  const totalExp = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const expTotals = corteExpenseTotals(expenses);
+  const totalExp = expTotals.listed;
   return {
     id: `CTX_${branch.id}_${dateKey}`,
     timestamp: `${dateKey}T23:00:00-07:00`,
@@ -146,7 +149,7 @@ function reconciledRow(branch: Branch, dateKey: string, tickets: SaleTicket[], e
     totalSales: pay.total,
     totalExpenses: totalExp,
     netIncome: pay.total - totalExp,
-    expectedCashInDrawer: pay.cash - totalExp,
+    expectedCashInDrawer: pay.cash - expTotals.cashOut,
     ticketIds: tickets.map((t) => t.id),
     expenseIds: expenses.map((e) => e.id),
     breakdown: {
@@ -218,7 +221,8 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
       const exp = expenseIndex.get(key) || [];
       const relatedExp = exp.filter((e) => e.corteXId === corteId);
       const pay = paymentTotals(pack);
-      const totalExp = relatedExp.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const expTotals = corteExpenseTotals(relatedExp);
+      const totalExp = expTotals.listed;
       savedGrouped[key] = {
         id: corteId,
         timestamp: pack[pack.length - 1]?.timestamp || `${dateKey}T23:00:00-07:00`,
@@ -234,7 +238,7 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
         totalSales: pay.total,
         totalExpenses: totalExp,
         netIncome: pay.total - totalExp,
-        expectedCashInDrawer: pay.cash - totalExp,
+        expectedCashInDrawer: pay.cash - expTotals.cashOut,
         ticketIds: pack.map((t) => t.id),
         expenseIds: relatedExp.map((e) => e.id),
         breakdown: {
@@ -316,14 +320,14 @@ export function todayBranchStats(
     const todayTickets = ticketIndex.get(key) || [];
     const todayExpenses = expenseIndex.get(key) || [];
     const pay = paymentTotals(todayTickets);
-    const totalExpenses = todayExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalExpenses = corteExpenseTotals(todayExpenses).listed;
     const openTickets = todayTickets.filter((t) => !t.corteXId);
     const openExpenses = todayExpenses.filter((e) => !e.corteXId);
     let openCash = 0;
     for (const t of openTickets) {
       if (t.paymentMethod === 'Efectivo') openCash += t.total || 0;
     }
-    const openExp = openExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const openExp = corteExpenseTotals(openExpenses).cashOut;
     const fund = openingFund(branch.id);
     return {
       branchId: branch.id,

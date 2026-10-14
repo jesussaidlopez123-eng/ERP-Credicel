@@ -18,12 +18,13 @@ import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import {
   applyRepairCost,
-  compareRepairsNewestFirst,
+  compareRepairsShopQueue,
   hasRefaccionCost,
   isPendingRepair,
   matchesRepairSearch,
   needsRepairCostCapture,
   repairDaysInShop,
+  settleRepairCostCapture,
   stampRepairLabel
 } from '../lib/repairUtils';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
@@ -101,7 +102,7 @@ function RepairsModule({
     return scopedRecords
       .filter(isCostQueue)
       .filter((r) => matchesRepairSearch(r, debouncedSearch))
-      .sort(compareRepairsNewestFirst);
+      .sort(compareRepairsShopQueue);
   }, [scopedRecords, debouncedSearch]);
 
   const openOrder = useMemo(
@@ -111,11 +112,11 @@ function RepairsModule({
 
   const stats = useMemo(() => {
     const pending = scopedRecords.filter(isPendingRepair);
+    const entregadoSinPieza = scopedRecords.filter(needsRepairCostCapture).length;
     return {
       enTaller: pending.length,
-      sinPieza:
-        pending.filter((r) => !hasRefaccionCost(r)).length +
-        scopedRecords.filter(needsRepairCostCapture).length
+      sinPieza: pending.filter((r) => !hasRefaccionCost(r)).length + entregadoSinPieza,
+      entregadoSinPieza
     };
   }, [scopedRecords]);
 
@@ -129,6 +130,19 @@ function RepairsModule({
   }, [openOrder?.id, openOrder?.totalCost]);
 
   if (!isAdmin && !isManager) return null;
+
+  const handleSettleWithoutCost = async (record: RepairRecord) => {
+    if (savingId) return;
+    setSavingId(record.id);
+    setActionError(null);
+    try {
+      await onUpdateRepairRecord(settleRepairCostCapture(record, currentOperator.name, trustedIso()));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'No se pudo marcar el costo.');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   const handleSavePrice = async (record: RepairRecord) => {
     if (savingId) return;
@@ -163,11 +177,16 @@ function RepairsModule({
       <div className={`bg-white rounded-xl border border-slate-200 ${embedded ? 'p-2.5' : 'p-3'}`}>
         <h1 className="text-sm font-semibold text-slate-900">Reparaciones</h1>
         <p className="text-[11px] text-slate-500 mt-0.5">
-          Abre la orden del equipo para cargar el costo de la refacción. Recibir y entregar sigue en el punto de venta.
+          El vendedor carga la orden en caja y queda En taller, lista para entregar. Aquí el operador abre la orden y anota el costo de la pieza.
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-2 max-w-sm">
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-lg">
           <Stat label="En taller" value={String(stats.enTaller)} />
           <Stat label="Sin pieza" value={String(stats.sinPieza)} accent={stats.sinPieza > 0} />
+          <Stat
+            label="Entregado sin costo"
+            value={String(stats.entregadoSinPieza)}
+            accent={stats.entregadoSinPieza > 0}
+          />
         </div>
       </div>
 
@@ -182,6 +201,7 @@ function RepairsModule({
           actionError={actionError}
           onBack={() => setOpenOrderId(null)}
           onSavePrice={() => void handleSavePrice(openOrder)}
+          onSettleWithoutCost={() => void handleSettleWithoutCost(openOrder)}
           onUpdate={onUpdateRepairRecord}
           onCancel={
             onCancelRepairRecord && isPendingRepair(openOrder)
@@ -239,10 +259,15 @@ function RepairsModule({
               {orders.map((record) => {
                 const days = repairDaysInShop(record);
                 const missingPart = !hasRefaccionCost(record);
+                const costDue = needsRepairCostCapture(record);
                 return (
                   <article
                     key={record.id}
-                    className="bg-white border border-slate-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-3"
+                    className={`border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${
+                      costDue
+                        ? 'repair-cost-due'
+                        : 'bg-white border-slate-200'
+                    }`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -260,8 +285,8 @@ function RepairsModule({
                             Sin pieza
                           </span>
                         )}
-                        {needsRepairCostCapture(record) && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                        {costDue && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-orange-400 bg-orange-100 text-orange-950 uppercase tracking-wide">
                             Entregado en caja · falta pieza
                           </span>
                         )}
@@ -281,7 +306,9 @@ function RepairsModule({
                     <button
                       type="button"
                       onClick={() => openOrderView(record)}
-                      className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[#0047AB] hover:bg-[#003d93] text-white text-xs font-bold rounded-xl cursor-pointer"
+                      className={`w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-white text-xs font-bold rounded-xl cursor-pointer ${
+                        costDue ? 'bg-orange-600 hover:bg-orange-700' : 'bg-[#0047AB] hover:bg-[#003d93]'
+                      }`}
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       Abrir orden
@@ -324,6 +351,7 @@ function OrderSheet({
   actionError,
   onBack,
   onSavePrice,
+  onSettleWithoutCost,
   onUpdate,
   onCancel
 }: {
@@ -336,9 +364,11 @@ function OrderSheet({
   actionError: string | null;
   onBack: () => void;
   onSavePrice: () => void;
+  onSettleWithoutCost: () => void;
   onUpdate: (record: RepairRecord) => void | Promise<void>;
   onCancel?: () => void;
 }) {
+  const costDue = needsRepairCostCapture(record);
   return (
     <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <header className="px-3 sm:px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
@@ -363,6 +393,22 @@ function OrderSheet({
       </header>
 
       <div className="px-3 sm:px-4 py-3 space-y-4">
+        {costDue && (
+          <div className="rounded-xl border border-orange-300 bg-orange-50 px-3 py-2.5">
+            <p className="text-xs font-black text-orange-950">Caja ya entregó este equipo sin costo de pieza.</p>
+            <p className="text-[11px] text-orange-900 mt-0.5">
+              Capture la refacción para cargarla a Matriz y ajustar el Corte X del día de entrega. Si no hubo compra (stock o garantía), márquelo sin costo para cerrar el registro.
+            </p>
+            <button
+              type="button"
+              onClick={onSettleWithoutCost}
+              disabled={saving}
+              className="mt-2 px-3 py-1.5 border border-orange-400 bg-white hover:bg-orange-100 disabled:opacity-60 text-orange-950 rounded-lg text-[11px] font-bold cursor-pointer"
+            >
+              Marcar sin costo de pieza
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
           <Info icon={<User className="w-3.5 h-3.5" />} label="Cliente" value={`${record.clientName} · ${record.clientPhone}`} />
           <Info icon={<Smartphone className="w-3.5 h-3.5" />} label="Falla" value={record.issueDescription || '—'} />

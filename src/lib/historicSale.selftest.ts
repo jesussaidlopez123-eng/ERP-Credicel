@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  applyExpenseToCorte,
   applyTicketToCorte,
   buildHistoricSaleTimestamp,
   findClosedCorteForDay,
@@ -109,5 +110,21 @@ assert.equal(withoutExpense.expectedCashInDrawer, 700);
 
 assert.equal(findClosedCorteForDay([corte], 'Navojoa', '2026-09-09')?.id, corte.id);
 assert.equal(findClosedCorteForDay([corte], 'b-huatabampo', '2026-09-09'), null);
+
+const refaccion: Expense = {
+  id: 'GTO-REP-1',
+  amount: 200,
+  concept: 'Refacción taller',
+  timestamp: pastStamp,
+  operatorName: 'Taller',
+  branchId: 'b-matriz',
+  kind: 'refaccion_taller',
+  repairId: 'REP-1',
+  countsAsCashOut: false
+};
+const patchedRefaccion = applyExpenseToCorte(corte, refaccion);
+assert.equal(patchedRefaccion.totalExpenses, 200);
+assert.equal(patchedRefaccion.expectedCashInDrawer, 500, 'la pieza no baja el cajón');
+assert.equal(patchedRefaccion.netIncome, -200);
 
 console.log('historicSale self-test ok');

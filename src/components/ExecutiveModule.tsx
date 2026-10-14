@@ -61,6 +61,8 @@ import {
   sumRepairCostLinesInWeek,
   type ExecutiveLinePeriod
 } from '../lib/executiveArea';
+import { isMatrizRepairExpense } from '../lib/repairCorte';
+import { repairCostFinanceDateKey } from '../lib/repairUtils';
 import LoadMoreButton from './LoadMoreButton';
 
 interface ExecutiveModuleProps {
@@ -312,6 +314,7 @@ function buildWeekBlocks(
   });
 
   expenses.forEach((expense) => {
+    if (isMatrizRepairExpense(expense)) return;
     const bid = normalizeBranchId(expense.branchId);
     if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(expense.timestamp || expense.date)));
@@ -390,6 +393,7 @@ function buildWeekBlocks(
     });
 
     pack.expenses.forEach((expense) => {
+      if (isMatrizRepairExpense(expense)) return;
       const bid = normalizeBranchId(expense.branchId);
       if (!byBranch.has(bid)) {
         byBranch.set(bid, emptyRow(bid, getBranchDisplayName(bid)));
@@ -419,7 +423,7 @@ function buildWeekBlocks(
       const bid = normalizeBranchId(repair.branchId);
       if (!hasCashTill(bid)) return;
       for (const line of repair.costLines || []) {
-        const dayKey = safeDateIsoKey(line.at);
+        const dayKey = repairCostFinanceDateKey(repair, line);
         if (!dayKey) continue;
         if (weekStartDateKey(dayKey) !== weekStart) continue;
         dateKeys.push(dayKey);

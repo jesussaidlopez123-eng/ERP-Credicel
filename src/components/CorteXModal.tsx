@@ -19,7 +19,7 @@ import {
   ChevronUp,
   Trash2
 } from 'lucide-react';
-import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata } from '../types';
+import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata, RepairRecord } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import { saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
@@ -28,6 +28,9 @@ import { printThermalHtml } from '../lib/printWindow';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { normalizeBranchId } from '../data/initialBranches';
+import { corteExpenseTotals } from '../lib/historicSale';
+import { isMatrizRepairExpense } from '../lib/repairCorte';
+import { deliveredRepairsMissingCost } from '../lib/repairUtils';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -47,6 +50,7 @@ interface CorteXModalProps {
   onRequestDeleteTicket?: (ticket: SaleTicket) => void;
   onRequestDeleteExpense?: (expense: Expense) => void;
   shiftOperatorName?: string;
+  repairRecords?: RepairRecord[];
 }
 
 interface ConceptDetail {
@@ -97,7 +101,8 @@ export default function CorteXModal({
   sessionOpenedAt,
   onRequestDeleteTicket,
   onRequestDeleteExpense,
-  shiftOperatorName
+  shiftOperatorName,
+  repairRecords = []
 }: CorteXModalProps) {
 
   // Accordion state in arqueo view
@@ -400,10 +405,20 @@ export default function CorteXModal({
     }
   }
 
+  const liveExpTotals = corteExpenseTotals(branchExpenses);
+  const corteDateKey = isHistoric
+    ? safeDateIsoKey(existingCorteRecord.timestamp) || safeDateIsoKey(existingCorteRecord.dateStr)
+    : todayDateIsoKey;
+  const pendingPieceCount =
+    normalizeBranchId(effectiveBranchId) === 'b-matriz'
+      ? deliveredRepairsMissingCost(repairRecords, corteDateKey).length
+      : 0;
   let totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
-  let totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : branchExpenses.reduce((sum, e) => sum + e.amount, 0);
+  let totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : liveExpTotals.listed;
   let netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
-  let expectedCashInDrawer = isHistoric ? existingCorteRecord.expectedCashInDrawer : (effectiveInitialCash + cashSalesTotal - totalExpenses);
+  let expectedCashInDrawer = isHistoric
+    ? existingCorteRecord.expectedCashInDrawer
+    : (effectiveInitialCash + cashSalesTotal - liveExpTotals.cashOut);
 
   if (closedPrint) {
     cashSalesTotal = closedPrint.cashSales;
@@ -827,6 +842,18 @@ export default function CorteXModal({
 
         {/* Modal Body */}
         <div className="p-4 sm:p-5 overflow-y-auto flex-1 bg-slate-100/70 space-y-4 no-print">
+          {pendingPieceCount > 0 && (
+            <div className="rounded-2xl border border-orange-300 bg-orange-50 px-3.5 py-3">
+              <p className="text-xs font-black text-orange-950">
+                {pendingPieceCount === 1
+                  ? 'Hay 1 equipo entregado sin costo de pieza.'
+                  : `Hay ${pendingPieceCount} equipos entregados sin costo de pieza.`}
+              </p>
+              <p className="text-[11px] text-orange-900 mt-0.5">
+                Puede cerrar el turno. El Corte X de Matriz se ajusta cuando taller capture la refacción — incluso al día siguiente — sin reabrir caja ni mover el cajón.
+              </p>
+            </div>
+          )}
 
           {/* Arqueo de turno */}
             <div className="space-y-4">
@@ -966,6 +993,7 @@ export default function CorteXModal({
                           <p className="text-[11px] text-slate-500">
                             {expense.operatorName || 'Cajero'}
                             {expense.id ? ` · Folio ${expense.id.slice(-6)}` : ''}
+                            {isMatrizRepairExpense(expense) ? ' · refacción · no sale del cajón' : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1228,8 +1256,13 @@ export default function CorteXModal({
                         <p className="text-xs text-slate-400 italic py-1">Sin gastos registrados en el turno.</p>
                       ) : (
                         branchExpenses.map((exp, idx) => (
-                          <div key={exp.id || idx} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                            <span className="text-slate-700 font-medium">{exp.concept}</span>
+                          <div key={exp.id || idx} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none gap-2">
+                            <span className="text-slate-700 font-medium">
+                              {exp.concept}
+                              {isMatrizRepairExpense(exp) ? (
+                                <span className="block text-[10px] font-semibold text-slate-500">No sale del cajón</span>
+                              ) : null}
+                            </span>
                             <span className="font-mono font-bold text-rose-600">-${exp.amount.toFixed(2)}</span>
                           </div>
                         ))

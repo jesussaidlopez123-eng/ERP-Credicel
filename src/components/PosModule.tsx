@@ -1380,6 +1380,7 @@ function PosModule({
           sessionOpenedAt={activeCashSession?.fecha_apertura}
           onFinalizeCorteX={onFinalizeCorteX}
           onLogout={onLogout}
+          repairRecords={repairRecords}
         />
       </LazyWhen>
       <LazyWhen when={isTicketReceiptOpen}>

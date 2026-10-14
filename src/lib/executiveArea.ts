@@ -26,6 +26,8 @@ import {
   emptyExecutiveFinance,
   type ExecutiveFinanceTotals
 } from './executiveFinance';
+import { isMatrizRepairExpense } from './repairCorte';
+import { repairCostFinanceDateKey } from './repairUtils';
 
 export const EXECUTIVE_AREA_COLORS = {
   utilidad: '#16a34a',
@@ -38,8 +40,8 @@ export type ExecutiveAreaKey = keyof typeof EXECUTIVE_AREA_COLORS;
 
 export const EXECUTIVE_AREA_LEGEND: { id: ExecutiveAreaKey; label: string; hint: string }[] = [
   { id: 'utilidad', label: 'Utilidad', hint: 'Accesorios + margen de taller + comisiones' },
-  { id: 'inversion', label: 'Inversión', hint: 'Compra de refacciones' },
-  { id: 'gastos', label: 'Gastos', hint: 'Gastos de caja' },
+  { id: 'inversion', label: 'Inversión', hint: 'Refacciones / repuestos de taller' },
+  { id: 'gastos', label: 'Gastos', hint: 'Gastos de caja (sin refacciones de taller)' },
   { id: 'retorno', label: 'Retorno', hint: 'Equipos, abonos y recargas que se regresan' }
 ];
 
@@ -103,7 +105,7 @@ export function repairFinanceWeekStarts(repairs: RepairRecord[]): string[] {
     const bid = normalizeBranchId(repair.branchId);
     if (!hasCashTill(bid)) continue;
     for (const line of repair.costLines || []) {
-      const start = weekStartDateKey(safeDateIsoKey(line.at));
+      const start = weekStartDateKey(repairCostFinanceDateKey(repair, line));
       if (start) starts.add(start);
     }
   }
@@ -124,7 +126,7 @@ export function sumRepairCostLines(
     const bid = normalizeBranchId(repair.branchId);
     if (!hasCashTill(bid)) continue;
     for (const line of repair.costLines || []) {
-      if (!inDateRange(safeDateIsoKey(line.at), from, to)) continue;
+      if (!inDateRange(repairCostFinanceDateKey(repair, line), from, to)) continue;
       const kind = lineKind(line.kind);
       if (wantKinds && !wantKinds.includes(kind)) continue;
       total += money(line.amount);
@@ -266,6 +268,7 @@ function financeForDay(
       }
     }
     for (const expense of expenses) {
+      if (isMatrizRepairExpense(expense)) continue;
       if (normalizeBranchId(expense.branchId) !== branch.id) continue;
       if (safeDateIsoKey(expense.timestamp || expense.date) !== dateKey) continue;
       gastos += money(expense.amount || 0);

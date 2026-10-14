@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { RepairRecord, SaleTicket } from '../types';
+import type { Expense, RepairRecord, SaleTicket } from '../types';
 import { emptyExecutiveCats } from './saleClassification.ts';
 import { buildExecutiveFinance } from './executiveFinance.ts';
 import {
@@ -165,5 +165,57 @@ assert.equal(points[0].utilidad, 0);
 assert.equal(points[1].utilidad, -350);
 assert.equal(points[1].inversion, 400);
 assert.equal(points[2].inversion, 0);
+
+const lateRepair: RepairRecord = {
+  ...repair,
+  id: 'REP-LATE',
+  status: 'entregado',
+  deliveredAtIso: '2026-09-08T18:00:00-07:00',
+  costLines: [
+    {
+      id: 'c-late',
+      kind: 'refaccion',
+      concept: 'Flex',
+      amount: 220,
+      at: '2026-09-09T10:00:00-07:00',
+      by: 'Taller'
+    }
+  ]
+};
+assert.equal(sumRepairCostLines([lateRepair], '2026-09-08', '2026-09-08', { kinds: ['refaccion'] }), 220);
+assert.equal(sumRepairCostLines([lateRepair], '2026-09-09', '2026-09-09', { kinds: ['refaccion'] }), 0);
+
+const matrizPiece: Expense = {
+  id: 'GTO-REP-LATE',
+  amount: 220,
+  concept: 'Refacción taller REP-LATE',
+  timestamp: '2026-09-08T18:00:00-07:00',
+  operatorName: 'Taller',
+  branchId: 'b-matriz',
+  kind: 'refaccion_taller',
+  repairId: 'REP-LATE',
+  countsAsCashOut: false
+};
+const matrizPoints = buildExecutiveLinePoints({
+  days: ['2026-09-08'],
+  tickets: [],
+  expenses: [matrizPiece],
+  repairs: [lateRepair],
+  branchId: 'b-matriz',
+  period: 'semana'
+});
+assert.equal(matrizPoints[0].gastos, 0, 'el gasto etiquetado no se duplica en rojo');
+assert.equal(matrizPoints[0].inversion, 0, 'la pieza de Navojoa no se cuenta como inversión de Matriz');
+
+const navojoaLate = buildExecutiveLinePoints({
+  days: ['2026-09-08'],
+  tickets: [],
+  expenses: [matrizPiece],
+  repairs: [lateRepair],
+  branchId: 'b-navojoa',
+  period: 'semana'
+});
+assert.equal(navojoaLate[0].inversion, 220);
+assert.equal(navojoaLate[0].utilidad, -220);
 
 console.log('executiveArea self-test ok');

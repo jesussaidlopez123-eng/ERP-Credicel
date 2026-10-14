@@ -3,6 +3,7 @@ import {
   addRepairCostLine,
   assembleRepairRecords,
   compareRepairsNewestFirst,
+  compareRepairsShopQueue,
   newestRepairCostLines,
   buildRepairCostDueNotification,
   combineRepairRecords,
@@ -13,6 +14,7 @@ import {
   markRepairDelivered,
   mergeRepairSources,
   needsRepairCostCapture,
+  settleRepairCostCapture,
   normalizeRepairStatus,
   normalizeWorkStage,
   notificationVisibleToOperator,
@@ -258,6 +260,19 @@ assert(
 assert(
   [newer, older].sort(compareRepairsNewestFirst)[0].id === 'REP-NEW',
   'ese orden se mantiene aunque la lista llegue al revés'
+);
+const dueOld = { ...deliveredZero, id: 'REP-DUE', receivedAtIso: '2026-10-01T08:00:00-07:00' };
+assert(
+  [newer, dueOld, older].sort(compareRepairsShopQueue)[0].id === 'REP-DUE',
+  'la entregada sin pieza brinca al inicio aunque sea más vieja'
+);
+const settled = settleRepairCostCapture(dueOld, 'Said', '2026-10-14T09:00:00-07:00');
+assert(!needsRepairCostCapture(settled), 'marcar sin costo apaga el aviso de pieza');
+const settledPlan = repairCostDueNotificationPlan(dueOld, settled, existing, 'Said');
+assert(!settledPlan.add, 'marcar sin costo no crea otro aviso');
+assert(
+  settledPlan.dismissIds.includes(repairCostDueNotificationId('REP-DUE')),
+  'marcar sin costo quita el aviso de esa orden'
 );
 const twoParts = addRepairCostLine(withPart, {
   kind: 'refaccion',

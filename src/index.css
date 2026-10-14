@@ -512,6 +512,32 @@ html, body, #root {
   }
 }
 
+@keyframes repair-cost-due-pulse {
+  0%,
+  100% {
+    background-color: #fff7ed;
+    border-color: #fb923c;
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.35);
+  }
+  50% {
+    background-color: #ffedd5;
+    border-color: #ea580c;
+    box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+  }
+}
+
+.repair-cost-due {
+  animation: repair-cost-due-pulse 1.05s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .repair-cost-due {
+    animation: none;
+    background-color: #ffedd5;
+    border-color: #ea580c;
+  }
+}
+
 .dash-note-body .dash-note-line {
   position: relative;
   padding-right: 3.4rem;

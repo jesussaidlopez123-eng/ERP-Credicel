@@ -141,11 +141,13 @@ import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from '../lib/queryLimits';
 import { useStableCallback } from '../hooks/useStableCallback';
 import {
+  applyExpenseToCorte,
   applyTicketToCorte,
   findClosedCorteForDay,
   removeExpenseFromCorte,
   removeTicketFromCorte
 } from '../lib/historicSale';
+import { planLateRepairMatrizExpense } from '../lib/repairCorte';
 import NotesAgenda from './NotesAgenda';
 
 const CreateNoticeModal = lazy(() => import('./CreateNoticeModal'));
@@ -232,6 +234,7 @@ export default function Dashboard({
   const salesTicketsRef = useRef(salesTickets);
   const expensesRef = useRef(expenses);
   const cortesRef = useRef(cortesX);
+  const openSessionsByBranchRef = useRef(openSessionsByBranch);
   const productsRef = useRef(products);
   const repairRecordsRef = useRef(repairRecords);
   const notificationsRef = useRef(notifications);
@@ -256,6 +259,7 @@ export default function Dashboard({
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
+  openSessionsByBranchRef.current = openSessionsByBranch;
   repairRecordsRef.current = repairRecords;
   notificationsRef.current = notifications;
   agendaTasksRef.current = agendaTasks;
@@ -1441,7 +1445,97 @@ export default function Dashboard({
         );
       });
     }
+
+    void syncLateRepairMatrizExpense(previous, saved).catch((err) =>
+      console.warn('No se pudo cargar la refacción al Corte X de Matriz:', err)
+    );
     return saved;
+  };
+
+  const pushLocalExpense = (expense: Expense) => {
+    localOnlyRef.current.expenses = [
+      expense,
+      ...localOnlyRef.current.expenses.filter((row) => row.id !== expense.id)
+    ];
+    expensesRef.current = [expense, ...expensesRef.current.filter((row) => row.id !== expense.id)];
+    setExpenses((prev) => {
+      const next = [expense, ...prev.filter((row) => row.id !== expense.id)];
+      saveCachedList('expenses', next);
+      return next;
+    });
+  };
+
+  const pushLocalCorte = (corte: CorteXRecord) => {
+    localOnlyRef.current.cortes = [
+      corte,
+      ...localOnlyRef.current.cortes.filter((row) => row.id !== corte.id)
+    ];
+    cortesRef.current = [corte, ...cortesRef.current.filter((row) => row.id !== corte.id)];
+    setCortesX((prev) => {
+      const next = [corte, ...prev.filter((row) => row.id !== corte.id)];
+      saveCachedList('cortes', next);
+      return next;
+    });
+  };
+
+  /** Pieza capturada después de entregar: gasto de Matriz y parche del Corte X del día de entrega. */
+  const syncLateRepairMatrizExpense = async (
+    previous: RepairRecord | undefined,
+    next: RepairRecord
+  ) => {
+    const matrizPlan = planLateRepairMatrizExpense({
+      previous,
+      next,
+      operatorName: currentOperator.name,
+      cortes: cortesRef.current,
+      matrizOpenSession: openSessionsByBranchRef.current['b-matriz'] || null
+    });
+    if (matrizPlan.action === 'none') return;
+
+    if (matrizPlan.action === 'remove' && matrizPlan.removeId) {
+      const expenseId = matrizPlan.removeId;
+      const existing = expensesRef.current.find((row) => row.id === expenseId);
+      setExpenses((prev) => {
+        const nextList = prev.filter((row) => row.id !== expenseId);
+        saveCachedList('expenses', nextList);
+        return nextList;
+      });
+      localOnlyRef.current.expenses = localOnlyRef.current.expenses.filter((row) => row.id !== expenseId);
+      expensesRef.current = expensesRef.current.filter((row) => row.id !== expenseId);
+      await forgetLocalExpense(expenseId);
+      if (existing) {
+        await deleteExpenseFromFirestore(existing, {
+          reason: 'Se quitó el costo de pieza de la orden entregada',
+          operatorName: currentOperator.name
+        }).catch((err) => console.warn('No se pudo borrar el gasto de refacción:', err));
+      }
+      const corteId = existing?.corteXId || existing?.sesion_caja_id || matrizPlan.closedCorte?.id;
+      if (corteId) {
+        const closed =
+          cortesRef.current.find((c) => c.id === corteId || c.sesion_caja_id === corteId) ||
+          matrizPlan.closedCorte;
+        if (closed) {
+          const updated = removeExpenseFromCorte(closed, expenseId);
+          pushLocalCorte(updated);
+          await commitCorteSnapshot(updated).catch((err) =>
+            console.warn('No se pudo quitar la refacción del corte cerrado:', err)
+          );
+        }
+      }
+      return;
+    }
+
+    if (matrizPlan.action !== 'upsert' || !matrizPlan.expense) return;
+    const expense = matrizPlan.expense;
+    await commitExpense(expense);
+    pushLocalExpense(expense);
+    if (matrizPlan.closedCorte) {
+      const updated = applyExpenseToCorte(matrizPlan.closedCorte, expense);
+      pushLocalCorte(updated);
+      await commitCorteSnapshot(updated).catch((err) =>
+        console.warn('No se pudo actualizar el Corte X de Matriz con la refacción:', err)
+      );
+    }
   };
 
   useEffect(() => {
@@ -2136,6 +2230,7 @@ export default function Dashboard({
             historyBusy={historyBusy}
             operators={operators}
             openSessionsByBranch={openSessionsByBranch}
+            repairRecords={repairRecords}
           />
         );
       case 'repairs':
