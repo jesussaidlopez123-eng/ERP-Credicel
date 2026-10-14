@@ -2426,46 +2426,22 @@ export async function saveRepairRecordToFirestore(record: RepairRecord) {
 }
 
 /**
- * IDs de fichas que el admin ya quitó. Se leen de repairRecords (status
- * eliminado) — la misma colección que el taller, para no depender de una
- * colección nueva que tumbe el aviso de “sin nube”. repairDeletions es extra.
+ * IDs de fichas que el admin ya quitó. Solo se pregunta a repairRecords
+ * (status eliminado) para no gastar otra escucha de colección completa.
  */
 export function subscribeToRepairDeletions(
   onUpdate: (ids: string[]) => void,
   _onError?: (err: any) => void
 ) {
-  let fromRecords: string[] = [];
-  let fromTombstones: string[] = [];
-  const emit = () => {
-    onUpdate(Array.from(new Set([...fromRecords, ...fromTombstones])));
-  };
-
-  const unsubRecords = onSnapshot(
+  return onSnapshot(
     query(collection(db, REPAIR_RECORDS_COLLECTION), where('status', '==', 'eliminado')),
     (snapshot) => {
-      fromRecords = snapshot.docs.map((d) => d.id).filter(Boolean);
-      emit();
+      onUpdate(snapshot.docs.map((d) => d.id).filter(Boolean));
     },
     (err) => {
-      console.warn('[Firestore] subscribeToRepairDeletions (repairRecords):', err);
+      console.warn('[Firestore] subscribeToRepairDeletions:', err);
     }
   );
-
-  const unsubTombstones = onSnapshot(
-    collection(db, REPAIR_DELETIONS_COLLECTION),
-    (snapshot) => {
-      fromTombstones = snapshot.docs.map((d) => d.id).filter(Boolean);
-      emit();
-    },
-    (err) => {
-      console.warn('[Firestore] subscribeToRepairDeletions (repairDeletions):', err);
-    }
-  );
-
-  return () => {
-    unsubRecords();
-    unsubTombstones();
-  };
 }
 
 export async function deleteRepairRecordFromFirestore(

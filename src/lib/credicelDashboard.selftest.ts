@@ -13,6 +13,7 @@ import {
   fileKindOf,
   formatNoteLineDate,
   isDashDocEmpty,
+  mergeDashDocsFromCloud,
   metadataAttachments,
   sanitizeDashHtml,
   sortCheckedItemsLast,
@@ -118,5 +119,23 @@ const datedItems = bodyHtmlToCheckItems(stamped, () => `id-${checkId++}`);
 assert.equal(datedItems[0].createdAt, stampedAt);
 const backDated = checkItemsToBodyHtml(datedItems);
 assert.match(backDated, /data-at="2026-09-22T10:15:00-07:00"/);
+
+{
+  const local = [
+    emptyDashDoc({ id: 'n1', title: 'ERP MEJORAS', updatedAt: '2026-10-14T10:00:00-07:00' }),
+    emptyDashDoc({ id: 'n2', title: 'REPARACIONES', updatedAt: '2026-10-14T11:00:00-07:00' })
+  ];
+  const kept = mergeDashDocsFromCloud(local, []);
+  assert.equal(kept.length, 2, 'nube vacía no borra las notas de este equipo');
+  assert.equal(kept[0].title === 'ERP MEJORAS' || kept[1].title === 'ERP MEJORAS', true);
+  const newer = emptyDashDoc({
+    id: 'n1',
+    title: 'ERP MEJORAS v2',
+    updatedAt: '2026-10-14T12:00:00-07:00'
+  });
+  const merged = mergeDashDocsFromCloud(local, [newer]);
+  assert.equal(merged.find((d) => d.id === 'n1')?.title, 'ERP MEJORAS v2');
+  assert.equal(merged.some((d) => d.id === 'n2'), true, 'se conservan las notas que la nube no mandó');
+}
 
 console.log('credicelDashboard self-test ok');

@@ -511,6 +511,30 @@ export async function deleteDashFile(id: string): Promise<void> {
   }
 }
 
+/** Si la nube viene vacía (cuota o fallo), no se tiran las notas de este equipo. */
+export function mergeDashDocsFromCloud(
+  local: CredicelDashDoc[],
+  cloud: CredicelDashDoc[]
+): CredicelDashDoc[] {
+  if (!Array.isArray(cloud) || cloud.length === 0) return local || [];
+  const byId = new Map<string, CredicelDashDoc>();
+  for (const row of local || []) {
+    if (row?.id) byId.set(row.id, row);
+  }
+  for (const row of cloud) {
+    if (!row?.id) continue;
+    const prev = byId.get(row.id);
+    if (!prev) {
+      byId.set(row.id, row);
+      continue;
+    }
+    const prevAt = String(prev.updatedAt || prev.createdAt || '');
+    const cloudAt = String(row.updatedAt || row.createdAt || '');
+    byId.set(row.id, cloudAt >= prevAt ? row : prev);
+  }
+  return sortDashDocs(Array.from(byId.values()));
+}
+
 export function loadCachedDashDocs(): CredicelDashDoc[] {
   try {
     if (typeof localStorage === 'undefined') return [];

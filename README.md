@@ -41,6 +41,8 @@ El objetivo es simple: **no perder ninguna venta del día**, aunque se caiga el 
 3. Un trabajador va subiendo la cola a Firestore: en orden, con reintentos y esperas crecientes.
 4. Nada se borra de la cola hasta que la nube confirma. Reintentar es inofensivo porque cada documento sube con su id fijo.
 
+**Cuota de Firebase (plan gratis):** si se acaban las lecturas del día, el POS **no borra** ventas ni notas. Siguen en esa computadora y en la cola. No se reintenta cada segundo (eso gasta más cuota). Al día siguiente, cuando Firestore se desahoga, se vuelve a enganchar. No borres datos del navegador ni cambies de equipo para “arreglarlo”.
+
 **Orden de los datos.** La cola respeta el orden **por sucursal**: si un ticket de Navojoa no sube, su corte espera. Nunca se guarda un corte sin sus ventas. Huatabampo sigue subiendo aparte, sin trabarse.
 
 **Folios únicos sin internet.** Cada caja aparta un bloque de folios del contador de la nube (por ejemplo del 41 al 65) y va gastando ese bloque. Dos cajas nunca repiten número aunque una pierda la señal. Si un equipo nunca alcanzó a apartar bloque, emite un folio provisional con la clave de esa caja (`NAV-2808-K3M07`), que también es único y se distingue a simple vista.

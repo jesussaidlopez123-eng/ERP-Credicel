@@ -1,7 +1,22 @@
 /**
- * Reintenta una escucha de Firestore si la red o la cuota fallan un momento.
- * Un fallo de Notas o agenda no debe dejar el POS en “sin nube” para siempre.
+ * Reintenta una escucha de Firestore si la red falla un momento.
+ * Si se acabó la cuota gratis del día, espera mucho: reintentar cada segundo
+ * la agota más y no trae los datos de vuelta.
  */
+export const FIRESTORE_QUOTA_RETRY_MS = 20 * 60 * 1000;
+
+export function firestoreErrorText(err: unknown): string {
+  if (!err) return '';
+  if (typeof err === 'string') return err.toLowerCase();
+  const row = err as { code?: string; message?: string };
+  return `${row.code || ''} ${row.message || ''}`.toLowerCase();
+}
+
+export function isFirestoreQuotaError(err: unknown): boolean {
+  const text = firestoreErrorText(err);
+  return text.includes('resource-exhausted') || text.includes('quota');
+}
+
 export function listenSnapshotWithRetry<TSnapshot>(
   attach: (onNext: (snap: TSnapshot) => void, onError: (err: unknown) => void) => () => void,
   onNext: (snap: TSnapshot) => void,
@@ -38,7 +53,9 @@ export function listenSnapshotWithRetry<TSnapshot>(
           reported = true;
           onError?.(err);
         }
-        const wait = delaysMs[Math.min(attempt, delaysMs.length - 1)] ?? 15000;
+        const wait = isFirestoreQuotaError(err)
+          ? FIRESTORE_QUOTA_RETRY_MS
+          : delaysMs[Math.min(attempt, delaysMs.length - 1)] ?? 15000;
         attempt += 1;
         clearTimer();
         timer = setTimeout(start, wait);

@@ -32,6 +32,7 @@ import {
   isDashDocEmpty,
   KEEP_NOTE_COLORS,
   loadCachedDashDocs,
+  mergeDashDocsFromCloud,
   loadDashView,
   MAX_DASH_FILE_BYTES,
   putDashFile,
@@ -345,13 +346,7 @@ export default function CredicelDashboardModule({
     const unsub = subscribeToCredicelDashDocs(
       (cloudDocs) => {
         setDocs((prev) => {
-          const cloudIds = new Set(cloudDocs.map((d) => d.id));
-          const pending = prev.filter((local) => {
-            if (cloudIds.has(local.id)) return false;
-            const ts = Date.parse(local.updatedAt || local.createdAt || '');
-            return Number.isFinite(ts) && Date.now() - ts < 5 * 60 * 1000;
-          });
-          const merged = sortDashDocs([...cloudDocs, ...pending]);
+          const merged = mergeDashDocsFromCloud(prev, cloudDocs);
           saveCachedDashDocs(merged);
           return merged;
         });
