@@ -123,7 +123,7 @@ for (let seq = 1; seq <= 200; seq++) {
 assert.equal(folios.size, 200, 'los folios del bloque no se repiten');
 
 // ---- limpieza del historial viejo, sin tocar lo pendiente ----
-const { pruneOldLocalRecords, forgetLocalSale } = await import('./syncQueue.ts');
+const { pruneOldLocalRecords, forgetLocalSale, forgetLocalRepair } = await import('./syncQueue.ts');
 
 await putRecord({
   kind: 'sale',
@@ -165,6 +165,21 @@ assert.equal(
   await getRecord('sale', 'TCK-1'),
   null,
   'un ticket cancelado no revive desde el respaldo local'
+);
+
+await putRecord({
+  kind: 'repair',
+  id: 'REP-DEL',
+  branchId: 'b-navojoa',
+  dateKey: '2026-10-14',
+  data: { id: 'REP-DEL', status: 'en_taller' },
+  updatedAt: trustedIso()
+});
+await forgetLocalRepair('REP-DEL');
+assert.equal(
+  await getRecord('repair', 'REP-DEL'),
+  null,
+  'una reparación eliminada por el admin no revive desde el respaldo local'
 );
 
 // ---- respaldo diario: no rebasar el tamaño de un documento ----

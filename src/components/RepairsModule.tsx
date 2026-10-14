@@ -8,6 +8,7 @@ import {
   Search,
   Smartphone,
   Store,
+  Trash2,
   User,
   Wrench
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import { trustedIso } from '../lib/clockGuard';
 import {
   applyRepairCost,
   canCancelRepair,
+  canDeleteRepair,
   compareRepairsShopQueue,
   hasRefaccionCost,
   isPendingRepair,
@@ -29,7 +31,7 @@ import {
   stampRepairLabel
 } from '../lib/repairUtils';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
-import { CancelRepairDialog } from './RepairHistoryPanel';
+import { CancelRepairDialog, DeleteRepairDialog } from './RepairHistoryPanel';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -39,6 +41,8 @@ interface RepairsModuleProps {
   currentOperator: Operator;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onDeleteRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  operators?: Operator[];
   embedded?: boolean;
   onLoadOlderRepairs?: () => void;
   repairsHasMore?: boolean;
@@ -57,6 +61,8 @@ function RepairsModule({
   currentOperator,
   onUpdateRepairRecord,
   onCancelRepairRecord,
+  onDeleteRepairRecord,
+  operators = [],
   embedded = false,
   onLoadOlderRepairs,
   repairsHasMore = false,
@@ -78,6 +84,10 @@ function RepairsModule({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RepairRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const showAdminDelete = isAdmin && Boolean(onDeleteRepairRecord) && canDeleteRepair(currentOperator.role);
   const [actionError, setActionError] = useState<string | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
 
@@ -184,6 +194,26 @@ function RepairsModule({
     setCancelError(null);
   };
 
+  const openDelete = (record: RepairRecord) => {
+    setDeleteTarget(record);
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async (reason: string) => {
+    if (!deleteTarget || !onDeleteRepairRecord || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await onDeleteRepairRecord(deleteTarget, reason);
+      if (openOrderId === deleteTarget.id) setOpenOrderId(null);
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const openOrderView = (record: RepairRecord) => {
     setOpenOrderId(record.id);
     setActionError(null);
@@ -225,6 +255,7 @@ function RepairsModule({
               ? () => openCancel(openOrder)
               : undefined
           }
+          onDelete={showAdminDelete ? () => openDelete(openOrder) : undefined}
         />
       ) : (
         <>
@@ -328,6 +359,16 @@ function RepairsModule({
                           Dar de baja
                         </button>
                       )}
+                      {showAdminDelete && (
+                        <button
+                          type="button"
+                          onClick={() => openDelete(record)}
+                          className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-bold rounded-xl cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Eliminar
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => openOrderView(record)}
@@ -369,6 +410,22 @@ function RepairsModule({
           error={cancelError}
         />
       )}
+
+      {deleteTarget && (
+        <DeleteRepairDialog
+          record={deleteTarget}
+          operators={operators}
+          currentOperator={currentOperator}
+          onClose={() => {
+            if (deleteBusy) return;
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={(reason) => void handleConfirmDelete(reason)}
+          busy={deleteBusy}
+          error={deleteError}
+        />
+      )}
     </div>
   );
 }
@@ -385,7 +442,8 @@ function OrderSheet({
   onSavePrice,
   onSettleWithoutCost,
   onUpdate,
-  onCancel
+  onCancel,
+  onDelete
 }: {
   record: RepairRecord;
   currentOperator: Operator;
@@ -399,6 +457,7 @@ function OrderSheet({
   onSettleWithoutCost: () => void;
   onUpdate: (record: RepairRecord) => void | Promise<void>;
   onCancel?: () => void;
+  onDelete?: () => void;
 }) {
   const costDue = needsRepairCostCapture(record);
   return (
@@ -513,16 +572,28 @@ function OrderSheet({
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
           <p className="text-[11px] text-slate-500">La entrega del equipo se hace en el punto de venta.</p>
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
-            >
-              <Ban className="w-3.5 h-3.5" />
-              Dar de baja
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                Dar de baja
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Eliminar
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </section>

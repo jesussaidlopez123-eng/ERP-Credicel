@@ -13,15 +13,16 @@ import {
   Clock,
   PackageCheck,
   History,
-  Ban
+  Ban,
+  Trash2
 } from 'lucide-react';
 import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket, RepairPriceItem } from '../types';
 import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
-import { canCancelRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
-import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
+import { canCancelRepair, canDeleteRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
+import RepairHistoryPanel, { CancelRepairDialog, DeleteRepairDialog } from './RepairHistoryPanel';
 import RepairPriceSearch from './RepairPriceSearch';
 import { applyRepairPriceToReception } from '../lib/repairPriceCatalog';
 
@@ -32,9 +33,11 @@ interface RepairModalProps {
   onAddRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onDeleteRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
   onAddToCart: (product: Product, amount: number, metadata?: CartItemMetadata) => void;
   currentBranch: Branch;
   currentOperator: Operator;
+  operators?: Operator[];
   onEmitDirectTicket?: (ticket: SaleTicket) => void | Promise<void>;
   isAdmin?: boolean;
   repairPrices?: RepairPriceItem[];
@@ -50,9 +53,11 @@ export default function RepairModal({
   onAddRepairRecord,
   onUpdateRepairRecord,
   onCancelRepairRecord,
+  onDeleteRepairRecord,
   onAddToCart,
   currentBranch,
   currentOperator,
+  operators = [],
   onEmitDirectTicket,
   isAdmin = false,
   repairPrices = []
@@ -75,6 +80,10 @@ export default function RepairModal({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RepairRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const showAdminDelete = isAdmin && Boolean(onDeleteRepairRecord) && canDeleteRepair(currentOperator.role);
 
   const screenPrices = useMemo(
     () =>
@@ -377,6 +386,20 @@ export default function RepairModal({
       setCancelError(err instanceof Error ? err.message : 'No se pudo dar de baja.');
     } finally {
       setCancelBusy(false);
+    }
+  };
+
+  const handleConfirmDelete = async (reason: string) => {
+    if (!deleteTarget || !onDeleteRepairRecord || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await onDeleteRepairRecord(deleteTarget, reason);
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar.');
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -698,6 +721,20 @@ export default function RepairModal({
                             Dar de baja
                           </button>
                         )}
+                        {showAdminDelete && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteTarget(record);
+                              setDeleteError(null);
+                            }}
+                            className="px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                            title="Eliminar este registro"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Eliminar
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleDeliverEquipment(record)}
@@ -730,6 +767,9 @@ export default function RepairModal({
               exportLabel={`taller-${currentBranch.name.toLowerCase()}`}
               isAdmin={isAdmin}
               onCancelRepairRecord={onCancelRepairRecord}
+              onDeleteRepairRecord={onDeleteRepairRecord}
+              operators={operators}
+              currentOperator={currentOperator}
             />
           </div>
         )}
@@ -748,6 +788,22 @@ export default function RepairModal({
           onConfirm={() => void handleConfirmCancel()}
           busy={cancelBusy}
           error={cancelError}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteRepairDialog
+          record={deleteTarget}
+          operators={operators}
+          currentOperator={currentOperator}
+          onClose={() => {
+            if (deleteBusy) return;
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={(reason) => void handleConfirmDelete(reason)}
+          busy={deleteBusy}
+          error={deleteError}
         />
       )}
     </div>

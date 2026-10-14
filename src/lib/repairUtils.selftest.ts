@@ -11,7 +11,10 @@ import {
   foldRepairDuplicates,
   inferRepairsFromTickets,
   canCancelRepair,
+  canDeleteRepair,
   cancelRepairRecord,
+  excludeDeletedRepairs,
+  rememberDeletedRepairIds,
   isPendingRepair,
   markRepairDelivered,
   mergeRepairSources,
@@ -102,6 +105,17 @@ assert(canCancelRepair(pending), 'en taller se puede dar de baja');
 assert(!needsRepairCostCapture(pending), 'sin entregar no pide gasto interno');
 
 const deliveredZero: RepairRecord = { ...pending, status: 'entregado', pendingBalance: 0 };
+assert(canDeleteRepair('admin'), 'el admin puede eliminar la ficha');
+assert(!canDeleteRepair('cashier'), 'el cajero no elimina fichas');
+assert(!canDeleteRepair('manager'), 'el encargado no elimina fichas');
+assert(!canDeleteRepair(undefined), 'sin rol no se elimina');
+{
+  const kept = excludeDeletedRepairs([pending, { ...pending, id: 'REP-2' }], ['REP-1']);
+  assert(kept.length === 1 && kept[0].id === 'REP-2', 'las fichas eliminadas no aparecen');
+  assert(excludeDeletedRepairs([pending], []).length === 1, 'sin tombstone no se filtra');
+  const ids = rememberDeletedRepairIds(['REP-1'], ['REP-2', 'REP-1', '']);
+  assert(ids.includes('REP-1') && ids.includes('REP-2') && ids.length === 2, 'los tombstones no se duplican');
+}
 assert(!canCancelRepair(deliveredZero), 'entregado no se da de baja');
 assert(needsRepairCostCapture(deliveredZero), 'entregado en $0 pide captura de gasto');
 assert(

@@ -38,6 +38,8 @@ import {
   saveCreditAccountToFirestore,
   applyCreditAbonoToAccount,
   subscribeToRepairRecords,
+  subscribeToRepairDeletions,
+  deleteRepairRecordFromFirestore,
   deleteSaleTicketFromFirestore,
   deleteExpenseFromFirestore,
   savePurchaseDraftToFirestore,
@@ -108,6 +110,7 @@ import {
   commitSale,
   forgetLocalSale,
   forgetLocalExpense,
+  forgetLocalRepair,
   localCortes,
   localExpenses,
   localRepairs,
@@ -122,12 +125,16 @@ import { ensureDailyBackup } from '../lib/dailyBackup';
 import { observeTrustedIso, trustedIso } from '../lib/clockGuard';
 import {
   assembleRepairRecords,
+  canDeleteRepair,
   cancelRepairRecord,
+  excludeDeletedRepairs,
   findPendingDuplicate,
   inferRepairsFromTickets,
   isPendingRepair,
+  loadDeletedRepairIds,
   loadLegacyRepairRecords,
   notificationVisibleToOperator,
+  rememberDeletedRepairIds,
   repairCostDueNotificationId,
   repairCostDueNotificationPlan,
   repairFingerprint
@@ -204,7 +211,7 @@ export default function Dashboard({
   const [branchCashFunds, setBranchCashFunds] = useState<Record<string, number>>({});
   const [creditAccounts, setCreditAccounts] = useState<CreditAccount[]>([]);
   const [repairRecords, setRepairRecords] = useState<RepairRecord[]>(() =>
-    loadCachedList<RepairRecord>('repairs')
+    excludeDeletedRepairs(loadCachedList<RepairRecord>('repairs'), loadDeletedRepairIds())
   );
   const [agendaTasks, setAgendaTasks] = useState<AgendaTask[]>(() =>
     loadCachedList<AgendaTask>('agenda').map((row) => normalizeAgendaTask(row)).filter((row): row is AgendaTask => Boolean(row))
@@ -258,6 +265,13 @@ export default function Dashboard({
   });
   const cloudRepairIdsRef = useRef<Set<string> | null>(null);
   const rescuedRepairIdsRef = useRef(new Set<string>());
+  const deletedRepairIdsRef = useRef<Set<string>>(new Set(loadDeletedRepairIds()));
+
+  const mergeDeletedRepairIds = (extra: Iterable<string>) => {
+    const next = rememberDeletedRepairIds(deletedRepairIdsRef.current, extra);
+    deletedRepairIdsRef.current = new Set(next);
+    return deletedRepairIdsRef.current;
+  };
   const recentlySoldImeisRef = useRef(new Set<string>());
   const cloudProductsRef = useRef<Product[]>([]);
   const pendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
@@ -404,18 +418,37 @@ export default function Dashboard({
 
     const unsubRepairs = subscribeToRepairRecords(
       (records) => {
+        const visible = excludeDeletedRepairs(records, deletedRepairIdsRef.current);
         if (Array.isArray(records)) {
-          cloudRepairIdsRef.current = new Set(records.map((r) => r.id));
+          cloudRepairIdsRef.current = new Set(visible.map((r) => r.id));
           setRepairsCloudReady(true);
         }
         setRepairRecords((prev) => {
-          const fromCloud = keepIfCloudEmpty(records, prev);
-          const next = assembleRepairRecords(
-            loadLegacyRepairRecords(),
-            prev,
-            localOnlyRef.current.repairs,
-            fromCloud
+          const fromCloud = keepIfCloudEmpty(visible, prev);
+          const next = excludeDeletedRepairs(
+            assembleRepairRecords(
+              loadLegacyRepairRecords(),
+              prev,
+              localOnlyRef.current.repairs,
+              fromCloud
+            ),
+            deletedRepairIdsRef.current
           );
+          scheduleSaveCachedList('repairs', next);
+          return next;
+        });
+      },
+      () => markCloudDown()
+    );
+
+    const unsubRepairDeletions = subscribeToRepairDeletions(
+      (ids) => {
+        mergeDeletedRepairIds(ids);
+        const skip = deletedRepairIdsRef.current;
+        localOnlyRef.current.repairs = excludeDeletedRepairs(localOnlyRef.current.repairs, skip);
+        setRepairRecords((prev) => {
+          const next = excludeDeletedRepairs(prev, skip);
+          if (next.length === prev.length) return prev;
           scheduleSaveCachedList('repairs', next);
           return next;
         });
@@ -450,6 +483,7 @@ export default function Dashboard({
       unsubFunds();
       unsubCredits();
       unsubRepairs();
+      unsubRepairDeletions();
       unsubAgenda();
     };
   }, []);
@@ -620,7 +654,7 @@ export default function Dashboard({
       if (extra.length < HISTORY_PAGE) setRepairsHasMore(false);
       if (extra.length > 0) {
         setRepairRecords((prev) => {
-          const next = assembleRepairRecords(prev, extra);
+          const next = excludeDeletedRepairs(assembleRepairRecords(prev, extra), deletedRepairIdsRef.current);
           scheduleSaveCachedList('repairs', next);
           return next;
         });
@@ -690,11 +724,15 @@ export default function Dashboard({
           localRepairs()
         ]);
         if (cancelled) return;
-        localOnlyRef.current = { sales, expenses: exps, cortes, repairs };
-        const legacy = loadLegacyRepairRecords();
-        if (repairs.length > 0 || legacy.length > 0) {
+        const visibleLocalRepairs = excludeDeletedRepairs(repairs, deletedRepairIdsRef.current);
+        localOnlyRef.current = { sales, expenses: exps, cortes, repairs: visibleLocalRepairs };
+        const legacy = excludeDeletedRepairs(loadLegacyRepairRecords(), deletedRepairIdsRef.current);
+        if (visibleLocalRepairs.length > 0 || legacy.length > 0) {
           setRepairRecords((prev) => {
-            const next = assembleRepairRecords(legacy, repairs, prev);
+            const next = excludeDeletedRepairs(
+              assembleRepairRecords(legacy, visibleLocalRepairs, prev),
+              deletedRepairIdsRef.current
+            );
             saveCachedList('repairs', next);
             return next;
           });
@@ -1442,6 +1480,9 @@ export default function Dashboard({
 
   /** Guarda el equipo en taller en este aparato y lo encola para la nube. */
   const persistRepairRecord = async (record: RepairRecord): Promise<RepairRecord> => {
+    if (deletedRepairIdsRef.current.has(record.id)) {
+      throw new Error('Esta reparación fue eliminada.');
+    }
     const previous = repairRecordsRef.current.find((r) => r.id === record.id);
     const saved = await commitRepairRecord(record);
     localOnlyRef.current.repairs = [
@@ -1583,11 +1624,14 @@ export default function Dashboard({
   };
 
   useEffect(() => {
-    const inferred = inferRepairsFromTickets(salesTickets);
+    const inferred = excludeDeletedRepairs(
+      inferRepairsFromTickets(salesTickets),
+      deletedRepairIdsRef.current
+    );
     if (inferred.length === 0) return;
 
     setRepairRecords((prev) => {
-      const next = assembleRepairRecords(inferred, prev);
+      const next = excludeDeletedRepairs(assembleRepairRecords(inferred, prev), deletedRepairIdsRef.current);
       const prevIds = new Set(prev.map((r) => r.id));
       if (next.length === prev.length && next.every((r) => prevIds.has(r.id))) return prev;
       saveCachedList('repairs', next);
@@ -1599,6 +1643,7 @@ export default function Dashboard({
     if (!cloudIds) return;
     const current = repairRecordsRef.current;
     inferred.forEach((rec) => {
+      if (deletedRepairIdsRef.current.has(rec.id)) return;
       if (!isPendingRepair(rec)) return;
       if (cloudIds.has(rec.id) || rescuedRepairIdsRef.current.has(rec.id)) return;
       const existing = current.find((row) => row.id === rec.id);
@@ -1638,6 +1683,37 @@ export default function Dashboard({
         atIso: trustedIso()
       })
     );
+  };
+
+  /**
+   * Borrado duro: solo el administrador. Quita la ficha de taller, caja e
+   * historial y deja un tombstone para que un ticket viejo no la vuelva a armar.
+   */
+  const handleDeleteRepairRecord = async (record: RepairRecord, reason: string) => {
+    if (!canDeleteRepair(currentOperator.role)) {
+      throw new Error('Solo el administrador puede eliminar una reparación.');
+    }
+    const id = String(record.id || '').trim();
+    if (!id) return;
+    mergeDeletedRepairIds([id]);
+    rescuedRepairIdsRef.current.delete(id);
+    if (cloudRepairIdsRef.current) cloudRepairIdsRef.current.delete(id);
+    localOnlyRef.current.repairs = localOnlyRef.current.repairs.filter((r) => r.id !== id);
+    setRepairRecords((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      repairRecordsRef.current = next;
+      saveCachedList('repairs', next);
+      return next;
+    });
+    await forgetLocalRepair(id);
+    await deleteRepairRecordFromFirestore(id, {
+      operatorName: currentOperator.name,
+      reason: reason || 'Eliminado por administrador'
+    });
+    const notifId = repairCostDueNotificationId(id);
+    notificationsRef.current = notificationsRef.current.filter((n) => n.id !== notifId);
+    setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    deleteNotificationFromFirestore(notifId).catch(() => {});
   };
 
   const persistAgendaTask = async (task: AgendaTask) => {
@@ -2173,6 +2249,7 @@ export default function Dashboard({
   const stableAddRepairRecord = useStableCallback(handleAddRepairRecord);
   const stableUpdateRepairRecord = useStableCallback(handleUpdateRepairRecord);
   const stableCancelRepairRecord = useStableCallback(handleCancelRepairRecord);
+  const stableDeleteRepairRecord = useStableCallback(handleDeleteRepairRecord);
   const stableFinalizeCorteX = useStableCallback(handleFinalizeCorteX);
   const stableAddProduct = useStableCallback(handleAddProduct);
   const stableUpdateProduct = useStableCallback(handleUpdateProduct);
@@ -2232,6 +2309,8 @@ export default function Dashboard({
             onAddRepairRecord={stableAddRepairRecord}
             onUpdateRepairRecord={stableUpdateRepairRecord}
             onCancelRepairRecord={stableCancelRepairRecord}
+            onDeleteRepairRecord={stableDeleteRepairRecord}
+            operators={operators}
             onFinalizeCorteX={stableFinalizeCorteX}
             onLogout={onLogout}
           />
@@ -2302,6 +2381,8 @@ export default function Dashboard({
             currentOperator={currentOperator}
             onUpdateRepairRecord={stableUpdateRepairRecord}
             onCancelRepairRecord={stableCancelRepairRecord}
+            onDeleteRepairRecord={stableDeleteRepairRecord}
+            operators={operators}
             onLoadOlderRepairs={loadOlderRepairs}
             repairsHasMore={repairsHasMore}
             repairsLoading={historyBusy === 'repairs'}

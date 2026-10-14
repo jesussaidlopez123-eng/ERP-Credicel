@@ -19,6 +19,51 @@ export function canCancelRepair(record: RepairRecord | null | undefined): boolea
   return isPendingRepair(record);
 }
 
+/** Quitar el registro por completo (no es dar de baja). Solo el administrador. */
+export function canDeleteRepair(role: string | undefined): boolean {
+  return normalizeRole(role) === 'admin';
+}
+
+const DELETED_REPAIR_IDS_KEY = 'credicel_deleted_repair_ids';
+
+export function loadDeletedRepairIds(): string[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DELETED_REPAIR_IDS_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((id) => String(id || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function persistDeletedRepairIds(ids: string[]): void {
+  if (typeof localStorage === 'undefined') return;
+  const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  localStorage.setItem(DELETED_REPAIR_IDS_KEY, JSON.stringify(unique.slice(-5000)));
+}
+
+export function rememberDeletedRepairIds(existing: Iterable<string>, extra: Iterable<string>): string[] {
+  const next = Array.from(
+    new Set(
+      [...existing, ...extra]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+  persistDeletedRepairIds(next);
+  return next;
+}
+
+export function excludeDeletedRepairs(
+  records: RepairRecord[] | undefined,
+  deletedIds: Iterable<string>
+): RepairRecord[] {
+  const skip = deletedIds instanceof Set ? deletedIds : new Set(deletedIds);
+  if (!skip.size) return records || [];
+  return (records || []).filter((row) => !skip.has(row.id));
+}
+
 export function cancelRepairRecord(
   record: RepairRecord,
   params: { reason: string; operatorName: string; atIso: string }

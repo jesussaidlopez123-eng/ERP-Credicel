@@ -83,6 +83,7 @@ export const BRANCH_FUNDS_COLLECTION = 'branchCashFunds';
 export const BRANCH_OPEN_SESSIONS_COLLECTION = 'branchOpenSessions';
 export const CREDIT_ACCOUNTS_COLLECTION = 'creditAccounts';
 export const REPAIR_RECORDS_COLLECTION = 'repairRecords';
+export const REPAIR_DELETIONS_COLLECTION = 'repairDeletions';
 export const META_COLLECTION = 'meta';
 export const FOLIO_COUNTERS_COLLECTION = 'folioCounters';
 export const PURCHASE_DRAFTS_COLLECTION = 'purchaseDrafts';
@@ -2421,6 +2422,46 @@ export async function fetchOlderRepairRecords(
 export async function saveRepairRecordToFirestore(record: RepairRecord) {
   const docRef = doc(db, REPAIR_RECORDS_COLLECTION, record.id);
   await setDoc(docRef, cleanForFirestore(record), { merge: true });
+}
+
+export function subscribeToRepairDeletions(
+  onUpdate: (ids: string[]) => void,
+  onError?: (err: any) => void
+) {
+  const col = collection(db, REPAIR_DELETIONS_COLLECTION);
+  return onSnapshot(
+    col,
+    (snapshot) => {
+      onUpdate(snapshot.docs.map((d) => d.id).filter(Boolean));
+    },
+    (err) => {
+      console.error('[Firestore] subscribeToRepairDeletions error:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export async function deleteRepairRecordFromFirestore(
+  repairId: string,
+  meta: { operatorName: string; reason?: string }
+): Promise<void> {
+  const id = String(repairId || '').trim();
+  if (!id) return;
+  try {
+    await deleteDoc(doc(db, REPAIR_RECORDS_COLLECTION, id));
+  } catch (err) {
+    console.warn('[Firestore] deleteDoc repairRecords:', err);
+  }
+  await setDoc(
+    doc(db, REPAIR_DELETIONS_COLLECTION, id),
+    {
+      id,
+      deletedAt: new Date().toISOString(),
+      deletedByName: String(meta.operatorName || '').trim() || 'Admin',
+      reason: String(meta.reason || '').trim() || 'Eliminado por administrador'
+    },
+    { merge: true }
+  );
 }
 
 export function subscribeToPurchaseDrafts(

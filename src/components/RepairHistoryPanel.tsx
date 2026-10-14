@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Ban, Download, History, Search } from 'lucide-react';
-import { RepairRecord } from '../types';
+import { Ban, Download, History, Lock, Search, ShieldAlert, Trash2 } from 'lucide-react';
+import { Operator, RepairRecord } from '../types';
 import { formatMoney } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import { safeDateIsoKey } from '../lib/dateUtils';
 import { getBranchDisplayName } from '../data/initialBranches';
-import { matchesRepairSearch, repairInternalCost, stampRepairLabel } from '../lib/repairUtils';
+import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
+import { canDeleteRepair, matchesRepairSearch, repairInternalCost, stampRepairLabel } from '../lib/repairUtils';
 import { REPAIR_COST_KIND_LABEL, repairCustomerMargin } from '../lib/repairFinance';
 import LoadMoreButton from './LoadMoreButton';
 import RepairCostLinesEditor from './RepairCostLinesEditor';
@@ -19,6 +20,9 @@ interface RepairHistoryPanelProps {
   showBranch?: boolean;
   isAdmin?: boolean;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onDeleteRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  operators?: Operator[];
+  currentOperator?: Operator;
   onUpdateRepairRecord?: (record: RepairRecord) => void | Promise<void>;
   operatorName?: string;
   onLoadOlder?: () => void;
@@ -30,7 +34,10 @@ export default function RepairHistoryPanel({
   records,
   exportLabel = 'taller',
   showBranch = false,
-  isAdmin: _isAdmin = false,
+  isAdmin = false,
+  onDeleteRepairRecord,
+  operators = [],
+  currentOperator,
   onUpdateRepairRecord,
   operatorName,
   onLoadOlder,
@@ -41,6 +48,10 @@ export default function RepairHistoryPanel({
   const debouncedHistorySearch = useDebouncedValue(historySearch, 160);
   const [historyScope, setHistoryScope] = useState<HistoryScope>('entregados');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<RepairRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const showAdminDelete = isAdmin && Boolean(onDeleteRepairRecord) && canDeleteRepair(currentOperator?.role);
 
   const historyRecords = useMemo(() => {
     return records
@@ -337,6 +348,22 @@ export default function RepairHistoryPanel({
                         Un equipo entregado no se da de baja. La baja es para órdenes que siguen en taller.
                       </p>
                     )}
+
+                    {showAdminDelete && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteTarget(record);
+                            setDeleteError(null);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold text-xs rounded-xl cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -351,6 +378,35 @@ export default function RepairHistoryPanel({
         onClick={onLoadOlder}
         label="Cargar historial anterior"
       />
+
+      {deleteTarget && (
+        <DeleteRepairDialog
+          record={deleteTarget}
+          operators={operators}
+          currentOperator={currentOperator}
+          onClose={() => {
+            if (deleteBusy) return;
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={async (reason) => {
+            if (!onDeleteRepairRecord || deleteBusy) return;
+            setDeleteBusy(true);
+            setDeleteError(null);
+            try {
+              await onDeleteRepairRecord(deleteTarget, reason);
+              setDeleteTarget(null);
+              setExpandedId((id) => (id === deleteTarget.id ? null : id));
+            } catch (err) {
+              setDeleteError(err instanceof Error ? err.message : 'No se pudo eliminar.');
+            } finally {
+              setDeleteBusy(false);
+            }
+          }}
+          busy={deleteBusy}
+          error={deleteError}
+        />
+      )}
     </div>
   );
 }
@@ -421,6 +477,124 @@ export function CancelRepairDialog({
           >
             {busy ? 'Guardando…' : 'Dar de baja'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DeleteRepairDialog({
+  record,
+  operators,
+  currentOperator,
+  onClose,
+  onConfirm,
+  busy = false,
+  error = null
+}: {
+  record: RepairRecord;
+  operators: Operator[];
+  currentOperator?: Operator;
+  onClose: () => void;
+  onConfirm: (reason: string) => void | Promise<void>;
+  busy?: boolean;
+  error?: string | null;
+}) {
+  const [reason, setReason] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const anticipo = Number(record.advancePayment) || 0;
+
+  const handleConfirm = async () => {
+    if (busy) return;
+    const auth = authorizeWithAdminPassword(adminPassword, operators, currentOperator);
+    if (auth) {
+      setAuthError(auth);
+      return;
+    }
+    const finalReason = reason.trim() || 'Eliminado por administrador';
+    await onConfirm(finalReason);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4">
+      <div className="bg-white rounded-2xl border border-rose-100 shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="bg-rose-700 px-5 py-4">
+          <div className="flex items-center gap-2 text-white">
+            <ShieldAlert className="w-4 h-4" />
+            <h4 className="text-sm font-black">Eliminar {record.id}</h4>
+          </div>
+          <p className="text-[11px] text-rose-100 mt-1">
+            Solo el administrador. Sale de taller, de caja y del historial. No se puede deshacer.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
+            <p className="font-black text-slate-900">
+              {record.clientName} · {record.deviceModel}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {getBranchDisplayName(record.branchId)} · {record.clientPhone || 'sin teléfono'}
+            </p>
+          </div>
+          {anticipo > 0 && (
+            <p className="text-[11px] text-amber-950 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+              Hay un anticipo de ${formatMoney(anticipo)} en caja. Borrar la ficha no lo devuelve: si hay
+              que reembolsar, regístralo como gasto.
+            </p>
+          )}
+          <div>
+            <label className="text-[11px] font-bold text-slate-600 block mb-1">Motivo (opcional)</label>
+            <textarea
+              rows={2}
+              placeholder="Ej. captura duplicada, folio de prueba"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={busy}
+              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5" />
+              Contraseña del administrador
+            </label>
+            <input
+              type="password"
+              autoComplete="off"
+              autoFocus
+              value={adminPassword}
+              onChange={(e) => {
+                setAdminPassword(e.target.value);
+                if (authError) setAuthError(null);
+              }}
+              disabled={busy}
+              placeholder="Solo un administrador puede autorizar el borrado"
+              className="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs font-bold rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+            />
+            {(authError || error) && (
+              <p className="mt-1.5 text-[11px] font-bold text-rose-700">{authError || error}</p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+            >
+              Volver
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleConfirm()}
+              disabled={busy}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              {busy ? 'Eliminando…' : 'Confirmar y eliminar'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

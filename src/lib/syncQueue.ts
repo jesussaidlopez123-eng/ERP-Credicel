@@ -380,6 +380,12 @@ export async function forgetLocalExpense(expenseId: string): Promise<void> {
   await dropPendingWrite(`expense-${expenseId}`);
 }
 
+/** Una reparación eliminada por el admin no debe volver a subir desde este equipo. */
+export async function forgetLocalRepair(repairId: string): Promise<void> {
+  await deleteRecord('repair', repairId);
+  await dropPendingWrite(`repair-${repairId}`);
+}
+
 const LOCAL_RETENTION_DAYS = 45;
 
 /**

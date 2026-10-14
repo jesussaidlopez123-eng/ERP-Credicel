@@ -79,6 +79,8 @@ interface PosModuleProps {
   onAddRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onUpdateRepairRecord: (record: RepairRecord) => void | Promise<void>;
   onCancelRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  onDeleteRepairRecord?: (record: RepairRecord, reason: string) => void | Promise<void>;
+  operators?: Operator[];
 }
 
 
@@ -113,7 +115,9 @@ function PosModule({
   repairRecords: repairRecordsProp,
   onAddRepairRecord,
   onUpdateRepairRecord,
-  onCancelRepairRecord
+  onCancelRepairRecord,
+  onDeleteRepairRecord,
+  operators = []
 }: PosModuleProps) {
 
   // Cart state
@@ -977,6 +981,8 @@ function PosModule({
                 currentOperator={currentOperator}
                 onUpdateRepairRecord={onUpdateRepairRecord}
                 onCancelRepairRecord={onCancelRepairRecord}
+                onDeleteRepairRecord={onDeleteRepairRecord}
+                operators={operators}
               />
             </div>
           )}
@@ -1351,10 +1357,12 @@ function PosModule({
           onAddRepairRecord={onAddRepairRecord}
           onUpdateRepairRecord={onUpdateRepairRecord}
           onCancelRepairRecord={onCancelRepairRecord}
+          onDeleteRepairRecord={onDeleteRepairRecord}
           onAddToCart={(prod, amt, meta) => addToCart(prod, amt, meta)}
           currentBranch={currentBranch}
           currentOperator={currentOperator}
-          isAdmin={currentOperator.role === 'admin'}
+          operators={operators}
+          isAdmin={isAdminUser}
           repairPrices={repairPrices}
           onImportRepairPrices={onImportRepairPrices}
           onEmitDirectTicket={async (ticket) => {
