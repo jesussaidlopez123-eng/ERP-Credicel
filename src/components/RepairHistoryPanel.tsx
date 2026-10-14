@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Ban, Download, History, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Ban, Download, History, Search } from 'lucide-react';
 import { RepairRecord } from '../types';
 import { formatMoney } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
@@ -30,8 +30,7 @@ export default function RepairHistoryPanel({
   records,
   exportLabel = 'taller',
   showBranch = false,
-  isAdmin = false,
-  onCancelRepairRecord,
+  isAdmin: _isAdmin = false,
   onUpdateRepairRecord,
   operatorName,
   onLoadOlder,
@@ -42,8 +41,6 @@ export default function RepairHistoryPanel({
   const debouncedHistorySearch = useDebouncedValue(historySearch, 160);
   const [historyScope, setHistoryScope] = useState<HistoryScope>('entregados');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
-  const [cancelReason, setCancelReason] = useState('');
 
   const historyRecords = useMemo(() => {
     return records
@@ -116,13 +113,6 @@ export default function RepairHistoryPanel({
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const handleConfirmCancel = async () => {
-    if (!cancelTarget || !onCancelRepairRecord) return;
-    await onCancelRepairRecord(cancelTarget, cancelReason);
-    setCancelTarget(null);
-    setCancelReason('');
   };
 
   return (
@@ -342,18 +332,10 @@ export default function RepairHistoryPanel({
                       </div>
                     )}
 
-                    {!cancelado && onCancelRepairRecord && isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCancelTarget(record);
-                          setCancelReason('');
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Dar de baja este registro
-                      </button>
+                    {!cancelado && (
+                      <p className="text-[11px] text-slate-500">
+                        Un equipo entregado no se da de baja. La baja es para órdenes que siguen en taller.
+                      </p>
                     )}
                   </div>
                 )}
@@ -369,45 +351,6 @@ export default function RepairHistoryPanel({
         onClick={onLoadOlder}
         label="Cargar historial anterior"
       />
-
-      {cancelTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-rose-600" />
-              <h4 className="text-sm font-black text-slate-900">Dar de baja {cancelTarget.id}</h4>
-            </div>
-            <p className="text-xs text-slate-600">
-              El registro no se borra: queda en el historial como dado de baja, con tu nombre y el motivo.
-              Equipo de {cancelTarget.clientName} ({cancelTarget.deviceModel}).
-            </p>
-            <textarea
-              rows={2}
-              autoFocus
-              placeholder="Motivo (ej. captura equivocada, el cliente ya no dejó el equipo)"
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setCancelTarget(null)}
-                className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleConfirmCancel()}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Dar de baja
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -417,14 +360,20 @@ export function CancelRepairDialog({
   reason,
   onReasonChange,
   onClose,
-  onConfirm
+  onConfirm,
+  busy = false,
+  error = null
 }: {
   record: RepairRecord;
   reason: string;
   onReasonChange: (value: string) => void;
   onClose: () => void;
   onConfirm: () => void;
+  busy?: boolean;
+  error?: string | null;
 }) {
+  const hasReason = Boolean(reason.trim());
+  const anticipo = Number(record.advancePayment) || 0;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-5 space-y-3">
@@ -433,31 +382,44 @@ export function CancelRepairDialog({
           <h4 className="text-sm font-black text-slate-900">Dar de baja {record.id}</h4>
         </div>
         <p className="text-xs text-slate-600">
-          El registro no se borra: queda en el historial como dado de baja, con tu nombre y el motivo.
+          Sale de taller y queda en el historial como dado de baja, con tu nombre y el motivo.
           Equipo de {record.clientName} ({record.deviceModel}).
         </p>
+        {anticipo > 0 && (
+          <p className="text-[11px] text-amber-950 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            Ya hay un anticipo de ${formatMoney(anticipo)} en caja. La baja no lo devuelve: si hay que reembolsar, regístralo como gasto.
+          </p>
+        )}
         <textarea
           rows={2}
           autoFocus
           placeholder="Motivo (ej. captura equivocada, el cliente ya no dejó el equipo)"
           value={reason}
           onChange={(e) => onReasonChange(e.target.value)}
-          className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+          disabled={busy}
+          className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
         />
+        {error && (
+          <p className="text-[11px] font-semibold text-rose-800 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+            {error}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+            disabled={busy}
+            className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
           >
-            Cancelar
+            Volver
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+            disabled={busy || !hasReason}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold cursor-pointer"
           >
-            Dar de baja
+            {busy ? 'Guardando…' : 'Dar de baja'}
           </button>
         </div>
       </div>

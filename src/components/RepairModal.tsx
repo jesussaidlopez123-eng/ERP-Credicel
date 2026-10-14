@@ -13,16 +13,15 @@ import {
   Clock,
   PackageCheck,
   History,
-  Ban,
-  ShieldCheck
+  Ban
 } from 'lucide-react';
 import { RepairRecord, Product, CartItemMetadata, Branch, Operator, SaleTicket } from '../types';
 import { allocateRepairFolio } from '../lib/folioAllocator';
 import { trustedIso } from '../lib/clockGuard';
 import { safeFormatDate, safeFormatTime } from '../lib/dateUtils';
 import { formatMoney, money } from '../lib/ids';
-import { findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
-import RepairHistoryPanel from './RepairHistoryPanel';
+import { canCancelRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
+import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
 
 interface RepairModalProps {
   isOpen: boolean;
@@ -68,6 +67,8 @@ export default function RepairModal({
   const [searchFilter, setSearchFilter] = useState('');
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const pendingRepairs = useMemo(() => {
     const q = searchFilter.toLowerCase().trim();
@@ -348,10 +349,18 @@ export default function RepairModal({
   };
 
   const handleConfirmCancel = async () => {
-    if (!cancelTarget || !onCancelRepairRecord) return;
-    await onCancelRepairRecord(cancelTarget, cancelReason);
-    setCancelTarget(null);
-    setCancelReason('');
+    if (!cancelTarget || !onCancelRepairRecord || cancelBusy) return;
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      await onCancelRepairRecord(cancelTarget, cancelReason);
+      setCancelTarget(null);
+      setCancelReason('');
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'No se pudo dar de baja.');
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
   const tabButton = (id: TabId, icon: React.ReactNode, label: string) => (
@@ -555,6 +564,9 @@ export default function RepairModal({
                 className="w-full pl-9 pr-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none"
               />
             </div>
+            <p className="text-[11px] text-slate-500">
+              Para sacar un equipo de taller sin entregarlo, usa <strong className="font-semibold text-slate-700">Dar de baja</strong> y escribe el motivo. Queda en Historial.
+            </p>
 
             {pendingRepairs.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 space-y-2">
@@ -629,12 +641,13 @@ export default function RepairModal({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {onCancelRepairRecord && isAdmin && (
+                        {onCancelRepairRecord && canCancelRepair(record) && (
                           <button
                             type="button"
                             onClick={() => {
                               setCancelTarget(record);
                               setCancelReason('');
+                              setCancelError(null);
                             }}
                             className="px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                             title="Dar de baja este registro"
@@ -681,42 +694,19 @@ export default function RepairModal({
       </div>
 
       {cancelTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-sm p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-rose-600" />
-              <h4 className="text-sm font-black text-slate-900">Dar de baja {cancelTarget.id}</h4>
-            </div>
-            <p className="text-xs text-slate-600">
-              El registro no se borra: queda en el historial como dado de baja, con tu nombre y el motivo.
-              Equipo de {cancelTarget.clientName} ({cancelTarget.deviceModel}).
-            </p>
-            <textarea
-              rows={2}
-              autoFocus
-              placeholder="Motivo (ej. captura equivocada, el cliente ya no dejó el equipo)"
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-none"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setCancelTarget(null)}
-                className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleConfirmCancel()}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Dar de baja
-              </button>
-            </div>
-          </div>
-        </div>
+        <CancelRepairDialog
+          record={cancelTarget}
+          reason={cancelReason}
+          onReasonChange={setCancelReason}
+          onClose={() => {
+            if (cancelBusy) return;
+            setCancelTarget(null);
+            setCancelError(null);
+          }}
+          onConfirm={() => void handleConfirmCancel()}
+          busy={cancelBusy}
+          error={cancelError}
+        />
       )}
     </div>
   );

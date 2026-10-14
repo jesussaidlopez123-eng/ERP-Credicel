@@ -14,6 +14,35 @@ export function isPendingRepair(record: RepairRecord | null | undefined): boolea
   return !CLOSED_STATUSES.has(status);
 }
 
+/** Solo se da de baja un equipo que sigue en taller. Entregado o ya cancelado no. */
+export function canCancelRepair(record: RepairRecord | null | undefined): boolean {
+  return isPendingRepair(record);
+}
+
+export function cancelRepairRecord(
+  record: RepairRecord,
+  params: { reason: string; operatorName: string; atIso: string }
+): RepairRecord {
+  if (!record || normalizeRepairStatus(record.status) === 'cancelado') {
+    throw new Error('Este registro ya está dado de baja.');
+  }
+  if (normalizeRepairStatus(record.status) === 'entregado') {
+    throw new Error('Este equipo ya se entregó. No se da de baja desde el taller.');
+  }
+  const reason = String(params.reason || '').trim();
+  if (!reason) {
+    throw new Error('Escribe el motivo de la baja.');
+  }
+  const operatorName = String(params.operatorName || '').trim() || 'Caja';
+  return {
+    ...record,
+    status: 'cancelado',
+    cancelledAt: params.atIso,
+    cancelledByName: operatorName,
+    cancelReason: reason
+  };
+}
+
 export function stampRepairLabel(iso: string | undefined, fallback: string | undefined): string {
   if (iso) return `${safeFormatDate(iso)} ${safeFormatTime(iso)}`;
   return fallback || '—';

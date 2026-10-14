@@ -120,6 +120,7 @@ import { ensureDailyBackup } from '../lib/dailyBackup';
 import { observeTrustedIso, trustedIso } from '../lib/clockGuard';
 import {
   assembleRepairRecords,
+  cancelRepairRecord,
   findPendingDuplicate,
   inferRepairsFromTickets,
   isPendingRepair,
@@ -1611,13 +1612,13 @@ export default function Dashboard({
    * constancia de quién lo dio de baja y por qué.
    */
   const handleCancelRepairRecord = async (record: RepairRecord, reason: string) => {
-    await persistRepairRecord({
-      ...record,
-      status: 'cancelado',
-      cancelledAt: trustedIso(),
-      cancelledByName: currentOperator.name,
-      cancelReason: reason.trim() || 'Sin motivo capturado'
-    });
+    await persistRepairRecord(
+      cancelRepairRecord(record, {
+        reason,
+        operatorName: currentOperator.name,
+        atIso: trustedIso()
+      })
+    );
   };
 
   const persistAgendaTask = async (task: AgendaTask) => {

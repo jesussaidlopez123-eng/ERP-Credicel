@@ -18,6 +18,7 @@ import { formatMoney, money } from '../lib/ids';
 import { trustedIso } from '../lib/clockGuard';
 import {
   applyRepairCost,
+  canCancelRepair,
   compareRepairsShopQueue,
   hasRefaccionCost,
   isPendingRepair,
@@ -75,6 +76,8 @@ function RepairsModule({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<RepairRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [priceDraft, setPriceDraft] = useState('');
 
@@ -160,11 +163,25 @@ function RepairsModule({
   };
 
   const handleConfirmCancel = async () => {
-    if (!cancelTarget || !onCancelRepairRecord) return;
-    await onCancelRepairRecord(cancelTarget, cancelReason);
-    setCancelTarget(null);
+    if (!cancelTarget || !onCancelRepairRecord || cancelBusy) return;
+    setCancelBusy(true);
+    setCancelError(null);
+    try {
+      await onCancelRepairRecord(cancelTarget, cancelReason);
+      if (openOrderId === cancelTarget.id) setOpenOrderId(null);
+      setCancelTarget(null);
+      setCancelReason('');
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'No se pudo dar de baja.');
+    } finally {
+      setCancelBusy(false);
+    }
+  };
+
+  const openCancel = (record: RepairRecord) => {
+    setCancelTarget(record);
     setCancelReason('');
-    if (openOrderId === cancelTarget.id) setOpenOrderId(null);
+    setCancelError(null);
   };
 
   const openOrderView = (record: RepairRecord) => {
@@ -204,11 +221,8 @@ function RepairsModule({
           onSettleWithoutCost={() => void handleSettleWithoutCost(openOrder)}
           onUpdate={onUpdateRepairRecord}
           onCancel={
-            onCancelRepairRecord && isPendingRepair(openOrder)
-              ? () => {
-                  setCancelTarget(openOrder);
-                  setCancelReason('');
-                }
+            onCancelRepairRecord && canCancelRepair(openOrder)
+              ? () => openCancel(openOrder)
               : undefined
           }
         />
@@ -303,16 +317,28 @@ function RepairsModule({
                         <span>Saldo ${formatMoney(record.pendingBalance)}</span>
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openOrderView(record)}
-                      className={`w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-white text-xs font-bold rounded-xl cursor-pointer ${
-                        costDue ? 'bg-orange-600 hover:bg-orange-700' : 'bg-[#0047AB] hover:bg-[#003d93]'
-                      }`}
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      Abrir orden
-                    </button>
+                    <div className="flex w-full sm:w-auto shrink-0 flex-col sm:flex-row gap-2">
+                      {onCancelRepairRecord && canCancelRepair(record) && (
+                        <button
+                          type="button"
+                          onClick={() => openCancel(record)}
+                          className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 text-xs font-bold rounded-xl cursor-pointer"
+                        >
+                          <Ban className="w-3.5 h-3.5" />
+                          Dar de baja
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openOrderView(record)}
+                        className={`w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-white text-xs font-bold rounded-xl cursor-pointer ${
+                          costDue ? 'bg-orange-600 hover:bg-orange-700' : 'bg-[#0047AB] hover:bg-[#003d93]'
+                        }`}
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" />
+                        Abrir orden
+                      </button>
+                    </div>
                   </article>
                 );
               })}
@@ -333,8 +359,14 @@ function RepairsModule({
           record={cancelTarget}
           reason={cancelReason}
           onReasonChange={setCancelReason}
-          onClose={() => setCancelTarget(null)}
+          onClose={() => {
+            if (cancelBusy) return;
+            setCancelTarget(null);
+            setCancelError(null);
+          }}
           onConfirm={() => void handleConfirmCancel()}
+          busy={cancelBusy}
+          error={cancelError}
         />
       )}
     </div>
@@ -481,7 +513,7 @@ function OrderSheet({
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100">
           <p className="text-[11px] text-slate-500">La entrega del equipo se hace en el punto de venta.</p>
-          {onCancel && isAdmin && (
+          {onCancel && (
             <button
               type="button"
               onClick={onCancel}

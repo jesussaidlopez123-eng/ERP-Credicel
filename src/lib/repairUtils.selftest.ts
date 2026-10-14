@@ -10,6 +10,8 @@ import {
   findPendingDuplicate,
   foldRepairDuplicates,
   inferRepairsFromTickets,
+  canCancelRepair,
+  cancelRepairRecord,
   isPendingRepair,
   markRepairDelivered,
   mergeRepairSources,
@@ -63,9 +65,44 @@ assert(workStageOf(shiftRepairWorkStage(pending, 1)) === 'costo_refaccion', 'el 
 assert(repairDaysInShop({ ...pending, receivedAtIso: '2026-10-01T12:00:00-07:00' }, '2026-10-03') === 2, 'días en taller');
 assert(isPendingRepair(pending), 'en taller está pendiente y se puede entregar');
 assert(isPendingRepair({ ...pending, status: 'listo' }), 'un listo viejo sigue entregable');
+assert(canCancelRepair(pending), 'en taller se puede dar de baja');
+{
+  const baja = cancelRepairRecord(pending, {
+    reason: 'El cliente ya no dejó el equipo',
+    operatorName: 'Teresa',
+    atIso: '2026-10-14T11:00:00-07:00'
+  });
+  assert(baja.status === 'cancelado', 'la baja queda cancelada');
+  assert(baja.cancelReason === 'El cliente ya no dejó el equipo', 'guarda el motivo');
+  assert(baja.cancelledByName === 'Teresa', 'guarda quién la dio de baja');
+  assert(!isPendingRepair(baja), 'dado de baja ya no está en taller');
+  assert(repairStatusLabel(baja.status) === 'Dado de baja', 'la etiqueta es Dado de baja');
+}
+{
+  let emptyReason = false;
+  try {
+    cancelRepairRecord(pending, { reason: '  ', operatorName: 'Caja', atIso: '2026-10-14T11:00:00-07:00' });
+  } catch {
+    emptyReason = true;
+  }
+  assert(emptyReason, 'sin motivo no se da de baja');
+}
+{
+  let deliveredBlocked = false;
+  try {
+    cancelRepairRecord(
+      { ...pending, status: 'entregado', pendingBalance: 0 },
+      { reason: 'error', operatorName: 'Caja', atIso: '2026-10-14T11:00:00-07:00' }
+    );
+  } catch {
+    deliveredBlocked = true;
+  }
+  assert(deliveredBlocked, 'no se da de baja un entregado');
+}
 assert(!needsRepairCostCapture(pending), 'sin entregar no pide gasto interno');
 
 const deliveredZero: RepairRecord = { ...pending, status: 'entregado', pendingBalance: 0 };
+assert(!canCancelRepair(deliveredZero), 'entregado no se da de baja');
 assert(needsRepairCostCapture(deliveredZero), 'entregado en $0 pide captura de gasto');
 assert(
   !needsRepairCostCapture({
