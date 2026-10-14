@@ -41,7 +41,16 @@ El objetivo es simple: **no perder ninguna venta del día**, aunque se caiga el 
 3. Un trabajador va subiendo la cola a Firestore: en orden, con reintentos y esperas crecientes.
 4. Nada se borra de la cola hasta que la nube confirma. Reintentar es inofensivo porque cada documento sube con su id fijo.
 
-**Cuota de Firebase (plan gratis):** el plan Spark corta las lecturas al llegar al tope del día. El POS **no borra** ventas ni notas; siguen en esa computadora. **Solución de fondo:** en [Firebase Console](https://console.firebase.google.com/) → proyecto `effective-airline-9gtt6` → **Actualizar a Blaze** (pago por uso). Tres cajas CREDI CEL suelen costar centavos al día; sin eso el corte de cuota se repite. En el POS, al recargar se usa caché en disco y **Notas no pide ventas ni inventario** hasta abrir esos módulos. No borres datos del navegador.
+**Cuota de Firebase:** la base de CREDI CEL nació en Google AI Studio. Aunque el proyecto ya esté en **Blaze**, esa base sigue en un cupo gratis compartido (50 mil lecturas al día) hasta que se actualice **la base**, no solo el plan. Google lo dice así: *Linking a Cloud Billing account doesn't automatically remove the shared quota caps.*
+
+Para quitar el tope (hace falta estar en Blaze):
+
+1. Abre [Firestore](https://console.firebase.google.com/project/effective-airline-9gtt6/firestore) en el proyecto `effective-airline-9gtt6`.
+2. Elige la base `ai-studio-erpposmultisucur-e55719b2-0519-4116-8707-50042acb7fc7` (no hace falta crear `(default)`).
+3. En el aviso de *AI shared quota*, pulsa **Upgrade database** → **Upgrade to pay-as-you-go**.
+4. Espera unos minutos. Recarga el POS en **el mismo Chrome** de cada caja. No borres datos del navegador: ventas, notas y usuarios pendientes se suben solos.
+
+Sin ese clic, al llegar al tope del día la nube se pausa hasta ~medianoche (hora del Pacífico). El POS **no borra** ventas ni notas; siguen en esa computadora. Tres cajas CREDI CEL suelen costar centavos al día. En el POS, al recargar se usa caché en disco y **Notas no pide ventas ni inventario** hasta abrir esos módulos.
 
 **Orden de los datos.** La cola respeta el orden **por sucursal**: si un ticket de Navojoa no sube, su corte espera. Nunca se guarda un corte sin sus ventas. Huatabampo sigue subiendo aparte, sin trabarse.
 
