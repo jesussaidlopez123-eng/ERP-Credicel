@@ -23,7 +23,6 @@ import { formatMoney, money } from '../lib/ids';
 import { canCancelRepair, findPendingDuplicate, isPendingRepair, stampRepairLabel, workStageLabel, workStageOf } from '../lib/repairUtils';
 import RepairHistoryPanel, { CancelRepairDialog } from './RepairHistoryPanel';
 import RepairPriceSearch from './RepairPriceSearch';
-import RepairPriceSheetImport from './RepairPriceSheetImport';
 import { applyRepairPriceToReception } from '../lib/repairPriceCatalog';
 
 interface RepairModalProps {
@@ -56,8 +55,7 @@ export default function RepairModal({
   currentOperator,
   onEmitDirectTicket,
   isAdmin = false,
-  repairPrices = [],
-  onImportRepairPrices
+  repairPrices = []
 }: RepairModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>('recepcion');
 
@@ -77,6 +75,16 @@ export default function RepairModal({
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const screenPrices = useMemo(
+    () =>
+      (repairPrices || []).filter((item) => {
+        const cat = String(item.category || '').toLowerCase();
+        if (cat && cat !== 'pantalla') return false;
+        return true;
+      }),
+    [repairPrices]
+  );
 
   const pendingRepairs = useMemo(() => {
     const q = searchFilter.toLowerCase().trim();
@@ -456,21 +464,14 @@ export default function RepairModal({
             </div>
 
             <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
-              <div className="flex items-start justify-between gap-2 flex-wrap">
-                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1">
-                  <Search className="w-3.5 h-3.5 text-amber-700" />
-                  Precio de lista (pantalla / modelo)
-                </label>
-                {isAdmin && onImportRepairPrices && (
-                  <span className="text-[10px] font-bold text-amber-900">Excel o Google Sheets</span>
-                )}
-              </div>
-              {isAdmin && onImportRepairPrices && (
-                <RepairPriceSheetImport compact onImport={onImportRepairPrices} />
-              )}
+              <label className="block text-xs font-bold text-slate-800 flex items-center gap-1">
+                <Search className="w-3.5 h-3.5 text-amber-700" />
+                Buscar pantalla
+              </label>
               <RepairPriceSearch
-                prices={repairPrices}
+                prices={screenPrices}
                 selectedId={selectedPriceId}
+                placeholder="Escribe el modelo (iPhone 11, A54, G54…)"
                 onSelect={(item) => {
                   const applied = applyRepairPriceToReception(item);
                   setSelectedPriceId(item.id);

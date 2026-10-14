@@ -8,6 +8,7 @@ import {
   mergeRepairPriceCatalog,
   parseRepairPriceAmount,
   repairPriceFingerprint,
+  repairPricePickLabel,
   repairPricesFromSpreadsheet,
   repairPricesFromTable,
   searchRepairPrices
@@ -70,6 +71,7 @@ assert.equal(hits[0].price, 850);
 const applied = applyRepairPriceToReception(hits[0]);
 assert.equal(applied.deviceModel, 'Apple iPhone 11');
 assert.equal(applied.totalCost, '850.00');
+assert.equal(repairPricePickLabel(hits[0]), 'Apple iPhone 11');
 assert.ok(repairPriceFingerprint(hits[0]).includes('iphone 11'));
 
 const fromProducto = repairPricesFromTable([

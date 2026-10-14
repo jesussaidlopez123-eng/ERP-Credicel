@@ -14,9 +14,10 @@ interface RepairPriceSheetImportProps {
 }
 
 export default function RepairPriceSheetImport({ onImport, compact = false }: RepairPriceSheetImportProps) {
-  const [sheetUrl, setSheetUrl] = useState(DEFAULT_REPAIR_PRICE_SHEET_URL);
+  const [sheetUrl, setSheetUrl] = useState('');
   const [pasteText, setPasteText] = useState('');
   const [showPaste, setShowPaste] = useState(false);
+  const [showSheetUrl, setShowSheetUrl] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -68,7 +69,13 @@ export default function RepairPriceSheetImport({ onImport, compact = false }: Re
         <button
           type="button"
           disabled={busy}
-          onClick={() => void runImport(() => repairPricesFromGoogleSheetUrl(sheetUrl), 'Lista de Google Sheets')}
+          onClick={() => {
+            if (!showSheetUrl) {
+              setShowSheetUrl(true);
+              return;
+            }
+            void runImport(() => repairPricesFromGoogleSheetUrl(sheetUrl || DEFAULT_REPAIR_PRICE_SHEET_URL), 'Lista de Google Sheets');
+          }}
           className={
             compact
               ? 'inline-flex items-center gap-1 px-2 py-1 bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer disabled:opacity-60'
@@ -76,7 +83,7 @@ export default function RepairPriceSheetImport({ onImport, compact = false }: Re
           }
         >
           <Link2 className={compact ? 'w-3 h-3' : 'w-4 h-4'} />
-          {busy ? 'Leyendo…' : 'Cargar hoja'}
+          {busy ? 'Leyendo…' : showSheetUrl ? 'Cargar hoja' : 'Google Sheets'}
         </button>
         <button
           type="button"
@@ -106,16 +113,18 @@ export default function RepairPriceSheetImport({ onImport, compact = false }: Re
         />
       </div>
 
-      <label className="block">
-        <span className="sr-only">Enlace de Google Sheets</span>
-        <input
-          type="url"
-          value={sheetUrl}
-          onChange={(e) => setSheetUrl(e.target.value)}
-          placeholder="https://docs.google.com/spreadsheets/d/…"
-          className="w-full px-2.5 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-medium text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-        />
-      </label>
+      {showSheetUrl && (
+        <label className="block">
+          <span className="sr-only">Enlace de Google Sheets</span>
+          <input
+            type="url"
+            value={sheetUrl}
+            onChange={(e) => setSheetUrl(e.target.value)}
+            placeholder="Pega el enlace solo si vas a importar otra hoja"
+            className="w-full px-2.5 py-1.5 bg-white border border-amber-200 rounded-lg text-[11px] font-medium text-slate-800 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+          />
+        </label>
+      )}
 
       {showPaste && (
         <div className="space-y-1.5">

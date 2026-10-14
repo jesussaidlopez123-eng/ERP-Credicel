@@ -284,11 +284,18 @@ export function searchRepairPrices(prices: RepairPriceItem[], query: string, lim
   return ranked.slice(0, limit).map((row) => row.item);
 }
 
+export function screenModelLabel(model: string): string {
+  return String(model || '')
+    .replace(/^pantalla\s+/i, '')
+    .trim();
+}
+
 export function repairPricePickLabel(item: RepairPriceItem): string {
   const brand = String(item.brand || '').trim();
-  const model = String(item.model || '').trim();
+  const model = screenModelLabel(item.model);
   const service = String(item.serviceName || '').trim();
   const who = brand && !model.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${model}` : model;
+  if (!service || /^cambio de pantalla/i.test(normalizeRepairPriceQuery(service))) return who;
   return `${who} · ${service}`;
 }
 
@@ -298,14 +305,17 @@ export function applyRepairPriceToReception(item: RepairPriceItem): {
   totalCost: string;
 } {
   const brand = String(item.brand || '').trim();
-  const model = String(item.model || '').trim();
+  const model = screenModelLabel(item.model);
   const deviceModel =
     brand && brand !== 'Multimarca' && !model.toLowerCase().includes(brand.toLowerCase())
       ? `${brand} ${model}`
       : model;
+  const issue = String(item.serviceName || '').trim();
   return {
     deviceModel,
-    issueDescription: item.serviceName,
+    issueDescription: !issue || /^cambio de pantalla/i.test(normalizeRepairPriceQuery(issue))
+      ? `Cambio de pantalla · ${model}`
+      : issue,
     totalCost: money(item.price).toFixed(2)
   };
 }
