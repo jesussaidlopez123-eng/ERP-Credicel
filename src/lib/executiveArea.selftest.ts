@@ -6,6 +6,7 @@ import {
   addExecutiveAreaTotals,
   areaStackValues,
   buildExecutiveLinePoints,
+  executiveTramoSegments,
   linePointTitle,
   matchesExecutiveBranch,
   repairFinanceWeekStarts,
@@ -92,6 +93,13 @@ const sum = addExecutiveAreaTotals(
 );
 assert.equal(sum.utilidad, 150);
 assert.equal(sum.inversion, 30);
+
+const tramo = executiveTramoSegments({ utilidad: 50, inversion: 30, gastos: 20, retorno: 0 });
+assert.equal(tramo.length, 3);
+assert.equal(tramo[0].id, 'utilidad');
+assert.equal(tramo[0].pct, 50);
+assert.equal(tramo[1].pct, 30);
+assert.equal(tramo[2].pct, 20);
 
 const weekRange = resolveExecutiveLineRange('semana', {
   weekStart: '2026-09-07',

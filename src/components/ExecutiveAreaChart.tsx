@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,6 +17,7 @@ import {
   addExecutiveAreaTotals,
   areaStackValues,
   emptyExecutiveAreaTotals,
+  executiveTramoSegments,
   type ExecutiveAreaPoint,
   type ExecutiveAreaTotals,
   type ExecutiveLinePeriod
@@ -80,7 +80,12 @@ export default function ExecutiveAreaChart({
     [points]
   );
 
-  const hasSeries = totals.utilidad || totals.inversion || totals.gastos || totals.retorno;
+  const segments = useMemo(() => executiveTramoSegments(totals), [totals]);
+  const tramoTotal = useMemo(
+    () => segments.reduce((sum, item) => sum + item.amount, 0),
+    [segments]
+  );
+  const hasSeries = tramoTotal > 0;
   const tickEvery = chartData.length > 16 ? Math.ceil(chartData.length / 8) : 1;
 
   return (
@@ -89,7 +94,7 @@ export default function ExecutiveAreaChart({
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Ingresos</p>
-            <h2 className="text-lg font-semibold text-slate-950">Consumo en el tiempo</h2>
+            <h2 className="text-lg font-semibold text-slate-950">Un solo tramo</h2>
             <p className="text-xs text-slate-500 mt-0.5">{periodLabel}</p>
           </div>
           <div className="flex bg-slate-100 p-1 rounded-full self-start">
@@ -150,6 +155,34 @@ export default function ExecutiveAreaChart({
           ))}
         </div>
 
+        {hasSeries ? (
+          <div>
+            <div className="flex items-end justify-between gap-2 mb-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Composición</p>
+              <p className="font-mono text-xs font-black text-slate-900">${peso(tramoTotal)}</p>
+            </div>
+            <div className="flex h-6 sm:h-7 w-full overflow-hidden rounded-full bg-slate-100">
+              {segments.map((item) => (
+                <div
+                  key={item.id}
+                  title={`${item.label} ${item.pct}%`}
+                  style={{
+                    width: `${Math.max(item.pct, 0)}%`,
+                    backgroundColor: EXECUTIVE_AREA_COLORS[item.id]
+                  }}
+                  className="h-full min-w-0 flex items-center justify-center"
+                >
+                  {item.pct >= 14 ? (
+                    <span className="text-[9px] font-black text-white/95 px-1 truncate">
+                      {Math.round(item.pct)}%
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {EXECUTIVE_AREA_LEGEND.map((item) => (
             <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -176,9 +209,9 @@ export default function ExecutiveAreaChart({
             {branchId === 'all' ? 'todas las sucursales' : getBranchDisplayName(branchId)}.
           </div>
         ) : (
-          <div className="h-56 sm:h-72 w-full">
+          <div className="h-44 sm:h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                 <XAxis
                   dataKey="title"
@@ -198,23 +231,20 @@ export default function ExecutiveAreaChart({
                     return row ? row.label : '';
                   }}
                 />
-                <Legend
-                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                  formatter={(value) => EXECUTIVE_AREA_LEGEND.find((item) => item.id === value)?.label || value}
-                />
                 {EXECUTIVE_AREA_LEGEND.map((item) => (
-                  <Line
+                  <Area
                     key={item.id}
                     type="monotone"
                     dataKey={item.id}
                     name={item.id}
+                    stackId="tramo"
                     stroke={EXECUTIVE_AREA_COLORS[item.id]}
-                    strokeWidth={2.4}
-                    dot={false}
-                    activeDot={{ r: 4, strokeWidth: 0 }}
+                    fill={EXECUTIVE_AREA_COLORS[item.id]}
+                    fillOpacity={1}
+                    strokeWidth={0}
                   />
                 ))}
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         )}

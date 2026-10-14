@@ -176,6 +176,25 @@ export function areaStackValues(totals: ExecutiveAreaTotals): ExecutiveAreaTotal
   };
 }
 
+export type ExecutiveTramoSegment = {
+  id: ExecutiveAreaKey;
+  label: string;
+  amount: number;
+  pct: number;
+};
+
+/** Partes de un solo tramo (como la barra de almacenamiento del iPhone). */
+export function executiveTramoSegments(totals: ExecutiveAreaTotals): ExecutiveTramoSegment[] {
+  const stacked = areaStackValues(totals);
+  const whole = money(stacked.utilidad + stacked.inversion + stacked.gastos + stacked.retorno);
+  return EXECUTIVE_AREA_LEGEND.map((item) => ({
+    id: item.id,
+    label: item.label,
+    amount: stacked[item.id],
+    pct: whole > 0 ? Math.round((stacked[item.id] / whole) * 1000) / 10 : 0
+  })).filter((item) => item.amount > 0);
+}
+
 export function linePointTitle(dateKey: string, period: ExecutiveLinePeriod): string {
   const day = String(Number(dateKey.slice(8, 10) || '0'));
   if (period === 'mes') return day;
