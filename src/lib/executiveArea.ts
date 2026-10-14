@@ -1,4 +1,4 @@
-import type { Expense, RepairCostKind, RepairRecord, SaleTicket } from '../types';
+import type { CartItem, Expense, RepairCostKind, RepairRecord, SaleTicket } from '../types';
 import { money } from './ids';
 import {
   addCashDays,
@@ -13,9 +13,16 @@ import {
   weekdayShortEs,
   weekStartDateKey
 } from './dateUtils';
-import { COMMERCIAL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import {
+  COMMERCIAL_BRANCHES,
+  compareBranchIds,
+  getBranchDisplayName,
+  hasCashTill,
+  normalizeBranchId
+} from '../data/initialBranches';
 import {
   addExecutiveItem,
+  classifySaleItem,
   emptyExecutiveCats,
   isPhoneUnitSale,
   phoneUnitsSold
@@ -68,7 +75,87 @@ export type ExecutiveAreaPoint = ExecutiveAreaTotals & {
   weekStart?: string;
   label: string;
   title: string;
+  equiposVendidos: number;
 };
+
+export type ExecutivePhoneBranchCount = {
+  id: string;
+  name: string;
+  total: number;
+  contado: number;
+  credito: number;
+};
+
+export type ExecutivePhoneCounts = {
+  total: number;
+  contado: number;
+  credito: number;
+  daysWithSales: number;
+  byBranch: ExecutivePhoneBranchCount[];
+};
+
+function isCreditPhoneSale(item: CartItem): boolean {
+  return classifySaleItem(item) === 'enganches' || item.metadata?.saleType === 'credito';
+}
+
+function emptyPhoneBranchCounts(): ExecutivePhoneBranchCount[] {
+  return COMMERCIAL_BRANCHES.slice()
+    .sort((a, b) => compareBranchIds(a.id, b.id))
+    .map((branch) => ({
+      id: branch.id,
+      name: getBranchDisplayName(branch.id),
+      total: 0,
+      contado: 0,
+      credito: 0
+    }));
+}
+
+/** Celulares vendidos (contado o crédito). No cuenta abonos ni accesorios. */
+export function countPhonesSold(params: {
+  tickets: SaleTicket[] | undefined;
+  from: string;
+  to: string;
+  branchId: string;
+}): ExecutivePhoneCounts {
+  const start = params.from <= params.to ? params.from : params.to;
+  const end = params.from <= params.to ? params.to : params.from;
+  const rows = emptyPhoneBranchCounts();
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const days = new Set<string>();
+
+  for (const ticket of params.tickets || []) {
+    if (isCancelledTicket(ticket)) continue;
+    const bid = normalizeBranchId(ticket.branchId);
+    if (!hasCashTill(bid)) continue;
+    if (!matchesExecutiveBranch(bid, params.branchId)) continue;
+    const day = safeDateIsoKey(ticket.timestamp);
+    if (!day || day < start || day > end) continue;
+    const row = byId.get(bid);
+    if (!row) continue;
+    for (const item of ticket.items || []) {
+      if (!isPhoneUnitSale(item)) continue;
+      const qty = phoneUnitsSold(item);
+      if (qty <= 0) continue;
+      days.add(day);
+      row.total += qty;
+      if (isCreditPhoneSale(item)) row.credito += qty;
+      else row.contado += qty;
+    }
+  }
+
+  const scoped =
+    !params.branchId || params.branchId === 'all'
+      ? rows
+      : rows.filter((row) => row.id === normalizeBranchId(params.branchId));
+
+  return {
+    total: scoped.reduce((sum, row) => sum + row.total, 0),
+    contado: scoped.reduce((sum, row) => sum + row.contado, 0),
+    credito: scoped.reduce((sum, row) => sum + row.credito, 0),
+    daysWithSales: days.size,
+    byBranch: scoped
+  };
+}
 
 function inDateRange(dateKey: string, from: string, to: string): boolean {
   if (!dateKey || !from || !to) return false;
@@ -317,11 +404,18 @@ export function buildExecutiveLinePoints(params: {
       params.repairs || [],
       params.branchId
     );
+    const phones = countPhonesSold({
+      tickets: params.tickets,
+      from: dateKey,
+      to: dateKey,
+      branchId: params.branchId
+    });
     return {
       dateKey,
       weekStart: weekStartDateKey(dateKey),
       title: linePointTitle(dateKey, params.period),
       label: formatCashDateLabel(dateKey),
+      equiposVendidos: phones.total,
       ...areaTotalsFromFinance(finance)
     };
   });

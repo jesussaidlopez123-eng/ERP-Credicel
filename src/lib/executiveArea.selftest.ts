@@ -6,6 +6,7 @@ import {
   addExecutiveAreaTotals,
   areaStackValues,
   buildExecutiveLinePoints,
+  countPhonesSold,
   executiveTramoSegments,
   linePointTitle,
   matchesExecutiveBranch,
@@ -250,5 +251,49 @@ const phonePoints = buildExecutiveLinePoints({
 assert.equal(phonePoints[0].comisiones, 1000);
 assert.equal(phonePoints[0].utilidad, 0, 'la comisión no se suma al verde de caja');
 assert.equal(phonePoints[0].retorno, 1500);
+assert.equal(phonePoints[0].equiposVendidos, 1);
+
+const creditTicket: SaleTicket = {
+  ...phoneTicket,
+  id: 't-credit',
+  timestamp: '2026-09-09T11:00:00-07:00',
+  branchId: 'b-huatabampo',
+  items: [
+    {
+      cartItemId: 'p2',
+      product: { id: 'eq2', code: 'EQ2', name: 'A16', category: 'equipo_credito', price: 800, stock: 1 },
+      quantity: 1,
+      unitPrice: 800,
+      totalPrice: 800,
+      metadata: { saleType: 'credito', imei: '352222222222222', deviceModel: 'A16', downPayment: 800 }
+    }
+  ]
+};
+const cancelledPhone: SaleTicket = {
+  ...phoneTicket,
+  id: 't-cancel',
+  estado: 'CANCELADA',
+  timestamp: '2026-09-08T20:00:00-07:00'
+};
+const counted = countPhonesSold({
+  tickets: [ticket, phoneTicket, creditTicket, cancelledPhone],
+  from: '2026-09-07',
+  to: '2026-09-10',
+  branchId: 'all'
+});
+assert.equal(counted.total, 2, 'un accesorio y un cancelado no cuentan');
+assert.equal(counted.contado, 1);
+assert.equal(counted.credito, 1);
+assert.equal(counted.byBranch.find((row) => row.id === 'b-navojoa')?.total, 1);
+assert.equal(counted.byBranch.find((row) => row.id === 'b-huatabampo')?.credito, 1);
+assert.equal(
+  countPhonesSold({
+    tickets: [phoneTicket, creditTicket],
+    from: '2026-09-07',
+    to: '2026-09-10',
+    branchId: 'b-navojoa'
+  }).total,
+  1
+);
 
 console.log('executiveArea self-test ok');

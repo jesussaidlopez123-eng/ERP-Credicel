@@ -8,6 +8,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import { Smartphone } from 'lucide-react';
 import { COMMERCIAL_BRANCHES, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import { money } from '../lib/ids';
 import {
@@ -20,7 +21,8 @@ import {
   executiveTramoSegments,
   type ExecutiveAreaPoint,
   type ExecutiveAreaTotals,
-  type ExecutiveLinePeriod
+  type ExecutiveLinePeriod,
+  type ExecutivePhoneCounts
 } from '../lib/executiveArea';
 
 function peso(n: number): string {
@@ -47,6 +49,7 @@ interface ExecutiveAreaChartProps {
   rangeTo: string;
   onRangeChange: (from: string, to: string) => void;
   periodLabel: string;
+  phoneCounts: ExecutivePhoneCounts;
 }
 
 export default function ExecutiveAreaChart({
@@ -59,7 +62,8 @@ export default function ExecutiveAreaChart({
   rangeFrom,
   rangeTo,
   onRangeChange,
-  periodLabel
+  periodLabel,
+  phoneCounts
 }: ExecutiveAreaChartProps) {
   const branches: BranchChip[] = useMemo(
     () => [
@@ -87,6 +91,9 @@ export default function ExecutiveAreaChart({
   );
   const hasSeries = tramoTotal > 0;
   const tickEvery = chartData.length > 16 ? Math.ceil(chartData.length / 8) : 1;
+  const maxDailyPhones = Math.max(0, ...chartData.map((point) => point.equiposVendidos || 0));
+  const dayCount = chartData.length || 1;
+  const avgPhones = phoneCounts.total / dayCount;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
@@ -153,6 +160,74 @@ export default function ExecutiveAreaChart({
               {branch.name}
             </button>
           ))}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-950 text-white px-4 py-3.5">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-300 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5" />
+                Equipos vendidos
+              </p>
+              <p className="font-mono text-4xl font-black tabular-nums mt-1">{phoneCounts.total}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {phoneCounts.total === 1 ? 'celular' : 'celulares'} en {periodLabel}
+                {phoneCounts.total > 0
+                  ? ` · ${avgPhones >= 10 ? avgPhones.toFixed(0) : avgPhones.toFixed(1)} al día`
+                  : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded-lg bg-white/10 px-2.5 py-1.5">
+                Contado <strong className="font-mono">{phoneCounts.contado}</strong>
+              </span>
+              <span className="rounded-lg bg-white/10 px-2.5 py-1.5">
+                Crédito <strong className="font-mono">{phoneCounts.credito}</strong>
+              </span>
+            </div>
+          </div>
+          {phoneCounts.byBranch.length > 1 && (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {phoneCounts.byBranch.map((branch) => (
+                <div key={branch.id} className="rounded-xl bg-white/10 border border-white/10 px-2.5 py-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 truncate">
+                    {branch.name}
+                  </p>
+                  <p className="font-mono text-lg font-black tabular-nums">{branch.total}</p>
+                  <p className="text-[10px] text-slate-500">
+                    {branch.contado} contado · {branch.credito} crédito
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+          {chartData.length > 1 && (
+            <div className="mt-3">
+              <div className="flex items-end gap-0.5 h-8">
+                {chartData.map((point) => {
+                  const n = point.equiposVendidos || 0;
+                  const px =
+                    maxDailyPhones > 0 && n > 0
+                      ? Math.max(6, Math.round((n / maxDailyPhones) * 32))
+                      : 4;
+                  return (
+                    <div
+                      key={point.dateKey}
+                      title={`${point.label}: ${n} ${n === 1 ? 'equipo' : 'equipos'}`}
+                      className="flex-1 min-w-0 rounded-sm"
+                      style={{
+                        height: `${px}px`,
+                        backgroundColor: n > 0 ? '#93c5fd' : 'rgba(255,255,255,0.12)'
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Cada barra es un día del periodo elegido (semana, mes o rango).
+              </p>
+            </div>
+          )}
         </div>
 
         {hasSeries ? (
@@ -228,7 +303,9 @@ export default function ExecutiveAreaChart({
                   }}
                   labelFormatter={(_, payload) => {
                     const row = payload?.[0]?.payload as ExecutiveAreaPoint | undefined;
-                    return row ? row.label : '';
+                    if (!row) return '';
+                    const n = row.equiposVendidos || 0;
+                    return `${row.label} · ${n} ${n === 1 ? 'equipo' : 'equipos'}`;
                   }}
                 />
                 {EXECUTIVE_AREA_LEGEND.map((item) => (
