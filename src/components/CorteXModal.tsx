@@ -71,6 +71,23 @@ interface ConceptGroup {
   details: ConceptDetail[];
 }
 
+function ticketSoldProductsLabel(ticket: SaleTicket): string {
+  const items = Array.isArray(ticket.items) ? ticket.items : [];
+  const parts = items
+    .map((item) => {
+      const meta = item?.metadata;
+      const name = String(
+        item?.product?.name || meta?.deviceModel || meta?.caseModel || meta?.issueDescription || ''
+      ).trim();
+      if (!name) return '';
+      const qty = typeof item?.quantity === 'number' && item.quantity > 1 ? item.quantity : 0;
+      return qty ? `${qty}× ${name}` : name;
+    })
+    .filter(Boolean);
+  if (parts.length === 0) return 'Sin detalle de producto';
+  return parts.join(' · ');
+}
+
 export interface DetailedSoldItem {
   id: string;
   ticketId: string;
@@ -948,85 +965,6 @@ export default function CorteXModal({
                 </div>
               </div>
 
-              {onRequestDeleteTicket && branchTickets.length > 0 && (
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <Receipt className="w-4 h-4 text-slate-600" />
-                    <span>Tickets de este corte</span>
-                  </h4>
-                  <ul className="divide-y divide-slate-100">
-                    {branchTickets.map((ticket) => (
-                      <li key={ticket.id} className="py-2 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-900">
-                            {ticket.folio || ticket.id}
-                            {ticket.historicPost ? (
-                              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                                Cargada después
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {ticket.paymentMethod || 'Efectivo'} · {ticket.operatorName || 'Cajero'}
-                            {ticket.historicPost?.postedBy ? ` · cargó ${ticket.historicPost.postedBy}` : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="font-mono text-sm font-black text-slate-900">
-                            ${(ticket.total || 0).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onRequestDeleteTicket(ticket)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            Eliminar
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {onRequestDeleteExpense && branchExpenses.length > 0 && (
-                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <TrendingDown className="w-4 h-4 text-rose-600" />
-                    <span>Gastos de este turno</span>
-                  </h4>
-                  <ul className="divide-y divide-slate-100">
-                    {branchExpenses.map((expense) => (
-                      <li key={expense.id} className="py-2 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-900">
-                            {expense.concept || 'Gasto operativo'}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {expense.operatorName || 'Cajero'}
-                            {expense.id ? ` · Folio ${expense.id.slice(-6)}` : ''}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="font-mono text-sm font-black text-rose-600">
-                            -${(expense.amount || 0).toFixed(2)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => onRequestDeleteExpense(expense)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            Eliminar
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
               {/* Concept Categories Accordions */}
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs divide-y divide-slate-100">
                 <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
@@ -1281,6 +1219,90 @@ export default function CorteXModal({
                 </div>
 
               </div>
+
+              {branchTickets.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <Receipt className="w-4 h-4 text-slate-600" />
+                    <span>Tickets de este corte</span>
+                  </h4>
+                  <ul className="divide-y divide-slate-100">
+                    {branchTickets.map((ticket) => (
+                      <li key={ticket.id} className="py-2.5 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900">
+                            {ticket.folio || ticket.id}
+                            {ticket.historicPost ? (
+                              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                Cargada después
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="text-[11px] font-semibold text-slate-800 mt-0.5 leading-snug" title={ticketSoldProductsLabel(ticket)}>
+                            {ticketSoldProductsLabel(ticket)}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {ticket.paymentMethod || 'Efectivo'} · {ticket.operatorName || 'Cajero'}
+                            {ticket.historicPost?.postedBy ? ` · cargó ${ticket.historicPost.postedBy}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-sm font-black text-slate-900">
+                            ${(ticket.total || 0).toFixed(2)}
+                          </span>
+                          {onRequestDeleteTicket ? (
+                            <button
+                              type="button"
+                              onClick={() => onRequestDeleteTicket(ticket)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Eliminar
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {onRequestDeleteExpense && branchExpenses.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <TrendingDown className="w-4 h-4 text-rose-600" />
+                    <span>Gastos de este turno</span>
+                  </h4>
+                  <ul className="divide-y divide-slate-100">
+                    {branchExpenses.map((expense) => (
+                      <li key={expense.id} className="py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900">
+                            {expense.concept || 'Gasto operativo'}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            {expense.operatorName || 'Cajero'}
+                            {expense.id ? ` · Folio ${expense.id.slice(-6)}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="font-mono text-sm font-black text-rose-600">
+                            -${(expense.amount || 0).toFixed(2)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onRequestDeleteExpense(expense)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-[11px] font-bold hover:bg-rose-100 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             </div>
 
