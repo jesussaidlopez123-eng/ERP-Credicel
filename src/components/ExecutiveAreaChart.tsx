@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import { Smartphone } from 'lucide-react';
+import { Smartphone, X } from 'lucide-react';
 import { COMMERCIAL_BRANCHES, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import { money } from '../lib/ids';
 import {
@@ -22,7 +22,8 @@ import {
   type ExecutiveAreaPoint,
   type ExecutiveAreaTotals,
   type ExecutiveLinePeriod,
-  type ExecutivePhoneCounts
+  type ExecutivePhoneCounts,
+  type ExecutivePhoneSale
 } from '../lib/executiveArea';
 
 function peso(n: number): string {
@@ -50,6 +51,7 @@ interface ExecutiveAreaChartProps {
   onRangeChange: (from: string, to: string) => void;
   periodLabel: string;
   phoneCounts: ExecutivePhoneCounts;
+  phoneSales: ExecutivePhoneSale[];
 }
 
 export default function ExecutiveAreaChart({
@@ -63,8 +65,10 @@ export default function ExecutiveAreaChart({
   rangeTo,
   onRangeChange,
   periodLabel,
-  phoneCounts
+  phoneCounts,
+  phoneSales
 }: ExecutiveAreaChartProps) {
+  const [phonesOpen, setPhonesOpen] = useState(false);
   const branches: BranchChip[] = useMemo(
     () => [
       { id: 'all', name: 'Todas' },
@@ -162,7 +166,19 @@ export default function ExecutiveAreaChart({
           ))}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-950 text-white px-4 py-3.5">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setPhonesOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setPhonesOpen(true);
+            }
+          }}
+          className="rounded-2xl border border-slate-200 bg-slate-950 text-white px-4 py-3.5 cursor-pointer hover:border-blue-400/60 hover:bg-slate-900 transition-colors text-left"
+          aria-label="Ver lista de equipos vendidos"
+        >
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-300 flex items-center gap-1.5">
@@ -177,12 +193,15 @@ export default function ExecutiveAreaChart({
                   : ''}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
               <span className="rounded-lg bg-white/10 px-2.5 py-1.5">
                 Contado <strong className="font-mono">{phoneCounts.contado}</strong>
               </span>
               <span className="rounded-lg bg-white/10 px-2.5 py-1.5">
                 Crédito <strong className="font-mono">{phoneCounts.credito}</strong>
+              </span>
+              <span className="rounded-lg bg-blue-500 px-2.5 py-1.5 font-extrabold text-white">
+                Ver lista
               </span>
             </div>
           </div>
@@ -326,7 +345,193 @@ export default function ExecutiveAreaChart({
           </div>
         )}
       </div>
+
+      {phonesOpen && (
+        <PhonesSoldModal
+          sales={phoneSales}
+          periodLabel={periodLabel}
+          branchId={branchId}
+          onClose={() => setPhonesOpen(false)}
+        />
+      )}
     </section>
+  );
+}
+
+function PhonesSoldModal({
+  sales,
+  periodLabel,
+  branchId,
+  onClose
+}: {
+  sales: ExecutivePhoneSale[];
+  periodLabel: string;
+  branchId: string;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const showBranch = branchId === 'all';
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sales;
+    return sales.filter((row) =>
+      [
+        row.dateLabel,
+        row.model,
+        row.imei,
+        row.clientName,
+        row.clientPhone,
+        row.operatorName,
+        row.branchName,
+        row.folio,
+        row.saleKind
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [sales, query]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-5xl rounded-2xl border border-slate-200 shadow-2xl max-h-[92vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="phones-sold-title"
+        aria-modal="true"
+      >
+        <div className="px-4 sm:px-5 py-4 border-b border-slate-200 bg-slate-950 text-white flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-300 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5" />
+              Equipos vendidos
+            </p>
+            <h3 id="phones-sold-title" className="text-lg font-semibold mt-1">
+              Lista de ventas
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              {periodLabel}
+              {' · '}
+              {sales.length} {sales.length === 1 ? 'equipo' : 'equipos'}
+              {showBranch ? ' · Todas las sucursales' : ` · ${getBranchDisplayName(branchId)}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg cursor-pointer text-slate-300 hover:bg-white/10"
+            aria-label="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-4 sm:px-5 py-3 border-b border-slate-200 bg-slate-50">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar por fecha, equipo, IMEI, cliente, número o vendedor"
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-900 bg-white"
+          />
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          {sales.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-slate-500">
+              Aún no hay equipos vendidos en este periodo.
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="px-4 py-12 text-center text-sm text-slate-500">
+              Ninguna venta coincide con esa búsqueda.
+            </div>
+          ) : (
+            <>
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filtered.map((row) => (
+                  <article key={row.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-950">{row.model}</p>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase ${
+                          row.saleKind === 'credito'
+                            ? 'bg-violet-100 text-violet-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {row.saleKind === 'credito' ? 'Crédito' : 'Contado'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">{row.dateLabel}</p>
+                    <p className="text-xs text-slate-700 font-mono">{row.imei || 'Sin IMEI'}</p>
+                    <p className="text-xs text-slate-700">
+                      {row.clientName}
+                      {row.clientPhone ? ` · ${row.clientPhone}` : ''}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {row.operatorName}
+                      {showBranch ? ` · ${row.branchName}` : ''}
+                    </p>
+                  </article>
+                ))}
+              </div>
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-4 py-2.5 font-bold">Fecha</th>
+                      <th className="px-3 py-2.5 font-bold">Equipo</th>
+                      <th className="px-3 py-2.5 font-bold">IMEI</th>
+                      <th className="px-3 py-2.5 font-bold">Cliente</th>
+                      <th className="px-3 py-2.5 font-bold">Número</th>
+                      <th className="px-3 py-2.5 font-bold">Vendedor</th>
+                      {showBranch ? <th className="px-3 py-2.5 font-bold">Sucursal</th> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((row) => (
+                      <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-2.5 text-slate-600 whitespace-nowrap">{row.dateLabel}</td>
+                        <td className="px-3 py-2.5">
+                          <p className="font-semibold text-slate-950">{row.model}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            {row.saleKind === 'credito' ? 'Crédito' : 'Contado'}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-slate-800 whitespace-nowrap">
+                          {row.imei || 'Sin IMEI'}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-800">{row.clientName}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-slate-800 whitespace-nowrap">
+                          {row.clientPhone || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-800">{row.operatorName}</td>
+                        {showBranch ? (
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{row.branchName}</td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

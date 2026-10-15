@@ -8,6 +8,7 @@ import {
   buildExecutiveLinePoints,
   countPhonesSold,
   executiveTramoSegments,
+  listPhonesSold,
   linePointTitle,
   matchesExecutiveBranch,
   repairFinanceWeekStarts,
@@ -265,7 +266,14 @@ const creditTicket: SaleTicket = {
       quantity: 1,
       unitPrice: 800,
       totalPrice: 800,
-      metadata: { saleType: 'credito', imei: '352222222222222', deviceModel: 'A16', downPayment: 800 }
+      metadata: {
+        saleType: 'credito',
+        imei: '352222222222222',
+        deviceModel: 'A16',
+        downPayment: 800,
+        clientName: 'María López',
+        clientPhone: '6471234567'
+      }
     }
   ]
 };
@@ -295,5 +303,62 @@ assert.equal(
   }).total,
   1
 );
+
+const listed = listPhonesSold({
+  tickets: [ticket, phoneTicket, creditTicket, cancelledPhone],
+  from: '2026-09-07',
+  to: '2026-09-10',
+  branchId: 'all'
+});
+assert.equal(listed.length, 2, 'la lista coincide con el contador');
+assert.equal(listed[0].imei, '352222222222222', 'la más reciente primero');
+assert.equal(listed[0].model, 'A16');
+assert.equal(listed[0].clientName, 'María López');
+assert.equal(listed[0].clientPhone, '6471234567');
+assert.equal(listed[0].operatorName, 'Op');
+assert.equal(listed[0].saleKind, 'credito');
+assert.equal(listed[1].imei, '351111111111111');
+assert.equal(listed[1].clientName, 'Mostrador');
+assert.equal(listed[1].saleKind, 'contado');
+assert.equal(
+  listPhonesSold({
+    tickets: [phoneTicket, creditTicket],
+    from: '2026-09-07',
+    to: '2026-09-10',
+    branchId: 'b-navojoa'
+  }).length,
+  1
+);
+
+const imeiFromTicket: SaleTicket = {
+  ...phoneTicket,
+  id: 't-imei-ticket',
+  timestamp: '2026-09-10T10:00:00-07:00',
+  operatorName: 'Teresa',
+  items: [
+    {
+      cartItemId: 'p3',
+      product: { id: 'eq3', code: 'EQ3', name: 'A05', category: 'equipo_credito', price: 1200, stock: 1 },
+      quantity: 1,
+      unitPrice: 1200,
+      totalPrice: 1200,
+      metadata: { saleType: 'contado', deviceModel: 'Motorola A05', clientName: 'Juan Pérez', clientPhone: '6440001111' }
+    }
+  ],
+  imeis: ['353333333333333']
+};
+const fallbackImei = listPhonesSold({
+  tickets: [imeiFromTicket],
+  from: '2026-09-07',
+  to: '2026-09-10',
+  branchId: 'all'
+});
+assert.equal(fallbackImei.length, 1);
+assert.equal(fallbackImei[0].imei, '353333333333333', 'el IMEI del ticket cubre la línea');
+assert.equal(fallbackImei[0].dateKey, '2026-09-10');
+assert.equal(fallbackImei[0].model, 'Motorola A05');
+assert.equal(fallbackImei[0].clientName, 'Juan Pérez');
+assert.equal(fallbackImei[0].clientPhone, '6440001111');
+assert.equal(fallbackImei[0].operatorName, 'Teresa');
 
 console.log('executiveArea self-test ok');

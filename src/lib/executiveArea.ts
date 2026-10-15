@@ -1,5 +1,5 @@
 import type { CartItem, Expense, RepairCostKind, RepairRecord, SaleTicket } from '../types';
-import { money } from './ids';
+import { money, ticketFolioLabel } from './ids';
 import {
   addCashDays,
   formatCashDateLabel,
@@ -9,6 +9,8 @@ import {
   monthEndDateKey,
   monthStartDateKey,
   safeDateIsoKey,
+  safeFormatDate,
+  safeFormatTime,
   todayCashDateKey,
   weekdayShortEs,
   weekStartDateKey
@@ -94,6 +96,28 @@ export type ExecutivePhoneCounts = {
   byBranch: ExecutivePhoneBranchCount[];
 };
 
+export type ExecutivePhoneSale = {
+  id: string;
+  folio: string;
+  timestamp: string;
+  dateKey: string;
+  dateLabel: string;
+  branchId: string;
+  branchName: string;
+  operatorName: string;
+  model: string;
+  imei: string;
+  clientName: string;
+  clientPhone: string;
+  saleKind: 'contado' | 'credito';
+};
+
+function phoneSaleImeis(ticket: SaleTicket, item: CartItem): string[] {
+  const fromMeta = String(item.metadata?.imei || '').trim();
+  if (fromMeta) return [fromMeta];
+  return (ticket.imeis || []).map((value) => String(value || '').trim()).filter(Boolean);
+}
+
 function isCreditPhoneSale(item: CartItem): boolean {
   return classifySaleItem(item) === 'enganches' || item.metadata?.saleType === 'credito';
 }
@@ -155,6 +179,64 @@ export function countPhonesSold(params: {
     daysWithSales: days.size,
     byBranch: scoped
   };
+}
+
+/** Misma ventana que el contador: cada celular vendido con fecha, equipo, IMEI, cliente, número y vendedor. */
+export function listPhonesSold(params: {
+  tickets: SaleTicket[] | undefined;
+  from: string;
+  to: string;
+  branchId: string;
+}): ExecutivePhoneSale[] {
+  const start = params.from <= params.to ? params.from : params.to;
+  const end = params.from <= params.to ? params.to : params.from;
+  const rows: ExecutivePhoneSale[] = [];
+
+  for (const ticket of params.tickets || []) {
+    if (isCancelledTicket(ticket)) continue;
+    const bid = normalizeBranchId(ticket.branchId);
+    if (!hasCashTill(bid)) continue;
+    if (!matchesExecutiveBranch(bid, params.branchId)) continue;
+    const day = safeDateIsoKey(ticket.timestamp);
+    if (!day || day < start || day > end) continue;
+    (ticket.items || []).forEach((item, index) => {
+      if (!isPhoneUnitSale(item)) return;
+      const qty = phoneUnitsSold(item);
+      if (qty <= 0) return;
+      const meta = item.metadata || {};
+      const imeis = phoneSaleImeis(ticket, item);
+      const credit = isCreditPhoneSale(item);
+      const model = String(meta.deviceModel || item.product?.name || 'Celular').trim() || 'Celular';
+      const clientName = String(meta.clientName || '').trim() || 'Mostrador';
+      const clientPhone = String(meta.clientPhone || '').trim();
+      const operatorName = String(ticket.operatorName || '').trim() || 'Cajero';
+      const folio = ticketFolioLabel(ticket);
+      const dateLabel = `${safeFormatDate(ticket.timestamp)} ${safeFormatTime(ticket.timestamp)}`;
+      for (let unit = 0; unit < qty; unit += 1) {
+        rows.push({
+          id: `${ticket.id}-${item.cartItemId || index}-${unit}`,
+          folio,
+          timestamp: ticket.timestamp,
+          dateKey: day,
+          dateLabel,
+          branchId: bid,
+          branchName: getBranchDisplayName(bid),
+          operatorName,
+          model,
+          imei: imeis[unit] || imeis[0] || '',
+          clientName,
+          clientPhone,
+          saleKind: credit ? 'credito' : 'contado'
+        });
+      }
+    });
+  }
+
+  rows.sort((a, b) => {
+    if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? 1 : -1;
+    return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  });
+  return rows;
 }
 
 function inDateRange(dateKey: string, from: string, to: string): boolean {

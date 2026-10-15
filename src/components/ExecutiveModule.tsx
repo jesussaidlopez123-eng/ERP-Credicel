@@ -57,6 +57,7 @@ import {
 import {
   buildExecutiveLinePoints,
   countPhonesSold,
+  listPhonesSold,
   repairFinanceWeekStarts,
   resolveExecutiveLineRange,
   sumRepairCostLinesInWeek,
@@ -874,6 +875,16 @@ export default function ExecutiveModule({
       }),
     [salesTickets, lineRange.from, lineRange.to, branchId]
   );
+  const phoneSales = useMemo(
+    () =>
+      listPhonesSold({
+        tickets: salesTickets,
+        from: lineRange.from,
+        to: lineRange.to,
+        branchId
+      }),
+    [salesTickets, lineRange.from, lineRange.to, branchId]
+  );
 
   return (
     <div className="space-y-4 pb-8">
@@ -910,6 +921,7 @@ export default function ExecutiveModule({
         }}
         periodLabel={lineRange.label}
         phoneCounts={phoneCounts}
+        phoneSales={phoneSales}
       />
 
       {activeWeek && (
