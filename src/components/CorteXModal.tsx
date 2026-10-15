@@ -28,8 +28,7 @@ import { printThermalHtml } from '../lib/printWindow';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { normalizeBranchId } from '../data/initialBranches';
-import { corteExpenseTotals } from '../lib/historicSale';
-import { isMatrizRepairExpense } from '../lib/repairCorte';
+import { corteExpenseTotals, expenseAppearsOnCorteX } from '../lib/historicSale';
 import { deliveredRepairsMissingCost } from '../lib/repairUtils';
 import { persistLocalBranchFund, resolveOpeningCashFund, suggestedLeftoverFund } from '../lib/cashFund';
 
@@ -237,6 +236,8 @@ export default function CorteXModal({
       return true;
     });
   }
+
+  branchExpenses = branchExpenses.filter(expenseAppearsOnCorteX);
 
   // Payment totals
   let cashSalesTotal = 0;
@@ -862,7 +863,7 @@ export default function CorteXModal({
                   : `Hay ${pendingPieceCount} equipos entregados sin costo de pieza.`}
               </p>
               <p className="text-[11px] text-orange-900 mt-0.5">
-                Puede cerrar el turno. El Corte X de Matriz se ajusta cuando taller capture la refacción — incluso al día siguiente — sin reabrir caja ni mover el cajón.
+                Puede cerrar el turno. Cuando taller capture la pieza, Dirección la cuenta como inversión; el Corte X no cambia.
               </p>
             </div>
           )}
@@ -1005,7 +1006,6 @@ export default function CorteXModal({
                           <p className="text-[11px] text-slate-500">
                             {expense.operatorName || 'Cajero'}
                             {expense.id ? ` · Folio ${expense.id.slice(-6)}` : ''}
-                            {isMatrizRepairExpense(expense) ? ' · refacción · no sale del cajón' : ''}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1271,9 +1271,6 @@ export default function CorteXModal({
                           <div key={exp.id || idx} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none gap-2">
                             <span className="text-slate-700 font-medium">
                               {exp.concept}
-                              {isMatrizRepairExpense(exp) ? (
-                                <span className="block text-[10px] font-semibold text-slate-500">No sale del cajón</span>
-                              ) : null}
                             </span>
                             <span className="font-mono font-bold text-rose-600">-${exp.amount.toFixed(2)}</span>
                           </div>

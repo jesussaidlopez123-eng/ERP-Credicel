@@ -26,7 +26,7 @@ import { Product, SaleTicket, Expense, Operator, RepairPriceItem, AppNotificatio
 import { formatTicketFolio, money, newSessionId, newUniqueId } from './ids';
 import { branchFolioCode, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { summarizeTickets } from './saleClassification';
-import { corteExpenseTotals } from './historicSale';
+import { corteExpenseTotals, corteXExpenses } from './historicSale';
 import { isNonInventorySaleItem, restoreBranchForSaleItem } from './inventoryRules';
 import { addImeisToProduct, isEquipmentProduct, normalizeImei, staleInventoryMapKeys } from './imeiInventory';
 import { addAccessoryStock } from './accessoryInventory';
@@ -710,7 +710,8 @@ export async function executeCorteSesionCajaTransaction(params: {
   const transferSales = totals.transferSales;
   const totalSales = totals.totalSales;
   const breakdown = totals.breakdown;
-  const expTotals = corteExpenseTotals(expensesForCorte);
+  const corteExpenses = corteXExpenses(expensesForCorte);
+  const expTotals = corteExpenseTotals(corteExpenses);
   const totalExpenses = expTotals.listed;
 
   const existing: SesionCaja | null = existingSnap.exists()
@@ -793,9 +794,9 @@ export async function executeCorteSesionCajaTransaction(params: {
     countedCash: counted,
     cashDifference: difference,
     ticketIds: ticketsForCorte.map((t) => t.id),
-    expenseIds: expensesForCorte.map((e) => e.id),
+    expenseIds: corteExpenses.map((e) => e.id),
     ticketsSnapshot: ticketsForCorte,
-    expensesSnapshot: expensesForCorte,
+    expensesSnapshot: corteExpenses,
     breakdown
   };
 
@@ -834,7 +835,7 @@ export async function executeCorteSesionCajaTransaction(params: {
     operations.push({ ref: doc(db, SALES_COLLECTION, t.id), data: closeStamp, isMerge: true });
     operations.push({ ref: doc(db, VENTAS_COLLECTION, t.id), data: closeStamp, isMerge: true });
   });
-  expensesForCorte.forEach((e) => {
+  corteExpenses.forEach((e) => {
     operations.push({ ref: doc(db, EXPENSES_COLLECTION, e.id), data: closeStamp, isMerge: true });
     operations.push({ ref: doc(db, GASTOS_COLLECTION, e.id), data: closeStamp, isMerge: true });
   });
@@ -1157,8 +1158,9 @@ export async function closeOpenShiftForBranch(params: {
     params.expensesSnapshot
   );
   const totals = summarizeTickets(localDay.tickets);
-  const totalExpenses = money(localDay.expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
-  const expected = money(Number(session.monto_inicial_efectivo || fund) + totals.cashSales - totalExpenses);
+  const expected = money(
+    Number(session.monto_inicial_efectivo || fund) + totals.cashSales - corteExpenseTotals(localDay.expenses).cashOut
+  );
 
   return executeCorteSesionCajaTransaction({
     sesionId: session.id,
@@ -1212,8 +1214,9 @@ export async function closeCashSessionIfDue(params: {
   }
 
   const totals = summarizeTickets(tickets);
-  const totalExpenses = money(expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
-  const expected = money(Number(existing.monto_inicial_efectivo || 0) + totals.cashSales - totalExpenses);
+  const expected = money(
+    Number(existing.monto_inicial_efectivo || 0) + totals.cashSales - corteExpenseTotals(expenses).cashOut
+  );
 
   const result = await executeCorteSesionCajaTransaction({
     sesionId: existing.id,
@@ -1274,7 +1277,7 @@ export async function recoverMissingDailyCortes(params: {
           efectivoContado: money(
             Number(open?.monto_inicial_efectivo || fund) +
               summarizeTickets(unstampedTickets).cashSales -
-              money(unstampedExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0))
+              corteExpenseTotals(unstampedExpenses).cashOut
           )
         });
       } catch (err) {

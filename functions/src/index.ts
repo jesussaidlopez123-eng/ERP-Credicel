@@ -25,6 +25,12 @@ function parseSessionInstant(iso: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function isCajaExpense(expense: Record<string, unknown>): boolean {
+  if (expense.countsAsCashOut === false) return false;
+  if (expense.kind === 'refaccion_taller') return false;
+  return true;
+}
+
 function hermosilloDateKey(iso: string): string {
   try {
     const instant = parseSessionInstant(iso);
@@ -91,6 +97,7 @@ export const scheduledMidnightCleanup = functions.pubsub
       const expenses = expSnap.docs
         .map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
         .filter((e) => !e.corteXId || e.corteXId === docSnap.id);
+      const cajaExpenses = expenses.filter(isCajaExpense);
 
       const cashSales = money(
         tickets
@@ -108,7 +115,7 @@ export const scheduledMidnightCleanup = functions.pubsub
           .reduce((s, t) => s + Number(t.total || 0), 0)
       );
       const totalSales = money(cashSales + cardSales + transferSales);
-      const totalExpenses = money(expenses.reduce((s, e) => s + Number(e.amount || 0), 0));
+      const totalExpenses = money(cajaExpenses.reduce((s, e) => s + Number(e.amount || 0), 0));
       const initialFund = money(Number(sesion.monto_inicial_efectivo || 0));
       const expected = money(initialFund + cashSales - totalExpenses);
 
@@ -126,7 +133,7 @@ export const scheduledMidnightCleanup = functions.pubsub
             ventas_transferencia: transferSales,
             gastos_efectivo: totalExpenses,
             efectivo_esperado_cajon: expected,
-            conteo_transacciones: { tickets_venta: tickets.length, gastos: expenses.length }
+            conteo_transacciones: { tickets_venta: tickets.length, gastos: cajaExpenses.length }
           },
           arqueo_cierre: {
             efectivo_contado_declarado: expected,
@@ -166,7 +173,7 @@ export const scheduledMidnightCleanup = functions.pubsub
         countedCash: expected,
         cashDifference: 0,
         ticketIds: tickets.map((t) => t.id),
-        expenseIds: expenses.map((e) => e.id)
+        expenseIds: cajaExpenses.map((e) => e.id)
       });
 
       batch.set(
@@ -185,7 +192,7 @@ export const scheduledMidnightCleanup = functions.pubsub
         batch.set(db.collection('sales').doc(t.id), stamp, { merge: true });
         batch.set(db.collection('ventas').doc(t.id), stamp, { merge: true });
       });
-      expenses.forEach((e) => {
+      cajaExpenses.forEach((e) => {
         batch.set(db.collection('expenses').doc(e.id), stamp, { merge: true });
         batch.set(db.collection('gastos').doc(e.id), stamp, { merge: true });
       });

@@ -118,6 +118,21 @@ assert.equal(week.netIncome, 1920);
 assert.equal(week.groups.accesorios[0]?.name, 'Mica 15D');
 assert.equal(week.groups.accesorios[0]?.count, 2);
 assert.equal(week.expenseGroups[0]?.name, 'Gasolina');
+
+const pieza: Expense = {
+  id: 'g-rep',
+  amount: 350,
+  concept: 'Refacción taller REP-1',
+  timestamp: '2026-09-30T12:00:00-07:00',
+  operatorName: 'Taller',
+  branchId: 'b-matriz',
+  kind: 'refaccion_taller',
+  repairId: 'REP-1',
+  countsAsCashOut: false
+};
+const withoutPiece = buildCorteCategoryBreakdown([monday], [gasto, pieza]);
+assert.equal(withoutPiece.totalExpenses, 80, 'la refacción no entra al desglose del Corte X');
+assert.equal(withoutPiece.expenseGroups.length, 1);
 assert.equal(corteConceptName({
   cartItemId: 'cx',
   product: { id: 'x', code: 'x', name: 'Abono a crédito (DMI)', category: 'servicio', price: 1, stock: 0 },

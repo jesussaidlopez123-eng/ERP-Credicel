@@ -10,8 +10,8 @@
 import { CorteXRecord, Expense, SaleTicket } from '../types';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
-import { money } from './ids';
 import { summarizeTickets } from './saleClassification';
+import { corteExpenseTotals } from './historicSale';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
 import { getRecord, putRecord } from './localDb';
@@ -88,7 +88,7 @@ export function buildDailyBackup(params: {
   );
 
   const totals = summarizeTickets(tickets);
-  const totalExpenses = money(expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0));
+  const totalExpenses = corteExpenseTotals(expenses).listed;
   const ticketIds = tickets.map((t) => t.id);
   const expenseIds = expenses.map((e) => e.id);
 

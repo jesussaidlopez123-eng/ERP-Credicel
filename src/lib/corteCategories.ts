@@ -3,6 +3,7 @@ import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches
 import { safeFormatDate, safeFormatTime } from './dateUtils';
 import { money, ticketFolioLabel } from './ids';
 import { classifySaleItem, paymentBucket, type SaleCategoryKey } from './saleClassification';
+import { expenseAppearsOnCorteX } from './historicSale';
 
 export const CORTE_CATEGORY_ORDER: SaleCategoryKey[] = [
   'accesorios',
@@ -202,7 +203,7 @@ export function buildCorteCategoryBreakdown(
   let totalExpenses = 0;
   let expenseCount = 0;
   for (const exp of expenses || []) {
-    if (!exp) continue;
+    if (!exp || !expenseAppearsOnCorteX(exp)) continue;
     const amount = money(Number(exp.amount) || 0);
     const concept = String(exp.concept || 'Gasto general').trim() || 'Gasto general';
     const existing = expenseMap.get(concept) || { name: concept, count: 0, total: 0, details: [] };

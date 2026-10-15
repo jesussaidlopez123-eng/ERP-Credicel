@@ -488,7 +488,7 @@ function OrderSheet({
           <div className="rounded-xl border border-orange-300 bg-orange-50 px-3 py-2.5">
             <p className="text-xs font-black text-orange-950">Caja ya entregó este equipo sin costo de pieza.</p>
             <p className="text-[11px] text-orange-900 mt-0.5">
-              Capture la refacción para cargarla a Matriz y ajustar el Corte X del día de entrega. Si no hubo compra (stock o garantía), márquelo sin costo para cerrar el registro.
+              Capture la refacción para que Dirección la cuente como inversión. El Corte X no la suma ni mueve el cajón. Si no hubo compra (stock o garantía), márquelo sin costo para cerrar el registro.
             </p>
             <button
               type="button"

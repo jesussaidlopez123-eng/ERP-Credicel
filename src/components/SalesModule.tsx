@@ -37,7 +37,7 @@ import { ticketFolioLabel } from '../lib/ids';
 import { deleteExpenseFromFirestore, deleteSaleTicketFromFirestore } from '../lib/firebase';
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
-import { isOpenShiftMovement } from '../lib/historicSale';
+import { expenseAppearsOnCorteX, isOpenShiftMovement } from '../lib/historicSale';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -289,6 +289,7 @@ function SalesModule({
   // Filtered Expenses
   const filteredExpenses = useMemo(() => {
     return safeExpenses.filter(expense => {
+      if (!expenseAppearsOnCorteX(expense)) return false;
       const normBId = normalizeBranchId(expense.branchId);
       if (!hasCashTill(normBId)) return false;
       if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {

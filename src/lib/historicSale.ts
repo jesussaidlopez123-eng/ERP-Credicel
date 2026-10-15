@@ -62,21 +62,30 @@ export function findClosedCorteForDay(
   return matches[0] || null;
 }
 
-/** Gasto de caja que sí salió del cajón. La refacción de taller no. */
-export function expenseCountsAsCashOut(expense: Expense | null | undefined): boolean {
+/** Compra de pieza de taller: no es gasto de caja ni renglón del Corte X. */
+export function expenseAppearsOnCorteX(expense: Expense | null | undefined): boolean {
   if (!expense) return false;
   if (expense.countsAsCashOut === false) return false;
   if (expense.kind === 'refaccion_taller') return false;
   return true;
 }
 
+/** Gasto de caja que sí salió del cajón. La refacción de taller no. */
+export function expenseCountsAsCashOut(expense: Expense | null | undefined): boolean {
+  return expenseAppearsOnCorteX(expense);
+}
+
+export function corteXExpenses(expenses: Expense[] | undefined): Expense[] {
+  return (expenses || []).filter(expenseAppearsOnCorteX);
+}
+
 export function corteExpenseTotals(expenses: Expense[] | undefined): { listed: number; cashOut: number } {
   let listed = 0;
   let cashOut = 0;
-  for (const exp of expenses || []) {
+  for (const exp of corteXExpenses(expenses)) {
     const amount = money(Number(exp.amount) || 0);
     listed += amount;
-    if (expenseCountsAsCashOut(exp)) cashOut += amount;
+    cashOut += amount;
   }
   return { listed: money(listed), cashOut: money(cashOut) };
 }
@@ -87,7 +96,8 @@ export function rebuildCorteTotals(
   expenses: Expense[]
 ): CorteXRecord {
   const totals = summarizeTickets(tickets);
-  const expTotals = corteExpenseTotals(expenses);
+  const corteExpenses = corteXExpenses(expenses);
+  const expTotals = corteExpenseTotals(corteExpenses);
   const expected = money(Number(corte.initialCashFund || 0) + totals.cashSales - expTotals.cashOut);
   const counted = corte.countedCash;
   return {
@@ -102,9 +112,9 @@ export function rebuildCorteTotals(
     cashDifference:
       counted == null ? corte.cashDifference : money(Number(counted) - expected),
     ticketIds: tickets.map((ticket) => ticket.id),
-    expenseIds: expenses.map((exp) => exp.id),
+    expenseIds: corteExpenses.map((exp) => exp.id),
     ticketsSnapshot: tickets,
-    expensesSnapshot: expenses,
+    expensesSnapshot: corteExpenses,
     breakdown: totals.breakdown
   };
 }

@@ -123,8 +123,9 @@ const refaccion: Expense = {
   countsAsCashOut: false
 };
 const patchedRefaccion = applyExpenseToCorte(corte, refaccion);
-assert.equal(patchedRefaccion.totalExpenses, 200);
+assert.equal(patchedRefaccion.totalExpenses, 0, 'la refacción no aparece en el Corte X');
 assert.equal(patchedRefaccion.expectedCashInDrawer, 500, 'la pieza no baja el cajón');
-assert.equal(patchedRefaccion.netIncome, -200);
+assert.equal(patchedRefaccion.netIncome, corte.netIncome);
+assert.equal(patchedRefaccion.expenseIds.includes('GTO-REP-1'), false);
 
 console.log('historicSale self-test ok');

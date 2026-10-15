@@ -1601,7 +1601,7 @@ export default function Dashboard({
     });
   };
 
-  /** Pieza capturada después de entregar: gasto de Matriz y parche del Corte X del día de entrega. */
+  /** Pieza capturada después de entregar: se guarda el gasto de taller (Dirección / inversión), sin tocar el Corte X. */
   const syncLateRepairMatrizExpense = async (
     previous: RepairRecord | undefined,
     next: RepairRecord

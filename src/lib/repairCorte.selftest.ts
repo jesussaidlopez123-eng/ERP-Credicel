@@ -106,11 +106,11 @@ const corte: CorteXRecord = {
 };
 
 const patched = applyExpenseToCorte(corte, built!);
-assert.equal(patched.totalExpenses, 350, 'el Corte X de Matriz suma la refacción');
-assert.equal(patched.netIncome, 150, 'el neto baja con la pieza');
+assert.equal(patched.totalExpenses, 0, 'el Corte X no suma la refacción');
+assert.equal(patched.netIncome, 500, 'el neto de caja no cambia');
 assert.equal(patched.expectedCashInDrawer, 1500, 'el cajón no se mueve: no salió efectivo');
 assert.equal(patched.cashDifference, 0, 'el arqueo original se conserva');
-assert.equal(patched.expenseIds.includes(built!.id), true);
+assert.equal(patched.expenseIds.includes(built!.id), false, 'no entra a la lista de gastos del corte');
 
 const cashGasto = {
   id: 'GTO-1',
@@ -121,9 +121,9 @@ const cashGasto = {
   branchId: 'b-matriz'
 };
 const mixed = rebuildCorteTotals(corte, [ticket], [built!, cashGasto]);
-assert.equal(mixed.totalExpenses, 430);
+assert.equal(mixed.totalExpenses, 80);
 assert.equal(mixed.expectedCashInDrawer, 1420, 'solo el pasaje baja el cajón');
-assert.deepEqual(corteExpenseTotals([built!, cashGasto]), { listed: 430, cashOut: 80 });
+assert.deepEqual(corteExpenseTotals([built!, cashGasto]), { listed: 80, cashOut: 80 });
 
 const closedPlan = planLateRepairMatrizExpense({
   previous: delivered,
