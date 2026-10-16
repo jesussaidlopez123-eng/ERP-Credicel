@@ -237,7 +237,12 @@ export default function CorteXModal({
       const isToday = !!todayIso && safeDateIsoKey(t.timestamp) === todayIso;
       if (!tiedToThisSession && !isToday) return false;
       const closedBy = t.corteXId || t.sesion_caja_id;
-      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) return false;
+      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) {
+        const closedCorte = (cortesX || []).find((c) => c.id === closedBy || c.sesion_caja_id === closedBy);
+        const closedDay =
+          safeDateIsoKey(closedCorte?.timestamp) || safeDateIsoKey(closedCorte?.dateStr);
+        if (closedDay !== todayIso) return false;
+      }
       return true;
     });
     branchExpenses = (expenses || []).filter((e) => {
@@ -249,7 +254,12 @@ export default function CorteXModal({
       const isToday = !!todayIso && safeDateIsoKey(e.timestamp || e.date) === todayIso;
       if (!tiedToThisSession && !isToday) return false;
       const closedBy = e.corteXId || e.sesion_caja_id;
-      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) return false;
+      if (closedBy && realClosedCorteIds.has(closedBy) && closedBy !== sessionId) {
+        const closedCorte = (cortesX || []).find((c) => c.id === closedBy || c.sesion_caja_id === closedBy);
+        const closedDay =
+          safeDateIsoKey(closedCorte?.timestamp) || safeDateIsoKey(closedCorte?.dateStr);
+        if (closedDay !== todayIso) return false;
+      }
       return true;
     });
   }

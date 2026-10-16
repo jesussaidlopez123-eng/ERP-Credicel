@@ -19,6 +19,7 @@ type BuildArgs = {
   currentOperator: Operator;
   openingFund: (branchId: string) => number;
   openCashiersByBranch?: Record<string, string>;
+  now?: Date;
 };
 
 export function cashierNameFromSession(session?: {
@@ -169,7 +170,19 @@ function reconciledRow(branch: Branch, dateKey: string, tickets: SaleTicket[], e
 
 /** Arma el roster: 1 pasada por tickets/gastos, 3 sucursales por día. */
 export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
-  const { cortes, tickets, expenses, todayKey, currentBranch, currentOperator, openingFund, openCashiersByBranch = {} } = args;
+  const {
+    cortes,
+    tickets,
+    expenses,
+    todayKey,
+    currentBranch,
+    currentOperator,
+    openingFund,
+    openCashiersByBranch = {},
+    now
+  } = args;
+  const clockNow = now || new Date();
+  const todayStillOpen = !isAfterCashClose(clockNow);
   const savedGrouped: Record<string, CorteXRecord> = {};
   const suppressed = new Set<string>();
   const corteIds = new Set<string>();
@@ -181,7 +194,13 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
     if (!hasCashTill(normBId)) continue;
     const dateKey = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
     if (!dateKey) continue;
-    if (isPrematureAutoCorteRecord(corte)) {
+    if (isPrematureAutoCorteRecord(corte, clockNow)) {
+      suppressed.add(corte.id);
+      if (corte.sesion_caja_id) suppressed.add(corte.sesion_caja_id);
+      continue;
+    }
+    // Un cierre a media mañana no debe tapar el turno que sigue abierto el mismo día.
+    if (dateKey === todayKey && todayStillOpen) {
       suppressed.add(corte.id);
       if (corte.sesion_caja_id) suppressed.add(corte.sesion_caja_id);
       continue;
@@ -212,7 +231,7 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
     }
     for (const [corteId, pack] of orphanGroups) {
       const dateKey = key.slice(key.lastIndexOf('::') + 2);
-      if (dateKey === todayKey && !isAfterCashClose()) {
+      if (dateKey === todayKey && todayStillOpen) {
         suppressed.add(corteId);
         continue;
       }

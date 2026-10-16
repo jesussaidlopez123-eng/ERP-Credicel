@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { Branch, Operator, SaleTicket } from '../types';
+import type { Branch, CorteXRecord, Operator, SaleTicket } from '../types';
 import { assertThreeBranchesPerDay } from './corteDayRoster.ts';
 import { branchDateKey, indexByBranchDate } from './branchDateIndex.ts';
 import { corteDayKey } from './corteDayRoster.ts';
@@ -136,5 +136,80 @@ assert.equal(
   1100,
   'fondo inicial + efectivo del día'
 );
+
+const emptyMorning: CorteXRecord = {
+  id: 'SES-MTZ-20261016-AM',
+  timestamp: '2026-10-16T18:35:03.227Z',
+  dateStr: '16/10/2026',
+  timeStr: '11:35 a.m.',
+  branchId: 'b-matriz',
+  branchName: 'Matriz',
+  operatorName: 'Teresa',
+  initialCashFund: 80,
+  cashSales: 0,
+  cardSales: 0,
+  transferSales: 0,
+  totalSales: 0,
+  totalExpenses: 0,
+  netIncome: 0,
+  expectedCashInDrawer: 80,
+  ticketIds: [],
+  expenseIds: [],
+  ticketsSnapshot: [],
+  breakdown: {
+    accesoriosTotal: 0,
+    accesoriosCount: 0,
+    abonosTotal: 0,
+    abonosCount: 0,
+    enganchesTotal: 0,
+    enganchesCount: 0,
+    reparacionesTotal: 0,
+    reparacionesCount: 0,
+    recargasTotal: 0,
+    recargasCount: 0
+  }
+};
+const middayTickets: SaleTicket[] = [
+  {
+    id: 't-am',
+    folio: 'MTZ-1610-001',
+    timestamp: '2026-10-16T17:20:00.000Z',
+    branchId: 'b-matriz',
+    operatorName: 'Teresa',
+    items: [],
+    total: 915,
+    paymentMethod: 'Efectivo',
+    corteXId: 'SES-MTZ-20261016-AM',
+    sesion_caja_id: 'SES-MTZ-20261016-AM'
+  } as SaleTicket,
+  {
+    id: 't-pm',
+    folio: 'MTZ-1610-026',
+    timestamp: '2026-10-16T19:04:29.492Z',
+    branchId: 'b-matriz',
+    operatorName: 'Teresa',
+    items: [],
+    total: 419,
+    paymentMethod: 'Efectivo',
+    sesion_caja_id: 'SES-MTZ-20261016-PM'
+  } as SaleTicket
+];
+const liveAfterClose = buildCortesRoster({
+  cortes: [emptyMorning],
+  tickets: middayTickets,
+  expenses: [],
+  todayKey: '2026-10-16',
+  currentBranch: { id: 'b-matriz', name: 'Matriz' },
+  currentOperator: operator,
+  openingFund: () => 80,
+  openCashiersByBranch: { 'b-matriz': 'Teresa Lopez' },
+  now: new Date('2026-10-16T12:20:00-07:00')
+});
+const matrizToday = liveAfterClose.find(
+  (row) => row.branchId === 'b-matriz' && (row.timestamp || '').startsWith('2026-10-16')
+);
+assert.equal(matrizToday?.id.startsWith('CTX-TURNO'), true, 'el turno reabierto no debe verse como corte cerrado');
+assert.equal(matrizToday?.totalSales, 1334, 'las ventas de la mañana y la tarde entran al turno en curso');
+assert.equal((matrizToday?.ticketIds || []).length, 2);
 
 console.log('salesCortesBuild self-test ok');
