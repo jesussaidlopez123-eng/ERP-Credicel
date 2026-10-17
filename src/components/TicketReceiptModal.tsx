@@ -5,7 +5,7 @@ import {
   X, 
   ArrowRight
 } from 'lucide-react';
-import { printThermalFromElement } from '../lib/printWindow';
+import { isRestrictedPrintHost, printThermalFromElement } from '../lib/printWindow';
 import { SaleTicket, Branch } from '../types';
 import { formatMoney, ticketFolioLabel } from '../lib/ids';
 
@@ -34,11 +34,12 @@ export default function TicketReceiptModal({
 
   const [hasPrinted, setHasPrinted] = useState(false);
 
-  // Trigger automatic thermal print when modal opens with a valid ticket
+  // Trigger automatic thermal print when modal opens with a valid ticket.
+  // On tablet the browser blocks print() unless it comes from the tap on Imprimir.
   useEffect(() => {
     if (isOpen && ticket) {
       setHasPrinted(false);
-      if (autoPrintEnabled) {
+      if (autoPrintEnabled && !isRestrictedPrintHost()) {
         const timer = setTimeout(() => {
           try {
             printThermalFromElement('thermal-receipt-container', `Ticket ${ticketFolioLabel(ticket)}`);
@@ -231,11 +232,13 @@ export default function TicketReceiptModal({
             }`}>
               <Printer className="w-3 h-3 shrink-0" />
               <span>
-                {hasPrinted 
-                  ? '✓ Impreso (58mm)' 
-                  : autoPrintEnabled 
-                  ? 'Enviando a ticket 58mm...' 
-                  : 'Manual'}
+                {hasPrinted
+                  ? '✓ Impreso (58mm)'
+                  : isRestrictedPrintHost()
+                    ? 'Toca Imprimir'
+                    : autoPrintEnabled
+                      ? 'Enviando a ticket 58mm...'
+                      : 'Manual'}
               </span>
             </span>
           </div>

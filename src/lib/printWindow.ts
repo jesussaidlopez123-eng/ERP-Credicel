@@ -149,21 +149,91 @@ export function printPdfDocument(data: ArrayBuffer | Blob, title: string): void 
   iframe.src = url;
 }
 
+/**
+ * Tablets/phones often ignore print() inside a hidden iframe, and they drop
+ * print() that is not in the same tap (auto-print after cobrar).
+ */
+export function isRestrictedPrintHost(
+  ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  maxTouchPoints: number = typeof navigator === 'undefined' ? 0 : navigator.maxTouchPoints || 0
+): boolean {
+  const n = String(ua || '');
+  if (/Android|iPhone|iPad|iPod|webOS|Mobile/i.test(n)) return true;
+  if (maxTouchPoints > 1 && /Macintosh/i.test(n)) return true;
+  return false;
+}
+
+const PRINT_ROOT_ID = 'credicel-print-root';
+
+function printViaHostDocument(innerBody: string, extraCss: string): void {
+  document.getElementById(PRINT_ROOT_ID)?.remove();
+  document.querySelectorAll('style[data-credicel-print]').forEach((node) => node.remove());
+
+  const style = document.createElement('style');
+  style.setAttribute('data-credicel-print', '1');
+  style.textContent = `
+    @media print {
+      body * { visibility: hidden !important; }
+      #${PRINT_ROOT_ID}, #${PRINT_ROOT_ID} * { visibility: visible !important; }
+      #${PRINT_ROOT_ID} {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 58mm !important;
+        max-width: 58mm !important;
+        background: #fff !important;
+        color: #000 !important;
+      }
+    }
+    ${extraCss}
+  `;
+  document.head.appendChild(style);
+
+  const wrap = document.createElement('div');
+  wrap.id = PRINT_ROOT_ID;
+  wrap.innerHTML = innerBody;
+  document.body.appendChild(wrap);
+
+  const cleanup = () => {
+    wrap.remove();
+    style.remove();
+  };
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.dispatchEvent(new Event('app-printing-started'));
+  try {
+    window.focus();
+    window.print();
+  } catch (err) {
+    console.error('Error al imprimir:', err);
+    cleanup();
+  }
+  window.setTimeout(cleanup, 4000);
+}
+
 export function printHtmlDocument(innerBody: string, title: string, extraCss = ''): void {
+  if (typeof window === 'undefined') return;
+  if (isRestrictedPrintHost()) {
+    printViaHostDocument(innerBody, extraCss);
+    return;
+  }
+
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
+  iframe.setAttribute('title', title);
   iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.right = '8px';
+  iframe.style.bottom = '8px';
+  iframe.style.width = '58mm';
+  iframe.style.height = '8mm';
+  iframe.style.opacity = '0.01';
+  iframe.style.pointerEvents = 'none';
   iframe.style.border = '0';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentDocument || iframe.contentWindow?.document;
   if (!doc) {
     iframe.remove();
-    window.print();
+    printViaHostDocument(innerBody, extraCss);
     return;
   }
 
@@ -184,21 +254,37 @@ export function printHtmlDocument(innerBody: string, title: string, extraCss = '
     window.setTimeout(() => iframe.remove(), 800);
   };
   win?.addEventListener('afterprint', cleanup);
-  window.setTimeout(() => {
+  let started = false;
+  const trigger = () => {
+    if (started) return;
+    started = true;
     try {
       win?.focus();
       win?.print();
     } catch (err) {
       console.error('Error al imprimir:', err);
       iframe.remove();
+      printViaHostDocument(innerBody, extraCss);
     }
-  }, 280);
+  };
+  iframe.addEventListener('load', trigger, { once: true });
+  window.setTimeout(trigger, 200);
 }
 
 export function printThermalFromElement(elementId: string, title = 'Ticket CREDI CEL'): void {
   const el = document.getElementById(elementId);
   if (!el) {
     window.print();
+    return;
+  }
+  if (isRestrictedPrintHost()) {
+    window.dispatchEvent(new Event('app-printing-started'));
+    try {
+      window.focus();
+      window.print();
+    } catch (err) {
+      console.error('Error al imprimir:', err);
+    }
     return;
   }
   printHtmlDocument(`<div class="sheet">${el.innerHTML}</div>`, title, THERMAL_PAGE_CSS);
