@@ -15,18 +15,20 @@ export function escapeHtml(value: string): string {
   });
 }
 
-const THERMAL_PAGE_CSS = `
+export const THERMAL_PAGE_CSS = `
   @page { size: 58mm auto; margin: 0; }
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { box-sizing: border-box; }
   html, body {
     margin: 0;
     padding: 0;
     width: 58mm;
-    background: #fff;
-    color: #000;
+    background: #fff !important;
+    color: #000 !important;
     font-family: 'Courier New', Courier, monospace;
     font-size: 8px;
     line-height: 1.1;
+    -webkit-print-color-adjust: economy;
+    print-color-adjust: economy;
   }
   .sheet {
     width: 54mm;
@@ -72,9 +74,10 @@ const THERMAL_PAGE_CSS = `
   .sheet .inline-block {
     display: inline-block;
     padding: 0 3px;
-    background: #000;
-    color: #fff;
+    background: transparent;
+    color: #000;
     font-weight: 800;
+    border: 1px solid #000;
   }
   .sheet .truncate {
     overflow: hidden;
@@ -173,16 +176,55 @@ function printViaHostDocument(innerBody: string, extraCss: string): void {
   style.setAttribute('data-credicel-print', '1');
   style.textContent = `
     @media print {
-      body * { visibility: hidden !important; }
-      #${PRINT_ROOT_ID}, #${PRINT_ROOT_ID} * { visibility: visible !important; }
+      html, body {
+        background: #fff !important;
+        background-color: #fff !important;
+        color: #000 !important;
+        -webkit-print-color-adjust: economy !important;
+        print-color-adjust: economy !important;
+      }
+      /* La tablet imprime el documento vivo: esconder el ERP oscuro. */
+      #root,
+      body > *:not(#${PRINT_ROOT_ID}) {
+        display: none !important;
+        visibility: hidden !important;
+      }
+      .bg-black,
+      .bg-slate-800,
+      .bg-slate-900,
+      .bg-slate-950,
+      [class*="bg-slate-800"],
+      [class*="bg-slate-900"],
+      [class*="bg-slate-950"],
+      [class*="bg-black"] {
+        background: #fff !important;
+        background-color: #fff !important;
+      }
+      .text-white,
+      [class*="text-white"] {
+        color: #000 !important;
+      }
+      #${PRINT_ROOT_ID}, #${PRINT_ROOT_ID} * {
+        visibility: visible !important;
+        background: #fff !important;
+        background-color: #fff !important;
+        color: #000 !important;
+        box-shadow: none !important;
+      }
       #${PRINT_ROOT_ID} {
+        display: block !important;
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
         width: 58mm !important;
         max-width: 58mm !important;
-        background: #fff !important;
+      }
+      #${PRINT_ROOT_ID} .flex { display: flex !important; }
+      #${PRINT_ROOT_ID} .inline-block {
+        display: inline-block !important;
+        background: transparent !important;
         color: #000 !important;
+        border: 1px solid #000 !important;
       }
     }
     ${extraCss}
@@ -274,17 +316,7 @@ export function printHtmlDocument(innerBody: string, title: string, extraCss = '
 export function printThermalFromElement(elementId: string, title = 'Ticket CREDI CEL'): void {
   const el = document.getElementById(elementId);
   if (!el) {
-    window.print();
-    return;
-  }
-  if (isRestrictedPrintHost()) {
-    window.dispatchEvent(new Event('app-printing-started'));
-    try {
-      window.focus();
-      window.print();
-    } catch (err) {
-      console.error('Error al imprimir:', err);
-    }
+    console.error(`No se encontró el ticket #${elementId} para imprimir.`);
     return;
   }
   printHtmlDocument(`<div class="sheet">${el.innerHTML}</div>`, title, THERMAL_PAGE_CSS);

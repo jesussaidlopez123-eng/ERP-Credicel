@@ -134,17 +134,15 @@ export default function TicketReceiptModal({
             margin: 0 !important;
             padding: 0 !important;
             background: #ffffff !important;
+            background-color: #ffffff !important;
             color: #000000 !important;
             width: 58mm !important;
             font-family: 'Courier New', Courier, monospace !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+            -webkit-print-color-adjust: economy !important;
+            print-color-adjust: economy !important;
           }
-          body * {
-            visibility: hidden !important;
-          }
-          #thermal-receipt-container, #thermal-receipt-container * {
-            visibility: visible !important;
+          .no-print {
+            display: none !important;
           }
           #thermal-receipt-container {
             position: absolute !important;
@@ -163,8 +161,10 @@ export default function TicketReceiptModal({
             line-height: 1.1 !important;
             word-break: break-word !important;
           }
-          .no-print {
-            display: none !important;
+          #thermal-receipt-container .inline-block {
+            background: transparent !important;
+            color: #000000 !important;
+            border: 1px solid #000000 !important;
           }
           .thermal-bold {
             font-weight: 900 !important;
@@ -273,7 +273,7 @@ export default function TicketReceiptModal({
               <p className="text-[7.5px] text-slate-700 m-0">
                 {formattedDate}
               </p>
-              <div className="inline-block mt-0.5 px-1 bg-black text-white font-black font-mono text-[8px] tracking-wide">
+              <div className="inline-block mt-0.5 px-1 border border-black text-black font-black font-mono text-[8px] tracking-wide">
                 {ticketFolioLabel(ticket)}
               </div>
             </div>

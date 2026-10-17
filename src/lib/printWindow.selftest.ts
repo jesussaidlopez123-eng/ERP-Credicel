@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { isRestrictedPrintHost } from './printWindow.ts';
+import { isRestrictedPrintHost, THERMAL_PAGE_CSS } from './printWindow.ts';
+
+assert.match(THERMAL_PAGE_CSS, /print-color-adjust:\s*economy/, 'no forzar fondos de color en térmica');
+assert.doesNotMatch(THERMAL_PAGE_CSS, /print-color-adjust:\s*exact/);
+assert.match(THERMAL_PAGE_CSS, /background:\s*#fff\s*!important/, 'hoja blanca');
+assert.match(THERMAL_PAGE_CSS, /\.inline-block[\s\S]*background:\s*transparent/, 'folio sin relleno negro');
 
 assert.equal(isRestrictedPrintHost('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120', 0), false);
 assert.equal(

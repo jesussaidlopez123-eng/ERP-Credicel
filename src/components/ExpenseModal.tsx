@@ -74,11 +74,15 @@ export default function ExpenseModal({
       {/* Print Styles for 58mm POS Thermal Printers */}
       <style>{`
         @media print {
-          body * {
-            visibility: hidden !important;
+          html, body {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            -webkit-print-color-adjust: economy !important;
+            print-color-adjust: economy !important;
           }
-          #thermal-expense-receipt, #thermal-expense-receipt * {
-            visibility: visible !important;
+          .no-print {
+            display: none !important;
           }
           #thermal-expense-receipt {
             position: absolute !important;
@@ -96,8 +100,10 @@ export default function ExpenseModal({
             font-size: 8px !important;
             line-height: 1.1 !important;
           }
-          .no-print {
-            display: none !important;
+          #thermal-expense-receipt .inline-block {
+            background: transparent !important;
+            color: #000000 !important;
+            border: 1px solid #000000 !important;
           }
         }
       `}</style>
@@ -132,7 +138,7 @@ export default function ExpenseModal({
                 <p className="text-[8px] font-bold m-0">{currentBranch.name} · {createdExpense.operatorName}</p>
                 <p className="text-[7.5px] text-slate-700 m-0">{createdExpense.timestamp}</p>
                 <p className="text-[8px] font-black uppercase m-0">VALE DE SALIDA</p>
-                <div className="inline-block mt-0.5 px-1 bg-black text-white font-black font-mono text-[8px]">
+                <div className="inline-block mt-0.5 px-1 border border-black text-black font-black font-mono text-[8px]">
                   {createdExpense.id}
                 </div>
               </div>

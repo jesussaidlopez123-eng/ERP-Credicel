@@ -416,17 +416,41 @@ html, body, #root {
     display: block !important;
   }
 
-  html, body {
+  html, body, #root {
     margin: 0 !important;
     padding: 0 !important;
     width: 58mm !important;
     max-width: 58mm !important;
     min-width: 58mm !important;
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #000000 !important;
     font-family: 'Courier New', Courier, monospace !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: economy !important;
+    print-color-adjust: economy !important;
+  }
+
+  /* Gana a .bg-slate-950 { #020617 !important } del fallback de pantalla. */
+  .bg-black,
+  .bg-slate-800,
+  .bg-slate-900,
+  .bg-slate-950,
+  [class*="bg-slate-800"],
+  [class*="bg-slate-900"],
+  [class*="bg-slate-950"],
+  [class*="bg-black"] {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+
+  .text-white,
+  [class*="text-white"] {
+    color: #000000 !important;
+  }
+
+  body:has(#credicel-print-root) > *:not(#credicel-print-root) {
+    display: none !important;
+    visibility: hidden !important;
   }
 
   /* Hide all non-printable application elements and backdrops */
@@ -509,6 +533,10 @@ html, body, #root {
   #thermal-expense-receipt .inline-block,
   .printable-thermal-receipt .inline-block {
     display: inline-block !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
   }
 }
 
