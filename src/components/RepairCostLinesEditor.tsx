@@ -80,8 +80,8 @@ export default function RepairCostLinesEditor({
           </p>
           <p className="text-[11px] text-slate-500">
             {kinds.length === 1 && kinds[0] === 'refaccion'
-              ? 'Lo que costó la pieza. Si caja ya entregó, al guardar se carga a Matriz y ajusta el Corte X del día de entrega.'
-              : 'Refacción y mano de obra de esta orden. Si caja ya entregó, al guardar se carga a Matriz y ajusta el Corte X del día de entrega.'}
+              ? 'Lo que costó la pieza. Si caja ya entregó, Dirección la cuenta como inversión; el Corte X no cambia.'
+              : 'Refacción y mano de obra de esta orden. Si caja ya entregó, Dirección la cuenta como inversión; el Corte X no cambia.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-3 text-[11px]">

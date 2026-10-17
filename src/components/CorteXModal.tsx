@@ -27,7 +27,7 @@ import { money } from '../lib/ids';
 import { printThermalHtml } from '../lib/printWindow';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
-import { normalizeBranchId } from '../data/initialBranches';
+import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { corteExpenseTotals, expenseAppearsOnCorteX } from '../lib/historicSale';
 import { deliveredRepairsMissingCost } from '../lib/repairUtils';
 import { persistLocalBranchFund, resolveOpeningCashFund, suggestedLeftoverFund } from '../lib/cashFund';
@@ -446,10 +446,11 @@ export default function CorteXModal({
   const corteDateKey = isHistoric
     ? safeDateIsoKey(existingCorteRecord.timestamp) || safeDateIsoKey(existingCorteRecord.dateStr)
     : todayDateIsoKey;
-  const pendingPieceCount =
-    normalizeBranchId(effectiveBranchId) === 'b-matriz'
-      ? deliveredRepairsMissingCost(repairRecords, corteDateKey).length
-      : 0;
+  const pendingPieces =
+    !isHistoric && normalizeBranchId(effectiveBranchId) === 'b-matriz'
+      ? deliveredRepairsMissingCost(repairRecords, corteDateKey)
+      : [];
+  const pendingPieceCount = pendingPieces.length;
   let totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
   let totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : liveExpTotals.listed;
   let netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
@@ -889,8 +890,15 @@ export default function CorteXModal({
                   ? 'Hay 1 equipo entregado sin costo de pieza.'
                   : `Hay ${pendingPieceCount} equipos entregados sin costo de pieza.`}
               </p>
-              <p className="text-[11px] text-orange-900 mt-0.5">
-                Puede cerrar el turno. Cuando taller capture la pieza, Dirección la cuenta como inversión; el Corte X no cambia.
+              <ul className="mt-1 space-y-0.5">
+                {pendingPieces.slice(0, 4).map((row) => (
+                  <li key={row.id} className="text-[11px] text-orange-900">
+                    {row.deviceModel} de {row.clientName} · {getBranchDisplayName(row.branchId)}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-orange-900 mt-1">
+                No mueve este cajón. En Reparaciones hay que capturar la pieza o marcar sin costo; Dirección la cuenta como inversión.
               </p>
             </div>
           )}

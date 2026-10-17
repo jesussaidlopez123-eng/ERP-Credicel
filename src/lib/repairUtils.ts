@@ -284,7 +284,7 @@ export function buildRepairCostDueNotification(
   return {
     urgency: 'urgente',
     title: `Falta gasto de reparación · ${record.id}`,
-    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch} sin costo de pieza. La orden parpadea al inicio de Reparaciones. Al capturarlo se carga a Matriz y ajusta el Corte X del día de entrega.`,
+    message: `${cashierName} entregó ${record.deviceModel} de ${record.clientName} en ${branch} sin costo de pieza. La orden parpadea al inicio de Reparaciones. Capture la refacción o márquela sin costo; el Corte X no cambia.`,
     authorName: cashierName,
     branchId: 'all',
     targetOperatorId: 'all',
