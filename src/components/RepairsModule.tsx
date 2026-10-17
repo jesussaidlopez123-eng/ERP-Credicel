@@ -344,8 +344,15 @@ function RepairsModule({
                           <Clock className="w-3 h-3 text-slate-400" />
                           {days}d · {stampRepairLabel(record.receivedAtIso, record.receivedAt)}
                         </span>
-                        <span>Cliente ${formatMoney(record.totalCost)}</span>
-                        <span>Saldo ${formatMoney(record.pendingBalance)}</span>
+                        {record.pendingBalance > 0 && (
+                          <span>Saldo ${formatMoney(record.pendingBalance)}</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="shrink-0 sm:text-right sm:px-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reparación</p>
+                      <p className="font-mono text-lg font-black tabular-nums text-slate-950">
+                        {record.totalCost > 0 ? `$${formatMoney(record.totalCost)}` : 'Sin precio'}
                       </p>
                     </div>
                     <div className="flex w-full sm:w-auto shrink-0 flex-col sm:flex-row gap-2">
@@ -481,6 +488,12 @@ function OrderSheet({
             </span>
           </div>
         </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Reparación</p>
+          <p className="font-mono text-xl font-black tabular-nums text-slate-950">
+            {record.totalCost > 0 ? `$${formatMoney(record.totalCost)}` : 'Sin precio'}
+          </p>
+        </div>
       </header>
 
       <div className="px-3 sm:px-4 py-3 space-y-4">
@@ -500,9 +513,14 @@ function OrderSheet({
             </button>
           </div>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
           <Info icon={<User className="w-3.5 h-3.5" />} label="Cliente" value={`${record.clientName} · ${record.clientPhone}`} />
-          <Info icon={<Smartphone className="w-3.5 h-3.5" />} label="Falla" value={record.issueDescription || '—'} />
+          <Info
+            icon={<Smartphone className="w-3.5 h-3.5" />}
+            label="Valor de la reparación"
+            value={record.totalCost > 0 ? `$${formatMoney(record.totalCost)}` : 'Sin precio'}
+          />
+          <Info icon={<Wrench className="w-3.5 h-3.5" />} label="Falla" value={record.issueDescription || '—'} />
           <Info icon={<Phone className="w-3.5 h-3.5" />} label="Contraseña" value={record.passcodePattern || '—'} />
           <Info
             icon={<Clock className="w-3.5 h-3.5" />}
