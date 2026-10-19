@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isRestrictedPrintHost, THERMAL_PAGE_CSS } from './printWindow.ts';
+import { isAndroidPrintHost, isRestrictedPrintHost, THERMAL_PAGE_CSS } from './printWindow.ts';
 
 assert.match(THERMAL_PAGE_CSS, /print-color-adjust:\s*economy/, 'no forzar fondos de color en térmica');
 assert.doesNotMatch(THERMAL_PAGE_CSS, /print-color-adjust:\s*exact/);
@@ -30,5 +30,7 @@ assert.equal(
   false,
   'Mac de escritorio'
 );
+assert.equal(isAndroidPrintHost('Mozilla/5.0 (Linux; Android 13; SM-T220) Chrome/120'), true, 'Android');
+assert.equal(isAndroidPrintHost('Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)'), false, 'iPad no es Android');
 
 console.log('printWindow self-test ok');

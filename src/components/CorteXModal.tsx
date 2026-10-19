@@ -24,7 +24,9 @@ import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from
 import { saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
-import { printThermalHtml } from '../lib/printWindow';
+import { isAndroidPrintHost, printThermalHtml } from '../lib/printWindow';
+import { printEscPosBytes } from '../lib/printEscpos';
+import { buildCorteTicketEscPos } from '../lib/escposTickets';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
@@ -547,13 +549,22 @@ export default function CorteXModal({
       }))
     };
 
-  const handlePrintThermal = () => {
+  const printCorteView = (view: CorteTicketView, asImage = false) => {
+    const image = () => printThermalHtml(buildCorteThermalInnerHtml(view), 'Corte de caja');
+    if (asImage) {
+      image();
+      return;
+    }
+    void printEscPosBytes(buildCorteTicketEscPos(view), image);
+  };
+
+  const handlePrintThermal = (asImage = false) => {
     try {
-      printThermalHtml(buildCorteThermalInnerHtml(buildTicketView(
+      printCorteView(buildTicketView(
         closedShiftFundSnapshot?.fundLeft,
         closedShiftFundSnapshot?.cashWithdrawn,
         closedShiftFundSnapshot?.notes
-      )), 'Corte de caja');
+      ), asImage);
     } catch (e) {
       console.error('Error triggering window.print():', e);
     }
@@ -779,7 +790,7 @@ export default function CorteXModal({
     if (printTicket) {
       setFinishStatusMessage('Imprimiendo resumen de ventas del día...');
       try {
-        printThermalHtml(buildCorteThermalInnerHtml(printView), 'Corte de caja');
+        printCorteView(printView);
       } catch (e) {
         console.error('Error al imprimir el corte:', e);
       }
@@ -852,12 +863,12 @@ export default function CorteXModal({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handlePrintThermal}
+                onClick={() => handlePrintThermal()}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                 title="Imprimir Corte X en Ticket Térmico 58mm (Atajo: P)"
               >
                 <Printer className="w-4 h-4 text-cyan-200" />
-                <span>Imprimir Ticket (58mm)</span>
+                <span>{isAndroidPrintHost() ? 'Imprimir texto (58mm)' : 'Imprimir Ticket (58mm)'}</span>
               </button>
 
               <button
@@ -1332,16 +1343,34 @@ export default function CorteXModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handlePrintThermal}
+              onClick={() => handlePrintThermal()}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
               title="Imprimir ticket térmico 58mm (Atajo: P)"
             >
               <Printer className="w-4 h-4 text-cyan-200" />
-              <span>{isHistoric ? 'Reimprimir Ticket (58mm)' : 'Imprimir Ticket (58mm)'}</span>
+              <span>
+                {isAndroidPrintHost()
+                  ? isHistoric
+                    ? 'Reimprimir texto (58mm)'
+                    : 'Imprimir texto (58mm)'
+                  : isHistoric
+                    ? 'Reimprimir Ticket (58mm)'
+                    : 'Imprimir Ticket (58mm)'}
+              </span>
             </button>
-            <span className="hidden sm:inline text-[11px] text-slate-400 font-mono">
-              Atajo: <kbd className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded font-bold border border-slate-700">P</kbd>
-            </span>
+            {isAndroidPrintHost() ? (
+              <button
+                type="button"
+                onClick={() => handlePrintThermal(true)}
+                className="text-[10px] text-slate-400 hover:text-slate-200 underline underline-offset-2 cursor-pointer"
+              >
+                Como foto
+              </button>
+            ) : (
+              <span className="hidden sm:inline text-[11px] text-slate-400 font-mono">
+                Atajo: <kbd className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded font-bold border border-slate-700">P</kbd>
+              </span>
+            )}
           </div>
 
           {!isHistoric && (

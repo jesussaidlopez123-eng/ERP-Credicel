@@ -166,6 +166,12 @@ export function isRestrictedPrintHost(
   return false;
 }
 
+export function isAndroidPrintHost(
+  ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent
+): boolean {
+  return /Android/i.test(String(ua || ''));
+}
+
 const PRINT_ROOT_ID = 'credicel-print-root';
 
 function printViaHostDocument(innerBody: string, extraCss: string): void {

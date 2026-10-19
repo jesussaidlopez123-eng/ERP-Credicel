@@ -5,7 +5,9 @@ import {
   X, 
   ArrowRight
 } from 'lucide-react';
-import { isRestrictedPrintHost, printThermalFromElement } from '../lib/printWindow';
+import { isAndroidPrintHost, isRestrictedPrintHost, printThermalFromElement } from '../lib/printWindow';
+import { printEscPosBytes } from '../lib/printEscpos';
+import { buildSaleTicketEscPos } from '../lib/escposTickets';
 import { SaleTicket, Branch } from '../types';
 import { formatMoney, ticketFolioLabel } from '../lib/ids';
 
@@ -75,17 +77,26 @@ export default function TicketReceiptModal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen || !ticket) return null;
-
-  const handlePrint = () => {
+  const printAsImage = () => {
     printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticketFolioLabel(ticket)}` : 'Ticket CREDI CEL');
+  };
+
+  const handlePrint = async (asImage = false) => {
+    if (!ticket) return;
+    if (asImage) {
+      printAsImage();
+      setHasPrinted(true);
+      return;
+    }
+    await printEscPosBytes(buildSaleTicketEscPos(ticket, currentBranch), printAsImage);
     setHasPrinted(true);
   };
 
+  if (!isOpen || !ticket) return null;
+
   const handleNextSale = (shouldPrint: boolean = false) => {
     if (shouldPrint) {
-      printThermalFromElement('thermal-receipt-container', ticket ? `Ticket ${ticketFolioLabel(ticket)}` : 'Ticket CREDI CEL');
-      setHasPrinted(true);
+      void handlePrint();
       setTimeout(() => {
         onClose();
       }, 250);
@@ -233,12 +244,16 @@ export default function TicketReceiptModal({
               <Printer className="w-3 h-3 shrink-0" />
               <span>
                 {hasPrinted
-                  ? '✓ Impreso (58mm)'
-                  : isRestrictedPrintHost()
-                    ? 'Toca Imprimir'
-                    : autoPrintEnabled
-                      ? 'Enviando a ticket 58mm...'
-                      : 'Manual'}
+                  ? isAndroidPrintHost()
+                    ? '✓ Enviado en letra (58mm)'
+                    : '✓ Impreso (58mm)'
+                  : isAndroidPrintHost()
+                    ? 'Toca Imprimir (texto)'
+                    : isRestrictedPrintHost()
+                      ? 'Toca Imprimir'
+                      : autoPrintEnabled
+                        ? 'Enviando a ticket 58mm...'
+                        : 'Manual'}
               </span>
             </span>
           </div>
@@ -448,28 +463,43 @@ export default function TicketReceiptModal({
         </div>
 
         {/* Modal Action Buttons Footer - Screen Only */}
-        <div className="p-3 bg-slate-900 text-white flex items-center justify-between gap-2 shrink-0 no-print border-t border-slate-800">
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
-            title="Volver a mandar a imprimir este ticket (Atajo: P o R)"
-          >
-            <Printer className="w-3.5 h-3.5 text-amber-400" />
-            <span>Reimprimir</span>
-          </button>
+        <div className="p-3 bg-slate-900 text-white flex flex-col gap-2 shrink-0 no-print border-t border-slate-800">
+          {isAndroidPrintHost() ? (
+            <p className="text-[10px] text-slate-300 leading-snug">
+              La térmica recibe <strong className="text-white">letra</strong>, no una foto. Android abre RawBT (una vez) para mandar el ticket por Bluetooth.
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => void handlePrint()}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
+              title="Mandar este ticket a la térmica (Atajo: P o R)"
+            >
+              <Printer className="w-3.5 h-3.5 text-amber-400" />
+              <span>{isAndroidPrintHost() ? 'Imprimir texto' : 'Reimprimir'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => handleNextSale(false)}
-            className="flex items-center justify-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer"
-            title="Continuar con la siguiente venta (Atajo: Enter o Espacio)"
-          >
-            <span>Siguiente Venta</span>
-            <ArrowRight className="w-3.5 h-3.5 text-white" />
-          </button>
+            <button
+              type="button"
+              onClick={() => handleNextSale(false)}
+              className="flex items-center justify-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer"
+              title="Continuar con la siguiente venta (Atajo: Enter o Espacio)"
+            >
+              <span>Siguiente Venta</span>
+              <ArrowRight className="w-3.5 h-3.5 text-white" />
+            </button>
+          </div>
+          {isAndroidPrintHost() ? (
+            <button
+              type="button"
+              onClick={() => void handlePrint(true)}
+              className="self-start text-[10px] text-slate-400 hover:text-slate-200 underline underline-offset-2 cursor-pointer"
+            >
+              Imprimir como foto (sistema)
+            </button>
+          ) : null}
         </div>
-
       </div>
     </div>
   );

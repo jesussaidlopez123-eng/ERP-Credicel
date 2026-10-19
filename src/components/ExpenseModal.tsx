@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
-import { printThermalFromElement } from '../lib/printWindow';
+import { isAndroidPrintHost, printThermalFromElement } from '../lib/printWindow';
+import { printEscPosBytes } from '../lib/printEscpos';
+import { buildExpenseTicketEscPos } from '../lib/escposTickets';
 import { formatMoney, money, newUniqueId } from '../lib/ids';
 import { formatHermosilloDate } from '../lib/shiftHours';
 
@@ -64,8 +66,17 @@ export default function ExpenseModal({
     setConcept('');
   };
 
-  const handlePrint = () => {
+  const printAsImage = () => {
     printThermalFromElement('thermal-expense-receipt', 'Ticket de gasto');
+  };
+
+  const handlePrint = async (asImage = false) => {
+    if (!createdExpense) return;
+    if (asImage) {
+      printAsImage();
+      return;
+    }
+    await printEscPosBytes(buildExpenseTicketEscPos(createdExpense, currentBranch), printAsImage);
   };
 
   return (
@@ -165,12 +176,21 @@ export default function ExpenseModal({
             <div className="p-4 bg-white flex flex-col sm:flex-row items-center justify-between gap-2 no-print shrink-0 border-t border-slate-200">
               <button
                 type="button"
-                onClick={handlePrint}
+                onClick={() => void handlePrint()}
                 className="w-full sm:flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
               >
                 <Printer className="w-4 h-4 text-yellow-300" />
-                Imprimir Ticket de Gasto
+                {isAndroidPrintHost() ? 'Imprimir texto' : 'Imprimir Ticket de Gasto'}
               </button>
+              {isAndroidPrintHost() ? (
+                <button
+                  type="button"
+                  onClick={() => void handlePrint(true)}
+                  className="w-full sm:w-auto px-3 py-2 text-[11px] text-slate-600 hover:text-slate-900 underline underline-offset-2 cursor-pointer"
+                >
+                  Como foto
+                </button>
+              ) : null}
 
               <button
                 type="button"
