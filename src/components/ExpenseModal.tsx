@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
 import { isAndroidPrintHost, printThermalFromElement } from '../lib/printWindow';
-import { printEscPosBytes } from '../lib/printEscpos';
-import { buildExpenseTicketEscPos } from '../lib/escposTickets';
+import { printThermalTicket } from '../lib/printEscpos';
+import { buildExpenseTicketPlainText } from '../lib/escposTickets';
 import { formatMoney, money, newUniqueId } from '../lib/ids';
 import { formatHermosilloDate } from '../lib/shiftHours';
 
@@ -76,7 +76,7 @@ export default function ExpenseModal({
       printAsImage();
       return;
     }
-    await printEscPosBytes(buildExpenseTicketEscPos(createdExpense, currentBranch), printAsImage);
+    await printThermalTicket(buildExpenseTicketPlainText(createdExpense, currentBranch), printAsImage);
   };
 
   return (
@@ -89,8 +89,8 @@ export default function ExpenseModal({
             background: #ffffff !important;
             background-color: #ffffff !important;
             color: #000000 !important;
-            -webkit-print-color-adjust: economy !important;
-            print-color-adjust: economy !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .no-print {
             display: none !important;

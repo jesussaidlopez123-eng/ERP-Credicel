@@ -6,8 +6,8 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { isAndroidPrintHost, isRestrictedPrintHost, printThermalFromElement } from '../lib/printWindow';
-import { printEscPosBytes } from '../lib/printEscpos';
-import { buildSaleTicketEscPos } from '../lib/escposTickets';
+import { printThermalTicket } from '../lib/printEscpos';
+import { buildSaleTicketPlainText } from '../lib/escposTickets';
 import { SaleTicket, Branch } from '../types';
 import { formatMoney, ticketFolioLabel } from '../lib/ids';
 
@@ -88,7 +88,7 @@ export default function TicketReceiptModal({
       setHasPrinted(true);
       return;
     }
-    await printEscPosBytes(buildSaleTicketEscPos(ticket, currentBranch), printAsImage);
+    await printThermalTicket(buildSaleTicketPlainText(ticket, currentBranch), printAsImage);
     setHasPrinted(true);
   };
 
@@ -149,8 +149,8 @@ export default function TicketReceiptModal({
             color: #000000 !important;
             width: 58mm !important;
             font-family: 'Courier New', Courier, monospace !important;
-            -webkit-print-color-adjust: economy !important;
-            print-color-adjust: economy !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .no-print {
             display: none !important;
@@ -466,7 +466,7 @@ export default function TicketReceiptModal({
         <div className="p-3 bg-slate-900 text-white flex flex-col gap-2 shrink-0 no-print border-t border-slate-800">
           {isAndroidPrintHost() ? (
             <p className="text-[10px] text-slate-300 leading-snug">
-              La térmica recibe <strong className="text-white">letra</strong>, no una foto. Android abre RawBT (una vez) para mandar el ticket por Bluetooth.
+              Android manda el ticket en <strong className="text-white">letra</strong> a RawBT (no como foto). Si el rollo sale vacío, usa “como foto”.
             </p>
           ) : null}
           <div className="flex items-center justify-between gap-2">

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { bytesToBase64, encodeCp850, EscPosBuilder, isCode39Safe, pairLine, wrapLine } from './escpos.ts';
-import { buildCorteTicketEscPos, buildExpenseTicketEscPos, buildSaleTicketEscPos } from './escposTickets.ts';
-import { buildRawBtIntentUrl, prefersEscPosText } from './printEscpos.ts';
+import {
+  buildCorteTicketEscPos,
+  buildCorteTicketPlainText,
+  buildExpenseTicketEscPos,
+  buildExpenseTicketPlainText,
+  buildSaleTicketEscPos,
+  buildSaleTicketPlainText
+} from './escposTickets.ts';
+import { buildRawBtTextUrl, prefersEscPosText } from './printEscpos.ts';
 import { isAndroidPrintHost } from './printWindow.ts';
 import type { Expense, SaleTicket } from '../types.ts';
 import type { CorteTicketView } from './corteTicket.ts';
@@ -20,10 +27,10 @@ const nTilde = encodeCp850('niño');
 assert.equal(nTilde[2], 0xa4, 'ñ en CP850');
 assert.equal(encodeCp850('¡Hola!')[0], 0xad);
 
-const built = new EscPosBuilder().init().align('left').bold(true).line('CREDI CEL').bold(false).code39('NAV-1910-042').feed(3).cut().toBytes();
+const built = new EscPosBuilder().init().align('left').line('CREDI CEL').toBytes();
 assert.ok(built[0] === 0x1b && built[1] === 0x40, 'ESC @ init');
-assert.ok(Array.from(built).includes(0x1d), 'incluye GS (código de barras o corte)');
 assert.ok(bytesToBase64(built).length > 8);
+assert.ok(!Array.from(built).includes(0x1d), 'ticket simple sin GS (barcode/corte)');
 
 const ticket: SaleTicket = {
   id: 'TCK-1',
@@ -54,14 +61,18 @@ const ticket: SaleTicket = {
   ]
 };
 
-const saleBytes = buildSaleTicketEscPos(ticket, { name: 'Huatabampo' });
-const saleText = String.fromCharCode(...saleBytes.filter((b) => b >= 32 && b < 127));
+const saleText = buildSaleTicketPlainText(ticket, { name: 'Huatabampo' });
 assert.match(saleText, /CREDI CEL/);
 assert.match(saleText, /HUA-1910-007/);
 assert.match(saleText, /CELULAR CONTADO/);
 assert.match(saleText, /IMEI 351111111111111/);
 assert.match(saleText, /TOTAL/);
-assert.ok(!saleText.includes('<div'), 'ESC/POS no es HTML');
+assert.ok(!saleText.includes('<div'), 'texto plano, no HTML');
+assert.ok(!saleText.includes('\x1b'), 'RawBT recibe letra, no ESC binario');
+
+const saleBytes = buildSaleTicketEscPos(ticket, { name: 'Huatabampo' });
+const saleAscii = String.fromCharCode(...saleBytes.filter((b) => b >= 32 && b < 127));
+assert.match(saleAscii, /CREDI CEL/);
 
 const expense: Expense = {
   id: 'EXP-ABC-1',
@@ -71,10 +82,10 @@ const expense: Expense = {
   operatorName: 'Teresa',
   branchId: 'b-matriz'
 };
+assert.match(buildExpenseTicketPlainText(expense, { name: 'Matriz' }), /VALE DE SALIDA/);
+assert.match(buildExpenseTicketPlainText(expense, { name: 'Matriz' }), /Pasajes Navojoa/);
 const expBytes = buildExpenseTicketEscPos(expense, { name: 'Matriz' });
-const expText = String.fromCharCode(...expBytes.filter((b) => b >= 32 && b < 127));
-assert.match(expText, /VALE DE SALIDA/);
-assert.match(expText, /Pasajes Navojoa/);
+assert.ok(expBytes.length > 20);
 
 const corte: CorteTicketView = {
   folio: 'CTX-TURNO',
@@ -103,17 +114,17 @@ const corte: CorteTicketView = {
   items: [{ quantity: 1, productName: 'Mica', ticketFolio: 'MTZ-1910-001', paymentMethod: 'Efectivo', time: '10:00', totalPrice: 100 }],
   expenses: [{ concept: 'Agua', amount: 20 }]
 };
-const corteBytes = buildCorteTicketEscPos(corte);
-const corteText = String.fromCharCode(...corteBytes.filter((b) => b >= 32 && b < 127));
+const corteText = buildCorteTicketPlainText(corte);
 assert.match(corteText, /CORTE DE CAJA/);
 assert.match(corteText, /FIN DE CORTE/);
 assert.match(corteText, /Mica/);
+assert.ok(buildCorteTicketEscPos(corte).length > 20);
 
-const intent = buildRawBtIntentUrl(saleBytes);
-assert.match(intent, /^intent:/);
-assert.match(intent, /scheme=rawbt/);
-assert.match(intent, /package=ru\.a402d\.rawbtprinter/);
-assert.ok(!intent.includes('<'), 'intent sin HTML');
+const rawbt = buildRawBtTextUrl(saleText);
+assert.match(rawbt, /^rawbt:/);
+assert.match(rawbt, /CREDI%20CEL|CREDI CEL/);
+assert.ok(!rawbt.startsWith('intent:'), 'texto por esquema rawbt, no intent binario');
+assert.ok(!rawbt.includes('<'), 'url sin HTML');
 
 assert.equal(isAndroidPrintHost('Mozilla/5.0 (Linux; Android 13; SM-T220) Chrome/120'), true);
 assert.equal(isAndroidPrintHost('Mozilla/5.0 (iPad; CPU OS 17_0)'), false);

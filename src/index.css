@@ -426,8 +426,8 @@ html, body, #root {
     background-color: #ffffff !important;
     color: #000000 !important;
     font-family: 'Courier New', Courier, monospace !important;
-    -webkit-print-color-adjust: economy !important;
-    print-color-adjust: economy !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Gana a .bg-slate-950 { #020617 !important } del fallback de pantalla. */

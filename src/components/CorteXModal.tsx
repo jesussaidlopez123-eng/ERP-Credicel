@@ -25,8 +25,8 @@ import { saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
 import { money } from '../lib/ids';
 import { isAndroidPrintHost, printThermalHtml } from '../lib/printWindow';
-import { printEscPosBytes } from '../lib/printEscpos';
-import { buildCorteTicketEscPos } from '../lib/escposTickets';
+import { printThermalTicket } from '../lib/printEscpos';
+import { buildCorteTicketPlainText } from '../lib/escposTickets';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
@@ -555,7 +555,7 @@ export default function CorteXModal({
       image();
       return;
     }
-    void printEscPosBytes(buildCorteTicketEscPos(view), image);
+    void printThermalTicket(buildCorteTicketPlainText(view), image);
   };
 
   const handlePrintThermal = (asImage = false) => {

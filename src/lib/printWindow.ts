@@ -27,8 +27,8 @@ export const THERMAL_PAGE_CSS = `
     font-family: 'Courier New', Courier, monospace;
     font-size: 8px;
     line-height: 1.1;
-    -webkit-print-color-adjust: economy;
-    print-color-adjust: economy;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .sheet {
     width: 54mm;
@@ -186,8 +186,8 @@ function printViaHostDocument(innerBody: string, extraCss: string): void {
         background: #fff !important;
         background-color: #fff !important;
         color: #000 !important;
-        -webkit-print-color-adjust: economy !important;
-        print-color-adjust: economy !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       /* La tablet imprime el documento vivo: esconder el ERP oscuro. */
       #root,

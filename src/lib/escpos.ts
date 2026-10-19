@@ -78,9 +78,6 @@ export class EscPosBuilder {
 
   init(): this {
     this.bytes.push(0x1b, 0x40);
-    this.bytes.push(0x1b, 0x74, 0x02);
-    this.align('center');
-    this.bytes.push(0x1b, 0x32);
     return this;
   }
 
@@ -162,4 +159,54 @@ export function bytesToBase64(bytes: Uint8Array): string {
     bin += String.fromCharCode(...bytes.subarray(i, i + step));
   }
   return btoa(bin);
+}
+
+export function utf8ToBase64(text: string): string {
+  return bytesToBase64(new TextEncoder().encode(String(text || '')));
+}
+
+export function centerLine(text: string, cols = ESC_POS_COLS): string {
+  const t = String(text || '');
+  if (t.length >= cols) return t.slice(0, cols);
+  return `${' '.repeat(Math.floor((cols - t.length) / 2))}${t}`;
+}
+
+export class TicketDraft {
+  private lines: string[] = [];
+
+  center(value: string): this {
+    this.lines.push(centerLine(value));
+    return this;
+  }
+
+  left(value: string): this {
+    this.lines.push(String(value || ''));
+    return this;
+  }
+
+  wrapped(value: string): this {
+    for (const part of wrapLine(value)) this.left(part);
+    return this;
+  }
+
+  pair(left: string, right: string): this {
+    this.left(pairLine(left, right));
+    return this;
+  }
+
+  dash(): this {
+    this.left(dashedLine());
+    return this;
+  }
+
+  toPlainText(): string {
+    return `${this.lines.join('\n')}\n\n\n\n`;
+  }
+
+  toEscPos(): Uint8Array {
+    const esc = new EscPosBuilder().init();
+    for (const line of this.lines) esc.line(line);
+    esc.text('\n\n\n');
+    return esc.toBytes();
+  }
 }

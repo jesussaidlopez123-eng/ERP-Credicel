@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { isAndroidPrintHost, isRestrictedPrintHost, THERMAL_PAGE_CSS } from './printWindow.ts';
 
-assert.match(THERMAL_PAGE_CSS, /print-color-adjust:\s*economy/, 'no forzar fondos de color en térmica');
-assert.doesNotMatch(THERMAL_PAGE_CSS, /print-color-adjust:\s*exact/);
+assert.match(THERMAL_PAGE_CSS, /print-color-adjust:\s*exact/, 'tinta negra del texto');
 assert.match(THERMAL_PAGE_CSS, /background:\s*#fff\s*!important/, 'hoja blanca');
 assert.match(THERMAL_PAGE_CSS, /\.inline-block[\s\S]*background:\s*transparent/, 'folio sin relleno negro');
 
