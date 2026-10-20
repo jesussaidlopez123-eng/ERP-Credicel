@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import { Smartphone, X } from 'lucide-react';
+import { FileSpreadsheet, Smartphone, X } from 'lucide-react';
 import { COMMERCIAL_BRANCHES, compareBranchIds, getBranchDisplayName } from '../data/initialBranches';
 import { money } from '../lib/ids';
 import {
@@ -52,6 +52,7 @@ interface ExecutiveAreaChartProps {
   periodLabel: string;
   phoneCounts: ExecutivePhoneCounts;
   phoneSales: ExecutivePhoneSale[];
+  onDownloadExcel?: () => void;
 }
 
 export default function ExecutiveAreaChart({
@@ -66,7 +67,8 @@ export default function ExecutiveAreaChart({
   onRangeChange,
   periodLabel,
   phoneCounts,
-  phoneSales
+  phoneSales,
+  onDownloadExcel
 }: ExecutiveAreaChartProps) {
   const [phonesOpen, setPhonesOpen] = useState(false);
   const branches: BranchChip[] = useMemo(
@@ -164,6 +166,17 @@ export default function ExecutiveAreaChart({
               {branch.name}
             </button>
           ))}
+          {onDownloadExcel ? (
+            <button
+              type="button"
+              onClick={onDownloadExcel}
+              className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-400"
+              title="Excel de abonos, equipos y recargas de lo que estás viendo"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Excel de esta vista
+            </button>
+          ) : null}
         </div>
 
         <div

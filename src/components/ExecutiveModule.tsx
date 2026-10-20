@@ -5,6 +5,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  FileSpreadsheet,
   History,
   Megaphone,
   Package,
@@ -63,6 +64,7 @@ import {
   sumRepairCostLinesInWeek,
   type ExecutiveLinePeriod
 } from '../lib/executiveArea';
+import { downloadExecutivePassExcel } from '../lib/executivePassExcel';
 import { isMatrizRepairExpense } from '../lib/repairCorte';
 import { repairCostFinanceDateKey } from '../lib/repairUtils';
 import LoadMoreButton from './LoadMoreButton';
@@ -659,12 +661,14 @@ function WeekBoard({
   week,
   branchId,
   onBranchChange,
-  onOpenCategory
+  onOpenCategory,
+  onDownloadExcel
 }: {
   week: WeekBlock;
   branchId: string;
   onBranchChange: (id: string) => void;
   onOpenCategory: (id: CategoryId) => void;
+  onDownloadExcel?: () => void;
 }) {
   const scopedTickets = useMemo(
     () =>
@@ -738,6 +742,16 @@ function WeekBoard({
             {branch.name}
           </button>
         ))}
+        {onDownloadExcel ? (
+          <button
+            type="button"
+            onClick={onDownloadExcel}
+            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-400"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Excel abonos · equipos · recargas
+          </button>
+        ) : null}
       </div>
 
       <div className="px-4 sm:px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-2 border-b border-slate-100 bg-slate-50/70">
@@ -922,6 +936,16 @@ export default function ExecutiveModule({
         periodLabel={lineRange.label}
         phoneCounts={phoneCounts}
         phoneSales={phoneSales}
+        onDownloadExcel={() =>
+          downloadExecutivePassExcel({
+            tickets: salesTickets,
+            from: lineRange.from,
+            to: lineRange.to,
+            branchId,
+            periodLabel: lineRange.label,
+            branchLabel: branchId === 'all' ? 'Todas' : getBranchDisplayName(branchId)
+          })
+        }
       />
 
       {activeWeek && (
@@ -930,6 +954,16 @@ export default function ExecutiveModule({
           branchId={branchId}
           onBranchChange={setBranchId}
           onOpenCategory={setHistoryCategory}
+          onDownloadExcel={() =>
+            downloadExecutivePassExcel({
+              tickets: salesTickets,
+              from: lineRange.from,
+              to: lineRange.to,
+              branchId,
+              periodLabel: lineRange.label,
+              branchLabel: branchId === 'all' ? 'Todas' : getBranchDisplayName(branchId)
+            })
+          }
         />
       )}
 
