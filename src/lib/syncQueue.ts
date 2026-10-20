@@ -12,7 +12,7 @@ import { normalizeBranchId } from '../data/initialBranches';
 import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
-import { LocalRecord, RecordKind, deleteOutboxRow, deleteRecord, getRecord, listRecords, putRecord } from './localDb';
+import { LocalRecord, RecordKind, deleteOutboxRow, deleteRecord, getRecord, listRecords, putRecord, putRecords } from './localDb';
 import { drainOutbox, enqueue, listPendingOutbox } from './outbox';
 import {
   CORTE_X_COLLECTION,
@@ -342,6 +342,68 @@ export async function localCortes(): Promise<CorteXRecord[]> {
   return unwrap(await listRecords<CorteXRecord>('corte'));
 }
 
+function historyDateKey(row: {
+  timestamp?: string;
+  date?: string;
+  dateStr?: string;
+}): string {
+  return hermosilloDateKey(row.timestamp || row.date || row.dateStr) || trustedDateKey();
+}
+
+/**
+ * Guarda en este equipo lo que Dirección ya trajo de la nube.
+ * No encola nada: esos documentos ya existen en Firestore.
+ */
+export async function rememberCloudHistory(input: {
+  tickets?: SaleTicket[];
+  expenses?: Expense[];
+  cortes?: CorteXRecord[];
+}): Promise<number> {
+  const rows: Array<Omit<LocalRecord<SaleTicket | Expense | CorteXRecord>, 'pk'>> = [];
+  const now = trustedIso();
+
+  for (const ticket of input.tickets || []) {
+    if (!ticket?.id) continue;
+    const branchId = normalizeBranchId(ticket.branchId || ticket.sucursal_id);
+    rows.push({
+      kind: 'sale',
+      id: ticket.id,
+      branchId,
+      dateKey: historyDateKey(ticket),
+      data: ticket,
+      updatedAt: now
+    });
+  }
+  for (const expense of input.expenses || []) {
+    if (!expense?.id) continue;
+    const branchId = normalizeBranchId(expense.branchId || expense.sucursal_id);
+    rows.push({
+      kind: 'expense',
+      id: expense.id,
+      branchId,
+      dateKey: historyDateKey(expense),
+      data: expense,
+      updatedAt: now
+    });
+  }
+  for (const corte of input.cortes || []) {
+    if (!corte?.id) continue;
+    const branchId = normalizeBranchId(corte.branchId || corte.sucursal_id);
+    rows.push({
+      kind: 'corte',
+      id: corte.id,
+      branchId,
+      dateKey: historyDateKey(corte),
+      data: corte,
+      updatedAt: now
+    });
+  }
+
+  if (rows.length === 0) return 0;
+  await putRecords(rows);
+  return rows.length;
+}
+
 /** La nube manda, pero lo que solo existe aquí no se pierde de vista. */
 export function mergeWithLocal<T extends { id: string }>(cloud: T[], local: T[]): T[] {
   const map = new Map<string, T>();
@@ -386,7 +448,8 @@ export async function forgetLocalRepair(repairId: string): Promise<void> {
   await dropPendingWrite(`repair-${repairId}`);
 }
 
-const LOCAL_RETENTION_DAYS = 45;
+/** El equipo guarda el historial que Dirección ya pidió (mismo horizonte que Ventas). */
+export const LOCAL_RETENTION_DAYS = 180;
 
 /**
  * Suelta lo viejo del equipo para que la caja no se llene con meses de historia.

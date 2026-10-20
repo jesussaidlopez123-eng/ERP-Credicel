@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   History,
+  Info,
   Megaphone,
   Package,
   Smartphone,
@@ -14,7 +15,7 @@ import {
   Wrench,
   X
 } from 'lucide-react';
-import { Branch, CartItem, Expense, Operator, Product, RepairRecord, SaleTicket } from '../types';
+import { Branch, CartItem, CorteXRecord, Expense, Operator, Product, RepairRecord, SaleTicket } from '../types';
 import ExecutiveAreaChart, { sumAreaPoints } from './ExecutiveAreaChart';
 import CorteCategoryBreakdown from './CorteCategoryBreakdown';
 import { buildCorteCategoryBreakdown, isCancelledSale } from '../lib/corteCategories';
@@ -67,6 +68,12 @@ import {
 import { downloadExecutivePassExcel } from '../lib/executivePassExcel';
 import { isMatrizRepairExpense } from '../lib/repairCorte';
 import { repairCostFinanceDateKey } from '../lib/repairUtils';
+import {
+  collectExpensesFromCortes,
+  collectTicketsFromCortes,
+  weekStartsFromCortes
+} from '../lib/executiveHistory';
+import { mergeByIdKeep } from '../lib/listMerge';
 import LoadMoreButton from './LoadMoreButton';
 
 interface ExecutiveModuleProps {
@@ -78,6 +85,8 @@ interface ExecutiveModuleProps {
   expenses?: Expense[];
   products?: Product[];
   repairRecords?: RepairRecord[];
+  cortesX?: CorteXRecord[];
+  onEnsureRange?: (from: string, to: string) => void;
   onLoadOlderSales?: () => void;
   onLoadOlderRepairs?: () => void;
   salesHasMore?: boolean;
@@ -299,10 +308,13 @@ function toPhoneSale(ticket: SaleTicket, item: CartItem, index: number): PhoneSa
 function buildWeekBlocks(
   tickets: SaleTicket[],
   expenses: Expense[],
-  repairs: RepairRecord[] = []
+  repairs: RepairRecord[] = [],
+  cortes: CorteXRecord[] = []
 ): WeekBlock[] {
   const currentStart = currentWeekStartKey();
   const bucket = new Map<string, { tickets: SaleTicket[]; expenses: Expense[] }>();
+  const mergedTickets = mergeByIdKeep(collectTicketsFromCortes(cortes), tickets);
+  const mergedExpenses = mergeByIdKeep(collectExpensesFromCortes(cortes), expenses);
 
   const take = (weekStart: string) => {
     if (!weekStart) return;
@@ -310,14 +322,18 @@ function buildWeekBlocks(
     return bucket.get(weekStart);
   };
 
-  tickets.forEach((ticket) => {
+  weekStartsFromCortes(cortes).forEach((weekStart) => {
+    take(weekStart);
+  });
+
+  mergedTickets.forEach((ticket) => {
     const bid = normalizeBranchId(ticket.branchId);
     if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(ticket.timestamp)));
     group?.tickets.push(ticket);
   });
 
-  expenses.forEach((expense) => {
+  mergedExpenses.forEach((expense) => {
     if (isMatrizRepairExpense(expense)) return;
     const bid = normalizeBranchId(expense.branchId);
     if (!hasCashTill(bid)) return;
@@ -823,11 +839,15 @@ function WeekBoard({
   );
 }
 
+const HISTORY_HINT_KEY = 'erp_dir_history_banner_v1';
+
 export default function ExecutiveModule({
   onOpenNoticeModal,
   salesTickets = [],
   expenses = [],
   repairRecords = [],
+  cortesX = [],
+  onEnsureRange,
   onLoadOlderSales,
   onLoadOlderRepairs,
   salesHasMore = false,
@@ -841,10 +861,26 @@ export default function ExecutiveModule({
   const todayKey = todayCashDateKey();
   const [rangeFrom, setRangeFrom] = useState(() => addCashDays(todayCashDateKey(), -29));
   const [rangeTo, setRangeTo] = useState(() => todayCashDateKey());
+  const [hideHint, setHideHint] = useState(() => {
+    try {
+      return sessionStorage.getItem(HISTORY_HINT_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const viewTickets = useMemo(
+    () => mergeByIdKeep(collectTicketsFromCortes(cortesX), salesTickets),
+    [cortesX, salesTickets]
+  );
+  const viewExpenses = useMemo(
+    () => mergeByIdKeep(collectExpensesFromCortes(cortesX), expenses),
+    [cortesX, expenses]
+  );
 
   const weeks = useMemo(
-    () => buildWeekBlocks(salesTickets, expenses, repairRecords),
-    [salesTickets, expenses, repairRecords]
+    () => buildWeekBlocks(viewTickets, viewExpenses, repairRecords, cortesX),
+    [viewTickets, viewExpenses, repairRecords, cortesX]
   );
 
   const currentStart = weeks.find((week) => week.isCurrent)?.weekStart || weeks[0]?.weekStart || '';
@@ -869,39 +905,81 @@ export default function ExecutiveModule({
     () =>
       buildExecutiveLinePoints({
         days: lineRange.days,
-        tickets: salesTickets,
-        expenses,
+        tickets: viewTickets,
+        expenses: viewExpenses,
         repairs: repairRecords,
         branchId,
         period: linePeriod
       }),
-    [lineRange.days, salesTickets, expenses, repairRecords, branchId, linePeriod]
+    [lineRange.days, viewTickets, viewExpenses, repairRecords, branchId, linePeriod]
   );
 
   const areaTotals = useMemo(() => sumAreaPoints(areaPoints), [areaPoints]);
   const phoneCounts = useMemo(
     () =>
       countPhonesSold({
-        tickets: salesTickets,
+        tickets: viewTickets,
         from: lineRange.from,
         to: lineRange.to,
         branchId
       }),
-    [salesTickets, lineRange.from, lineRange.to, branchId]
+    [viewTickets, lineRange.from, lineRange.to, branchId]
   );
   const phoneSales = useMemo(
     () =>
       listPhonesSold({
-        tickets: salesTickets,
+        tickets: viewTickets,
         from: lineRange.from,
         to: lineRange.to,
         branchId
       }),
-    [salesTickets, lineRange.from, lineRange.to, branchId]
+    [viewTickets, lineRange.from, lineRange.to, branchId]
   );
+
+  useEffect(() => {
+    if (!lineRange.from || !lineRange.to) return;
+    onEnsureRange?.(lineRange.from, lineRange.to);
+  }, [lineRange.from, lineRange.to, onEnsureRange]);
+
+  const dismissHint = () => {
+    setHideHint(true);
+    try {
+      sessionStorage.setItem(HISTORY_HINT_KEY, '1');
+    } catch {
+      // private mode
+    }
+  };
+
+  const rangeLoading = historyBusy === 'executive';
 
   return (
     <div className="space-y-4 pb-8">
+      {(rangeLoading || !hideHint) && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 flex items-start gap-2">
+          <Info className="w-4 h-4 text-sky-700 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-sky-950">
+              {rangeLoading ? 'Trayendo este periodo desde la nube…' : 'Nada se borró'}
+            </p>
+            <p className="text-[12px] text-sky-800 mt-0.5 leading-snug">
+              {rangeLoading
+                ? 'Las ventas, gastos y cortes siguen en la nube. Dirección solo tenía los movimientos recientes de esta pantalla; ahora pide la semana o el rango que estás viendo.'
+                : 'Las ventas, gastos y cortes siguen en la nube. Esta pantalla ahora carga el periodo que estás viendo, no solo los últimos tickets.'}
+            </p>
+          </div>
+          {!rangeLoading && (
+            <button
+              type="button"
+              onClick={dismissHint}
+              className="p-1 rounded-md text-sky-700 hover:bg-sky-100 cursor-pointer shrink-0"
+              aria-label="Cerrar aviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
           <h1 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
@@ -938,7 +1016,7 @@ export default function ExecutiveModule({
         phoneSales={phoneSales}
         onDownloadExcel={() =>
           downloadExecutivePassExcel({
-            tickets: salesTickets,
+            tickets: viewTickets,
             from: lineRange.from,
             to: lineRange.to,
             branchId,
@@ -956,7 +1034,7 @@ export default function ExecutiveModule({
           onOpenCategory={setHistoryCategory}
           onDownloadExcel={() =>
             downloadExecutivePassExcel({
-              tickets: salesTickets,
+              tickets: viewTickets,
               from: lineRange.from,
               to: lineRange.to,
               branchId,
@@ -1020,7 +1098,7 @@ export default function ExecutiveModule({
 
       <LoadMoreButton
         hasMore={salesHasMore || repairsHasMore}
-        loading={historyBusy === 'sales' || historyBusy === 'repairs'}
+        loading={historyBusy === 'sales' || historyBusy === 'repairs' || historyBusy === 'executive'}
         onClick={() => {
           if (salesHasMore) onLoadOlderSales?.();
           if (repairsHasMore) onLoadOlderRepairs?.();

@@ -61,7 +61,9 @@ import { registerOutboxExecutor } from './outbox';
 import { mergeByIdKeep } from './listMerge';
 import { HISTORY_PAGE, LIVE_LIMIT } from './queryLimits';
 import { listenSnapshotWithRetry } from './firestoreListen';
-import { cashDayQueryBounds, docBelongsToOpenShift } from './shiftDocs';
+import { chunkInclusiveRange } from './dateUtils';
+import { cajaRangeQueryBounds, cashDayQueryBounds, docBelongsToOpenShift } from './shiftDocs';
+import { CAJA_RANGE_CHUNK_DAYS } from './executiveHistory';
 
 // Initialize Firebase App
 const firebaseConfig = {
@@ -537,17 +539,70 @@ async function queryDocsByTimestampRange<T extends { id: string }>(
   end: string
 ): Promise<T[]> {
   try {
-    const qRange = query(
-      collection(db, collectionName),
-      where('timestamp', '>=', start),
-      where('timestamp', '<', end)
-    );
-    const snap = await getDocs(qRange);
-    return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+    return await queryDocsByTimestampRangeOrThrow<T>(collectionName, start, end);
   } catch (err) {
     console.warn(`[Firestore] query ${collectionName} por día falló:`, err);
     return [];
   }
+}
+
+async function queryDocsByTimestampRangeOrThrow<T extends { id: string }>(
+  collectionName: string,
+  start: string,
+  end: string
+): Promise<T[]> {
+  const qRange = query(
+    collection(db, collectionName),
+    where('timestamp', '>=', start),
+    where('timestamp', '<', end)
+  );
+  const snap = await getDocs(qRange);
+  return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
+}
+
+/**
+ * Tickets, gastos y cortes de un rango de caja. Dirección lo usa para
+ * la semana/mes que se está viendo; no sustituye la escucha en vivo.
+ */
+export async function fetchCajaDocsInDateRange(
+  fromDateKey: string,
+  toDateKey: string
+): Promise<{ tickets: SaleTicket[]; expenses: Expense[]; cortes: CorteXRecord[] }> {
+  const chunks = chunkInclusiveRange(fromDateKey, toDateKey, CAJA_RANGE_CHUNK_DAYS);
+  let tickets: SaleTicket[] = [];
+  let expenses: Expense[] = [];
+  let cortes: CorteXRecord[] = [];
+  let anyOk = false;
+  let lastError: unknown = null;
+
+  for (const chunk of chunks) {
+    const bounds = cajaRangeQueryBounds(chunk.from, chunk.to);
+    const settled = await Promise.allSettled([
+      queryDocsByTimestampRangeOrThrow<SaleTicket>(VENTAS_COLLECTION, bounds.start, bounds.end),
+      queryDocsByTimestampRangeOrThrow<SaleTicket>(SALES_COLLECTION, bounds.start, bounds.end),
+      queryDocsByTimestampRangeOrThrow<Expense>(GASTOS_COLLECTION, bounds.start, bounds.end),
+      queryDocsByTimestampRangeOrThrow<Expense>(EXPENSES_COLLECTION, bounds.start, bounds.end),
+      queryDocsByTimestampRangeOrThrow<CorteXRecord>(CORTE_X_COLLECTION, bounds.start, bounds.end)
+    ]);
+
+    const [ventas, sales, gastos, exps, cortesChunk] = settled;
+    for (const result of settled) {
+      if (result.status === 'fulfilled') anyOk = true;
+      else {
+        lastError = result.reason;
+        console.warn('[Firestore] rango de caja parcial:', result.reason);
+      }
+    }
+
+    if (ventas.status === 'fulfilled') tickets = mergeByIdKeep(tickets, ventas.value);
+    if (sales.status === 'fulfilled') tickets = mergeByIdKeep(tickets, sales.value);
+    if (gastos.status === 'fulfilled') expenses = mergeByIdKeep(expenses, gastos.value);
+    if (exps.status === 'fulfilled') expenses = mergeByIdKeep(expenses, exps.value);
+    if (cortesChunk.status === 'fulfilled') cortes = mergeByIdKeep(cortes, cortesChunk.value);
+  }
+
+  if (!anyOk && lastError) throw lastError;
+  return { tickets, expenses, cortes };
 }
 
 async function readOpenSessionId(branchId: string): Promise<string> {

@@ -4,6 +4,7 @@ import {
   formatCashDateLabel,
   formatMonthLabel,
   listCashDays,
+  chunkInclusiveRange,
   monthEndDateKey,
   monthStartDateKey,
   isoWeekAndYear,
@@ -39,5 +40,9 @@ assert.match(formatMonthLabel('2026-10-14'), /octubre/i);
 assert.deepEqual(listCashDays('2026-10-12', '2026-10-14'), ['2026-10-12', '2026-10-13', '2026-10-14']);
 assert.deepEqual(listCashDays('2026-10-14', '2026-10-12'), ['2026-10-12', '2026-10-13', '2026-10-14']);
 assert.ok(weekdayShortEs('2026-10-14'));
+assert.deepEqual(chunkInclusiveRange('2026-10-01', '2026-10-10', 7), [
+  { from: '2026-10-01', to: '2026-10-07' },
+  { from: '2026-10-08', to: '2026-10-10' }
+]);
 
 console.log('dateUtils self-test ok');

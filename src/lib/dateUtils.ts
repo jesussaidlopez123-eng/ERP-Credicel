@@ -204,6 +204,22 @@ export function listCashDays(fromKey: string, toKey: string, maxDays = 400): str
   return out;
 }
 
+/** Parte un rango de caja en tramos cortos para no pedir meses enteros de un golpe. */
+export function chunkInclusiveRange(
+  fromKey: string,
+  toKey: string,
+  chunkDays = 7
+): Array<{ from: string; to: string }> {
+  const size = Math.max(1, Math.floor(chunkDays) || 7);
+  const days = listCashDays(fromKey, toKey);
+  const chunks: Array<{ from: string; to: string }> = [];
+  for (let i = 0; i < days.length; i += size) {
+    const slice = days.slice(i, i + size);
+    chunks.push({ from: slice[0], to: slice[slice.length - 1] });
+  }
+  return chunks;
+}
+
 export function formatDateRangeLabel(fromKey: string, toKey: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) return '';
   const start = new Date(`${fromKey}T12:00:00-07:00`);

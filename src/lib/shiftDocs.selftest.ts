@@ -4,7 +4,7 @@
  *   npx tsx src/lib/shiftDocs.selftest.ts
  */
 import assert from 'node:assert/strict';
-import { cashDayQueryBounds, docBelongsToOpenShift } from './shiftDocs.ts';
+import { cajaRangeQueryBounds, cashDayQueryBounds, docBelongsToOpenShift } from './shiftDocs.ts';
 
 const session = {
   id: 'SES-HUA-20261014-MV8B3FY4',
@@ -92,5 +92,9 @@ assert.equal(
 const bounds = cashDayQueryBounds('2026-10-14');
 assert.equal(bounds.start, '2026-10-14T00:00:00.000Z');
 assert.ok(bounds.end.startsWith('2026-10-15'));
+
+const weekBounds = cajaRangeQueryBounds('2026-10-12', '2026-10-14');
+assert.equal(weekBounds.start, '2026-10-12T00:00:00.000Z');
+assert.ok(weekBounds.end.startsWith('2026-10-15'));
 
 console.log('shiftDocs.selftest: ok');

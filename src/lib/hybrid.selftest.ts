@@ -123,7 +123,9 @@ for (let seq = 1; seq <= 200; seq++) {
 assert.equal(folios.size, 200, 'los folios del bloque no se repiten');
 
 // ---- limpieza del historial viejo, sin tocar lo pendiente ----
-const { pruneOldLocalRecords, forgetLocalSale, forgetLocalRepair } = await import('./syncQueue.ts');
+const { pruneOldLocalRecords, forgetLocalSale, forgetLocalRepair, rememberCloudHistory } = await import(
+  './syncQueue.ts'
+);
 
 await putRecord({
   kind: 'sale',
@@ -148,12 +150,42 @@ await enqueue({
   payload: { nombre: 'pendiente-viejo' }
 });
 
+await putRecord({
+  kind: 'sale',
+  id: 'TCK-60D',
+  branchId: 'b-navojoa',
+  dateKey: '2026-06-29',
+  data: { id: 'TCK-60D', total: 10 },
+  updatedAt: '2026-06-29T12:00:00-07:00'
+});
+await putRecord({
+  kind: 'sale',
+  id: 'TCK-200D',
+  branchId: 'b-navojoa',
+  dateKey: '2026-02-01',
+  data: { id: 'TCK-200D', total: 10 },
+  updatedAt: '2026-02-01T12:00:00-07:00'
+});
+
 await pruneOldLocalRecords(new Date('2026-08-28T18:00:00-07:00'));
 assert.equal(
   await getRecord('sale', 'TCK-VIEJO'),
   null,
   'lo viejo ya confirmado se suelta para no llenar el equipo'
 );
+assert.ok(await getRecord('sale', 'TCK-60D'), '180 días de historial se conservan en el equipo');
+assert.equal(await getRecord('sale', 'TCK-200D'), null, 'más de 180 días se suelta');
+
+await rememberCloudHistory({
+  tickets: [
+    {
+      id: 'TCK-NUBE',
+      timestamp: '2026-10-01T12:00:00-07:00',
+      branchId: 'b-matriz'
+    } as import('../types.ts').SaleTicket
+  ]
+});
+assert.ok(await getRecord('sale', 'TCK-NUBE'), 'lo que Dirección ya pidió a la nube queda en este equipo');
 assert.ok(
   await getRecord('sale', 'TCK-VIEJO-PENDIENTE'),
   'lo viejo que sigue en la cola nunca se borra'

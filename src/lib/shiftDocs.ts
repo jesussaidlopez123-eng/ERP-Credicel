@@ -1,5 +1,5 @@
 import { normalizeBranchId } from '../data/initialBranches';
-import { addCashDays } from './dateUtils';
+import { addCashDays, listCashDays } from './dateUtils';
 import { hermosilloDateKey } from './shiftHours';
 
 /** Ventana ISO para preguntar tickets de un día de caja (Sonora UTC−7). */
@@ -8,6 +8,16 @@ export function cashDayQueryBounds(dateKey: string): { start: string; end: strin
   return {
     start: `${dateKey}T00:00:00.000Z`,
     end: `${next}T12:00:00.000Z`
+  };
+}
+
+/** Ventana ISO de varios días de caja (el último día usa el mismo margen que un día suelto). */
+export function cajaRangeQueryBounds(fromKey: string, toKey: string): { start: string; end: string } {
+  const days = listCashDays(fromKey, toKey);
+  if (days.length === 0) return cashDayQueryBounds(fromKey || toKey);
+  return {
+    start: cashDayQueryBounds(days[0]).start,
+    end: cashDayQueryBounds(days[days.length - 1]).end
   };
 }
 

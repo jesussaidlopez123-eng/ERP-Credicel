@@ -47,7 +47,8 @@ import {
   fetchOlderExpenses,
   fetchOlderCortes,
   fetchOlderInventoryMovements,
-  fetchOlderRepairRecords
+  fetchOlderRepairRecords,
+  fetchCajaDocsInDateRange
 } from '../lib/firebase';
 import { isNonInventorySaleItem, restoreBranchForSaleItem } from '../lib/inventoryRules';
 import {
@@ -117,6 +118,7 @@ import {
   localSales,
   mergeWithLocal,
   pruneOldLocalRecords,
+  rememberCloudHistory,
   saleAlreadyCommitted,
   sortByTimestampDesc
 } from '../lib/syncQueue';
@@ -150,6 +152,11 @@ import { deleteAgendaTaskFromCloud, saveAgendaTaskToCloud, subscribeToAgendaTask
 import SyncStatusChip from './SyncStatusChip';
 import LazyWhen, { ModuleLoading } from './LazyWhen';
 import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
+import {
+  markCashDaysLoaded,
+  mergeCajaDocsWithSnapshots,
+  missingCashDays
+} from '../lib/executiveHistory';
 import { HISTORY_PAGE, LIVE_LIMIT } from '../lib/queryLimits';
 import { useStableCallback } from '../hooks/useStableCallback';
 import {
@@ -227,6 +234,7 @@ export default function Dashboard({
   const [tillLocked, setTillLocked] = useState(false);
   const [nightClosing, setNightClosing] = useState(false);
   const [historyBusy, setHistoryBusy] = useState<string | null>(null);
+  const [cajaRangeBusy, setCajaRangeBusy] = useState(false);
   const [salesHasMore, setSalesHasMore] = useState(true);
   const [expensesHasMore, setExpensesHasMore] = useState(true);
   const [cortesHasMore, setCortesHasMore] = useState(true);
@@ -235,6 +243,9 @@ export default function Dashboard({
   const expensesHasMoreRef = useRef(true);
   const cortesHasMoreRef = useRef(true);
   const historyBackfillRef = useRef(false);
+  const loadedCajaDaysRef = useRef(new Set<string>());
+  const rangeFetchRef = useRef(false);
+  const pendingCajaRangeRef = useRef<{ from: string; to: string } | null>(null);
   const activeModuleRef = useRef(activeModule);
   activeModuleRef.current = activeModule;
   const [movementsHasMore, setMovementsHasMore] = useState(true);
@@ -538,6 +549,9 @@ export default function Dashboard({
       salesTicketsRef.current = next;
       startTransition(() => setSalesTickets(next));
       scheduleSaveCachedList('sales', next);
+      void rememberCloudHistory({ tickets: extra }).catch((err) =>
+        console.warn('[Historial] no se pudo guardar ventas en el equipo:', err)
+      );
     }
     const done = extra.length < HISTORY_PAGE;
     if (done) {
@@ -560,6 +574,9 @@ export default function Dashboard({
       expensesRef.current = next;
       startTransition(() => setExpenses(next));
       scheduleSaveCachedList('expenses', next);
+      void rememberCloudHistory({ expenses: extra }).catch((err) =>
+        console.warn('[Historial] no se pudo guardar gastos en el equipo:', err)
+      );
     }
     const done = extra.length < HISTORY_PAGE;
     if (done) {
@@ -582,6 +599,9 @@ export default function Dashboard({
       cortesRef.current = next;
       startTransition(() => setCortesX(next));
       scheduleSaveCachedList('cortes', next);
+      void rememberCloudHistory({ cortes: extra }).catch((err) =>
+        console.warn('[Historial] no se pudo guardar cortes en el equipo:', err)
+      );
     }
     const done = extra.length < HISTORY_PAGE;
     if (done) {
@@ -629,12 +649,12 @@ export default function Dashboard({
 
   const ensureSalesHistoryWindow = useCallback(async () => {
     if (historyBackfillRef.current) return;
-    if (activeModuleRef.current !== 'sales') return;
+    if (activeModuleRef.current !== 'sales' && activeModuleRef.current !== 'executive') return;
     historyBackfillRef.current = true;
     const today = todayCashDateKey();
     try {
       for (let page = 0; page < SALES_HISTORY_MAX_PAGES; page++) {
-        if (activeModuleRef.current !== 'sales') break;
+        if (activeModuleRef.current !== 'sales' && activeModuleRef.current !== 'executive') break;
         if (historyWindowReached(cortesRef.current, today, SALES_HISTORY_DAYS)) break;
         if (!cortesHasMoreRef.current) break;
         const result = await pullOlderCortes();
@@ -650,9 +670,81 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!liveHistoryReady) return;
-    if (activeModule !== 'sales') return;
+    if (activeModule !== 'sales' && activeModule !== 'executive') return;
     void ensureSalesHistoryWindow();
   }, [liveHistoryReady, activeModule, ensureSalesHistoryWindow]);
+
+  const applyFetchedCajaDocs = useCallback(
+    (docs: { tickets: SaleTicket[]; expenses: Expense[]; cortes: CorteXRecord[] }) => {
+      const merged = mergeCajaDocsWithSnapshots(docs);
+      if (merged.tickets.length > 0) {
+        const next = sortByTimestampDesc(mergeByIdKeep(salesTicketsRef.current, merged.tickets));
+        salesTicketsRef.current = next;
+        startTransition(() => setSalesTickets(next));
+        scheduleSaveCachedList('sales', next);
+      }
+      if (merged.expenses.length > 0) {
+        const next = sortByTimestampDesc(mergeByIdKeep(expensesRef.current, merged.expenses));
+        expensesRef.current = next;
+        startTransition(() => setExpenses(next));
+        scheduleSaveCachedList('expenses', next);
+      }
+      if (merged.cortes.length > 0) {
+        const next = sortByTimestampDesc(mergeByIdKeep(cortesRef.current, merged.cortes));
+        cortesRef.current = next;
+        startTransition(() => setCortesX(next));
+        scheduleSaveCachedList('cortes', next);
+      }
+      void rememberCloudHistory(merged).catch((err) =>
+        console.warn('[Dirección] no se pudo guardar el rango en el equipo:', err)
+      );
+    },
+    []
+  );
+
+  const ensureCajaRange = useCallback(
+    async (from: string, to: string) => {
+      if (!from || !to) return;
+      pendingCajaRangeRef.current = { from, to };
+      if (rangeFetchRef.current) return;
+      rangeFetchRef.current = true;
+      setCajaRangeBusy(true);
+      try {
+        while (pendingCajaRangeRef.current) {
+          const next = pendingCajaRangeRef.current;
+          pendingCajaRangeRef.current = null;
+          const missing = missingCashDays(loadedCajaDaysRef.current, next.from, next.to);
+          if (missing.length === 0) continue;
+          const extra = await fetchCajaDocsInDateRange(missing[0], missing[missing.length - 1]);
+          applyFetchedCajaDocs(extra);
+          markCashDaysLoaded(loadedCajaDaysRef.current, missing[0], missing[missing.length - 1]);
+          await yieldToUi();
+        }
+      } catch (err) {
+        console.warn('[Dirección] no se pudo traer el periodo visto:', err);
+      } finally {
+        rangeFetchRef.current = false;
+        setCajaRangeBusy(false);
+      }
+    },
+    [applyFetchedCajaDocs]
+  );
+
+  const loadOlderExecutiveHistory = useCallback(async () => {
+    if (historyBusy) return;
+    setHistoryBusy('sales');
+    try {
+      await pullOlderCortes();
+      await yieldToUi();
+      await pullOlderSales();
+      await yieldToUi();
+      await pullOlderExpenses();
+    } catch (err) {
+      console.warn('[Dirección] semanas anteriores:', err);
+    } finally {
+      setHistoryBusy(null);
+    }
+  }, [historyBusy, pullOlderCortes, pullOlderSales, pullOlderExpenses]);
 
   const loadOlderMovements = useCallback(async () => {
     if (historyBusy) return;
@@ -2439,11 +2531,13 @@ export default function Dashboard({
             expenses={expenses}
             products={products}
             repairRecords={repairRecords}
-            onLoadOlderSales={loadOlderSales}
+            cortesX={cortesX}
+            onEnsureRange={ensureCajaRange}
+            onLoadOlderSales={loadOlderExecutiveHistory}
             onLoadOlderRepairs={loadOlderRepairs}
-            salesHasMore={salesHasMore}
+            salesHasMore={salesHasMore || expensesHasMore || cortesHasMore}
             repairsHasMore={repairsHasMore}
-            historyBusy={historyBusy}
+            historyBusy={cajaRangeBusy ? 'executive' : historyBusy}
           />
         );
       case 'credicelDashboard':
