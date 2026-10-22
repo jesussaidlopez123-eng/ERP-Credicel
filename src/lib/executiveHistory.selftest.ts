@@ -12,6 +12,8 @@ import {
   markCashDaysLoaded,
   mergeCajaDocsWithSnapshots,
   missingCashDays,
+  slimCorteRecord,
+  slimOldCortes,
   weekStartsFromCortes
 } from './executiveHistory.ts';
 import type { CorteXRecord, Expense, SaleTicket } from '../types.ts';
@@ -94,6 +96,12 @@ assert.equal(
   'el ticket vivo pisa el snapshot del corte'
 );
 assert.ok(merged.tickets.some((row) => row.id === 'TCK-SNAP'), 'el snapshot cubre lo que aún no se pidió a ventas');
+
+const slim = slimCorteRecord(corte);
+assert.equal(slim.ticketsSnapshot, undefined);
+assert.equal(slim.id, 'CTX-1');
+assert.equal(slimOldCortes([corte], '2026-09-01')[0]?.ticketsSnapshot?.length, 2, 'el corte reciente conserva la foto');
+assert.equal(slimOldCortes([corte], '2026-10-01')[0]?.ticketsSnapshot, undefined);
 
 const loaded = new Set<string>(['2026-10-13']);
 assert.deepEqual(missingCashDays(loaded, '2026-10-12', '2026-10-14'), ['2026-10-12', '2026-10-14']);

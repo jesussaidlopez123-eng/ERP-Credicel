@@ -1,9 +1,36 @@
 import { CorteXRecord, Expense, SaleTicket } from '../types';
-import { listCashDays, safeDateIsoKey, weekStartDateKey } from './dateUtils';
+import { addCashDays, listCashDays, safeDateIsoKey, todayCashDateKey, weekStartDateKey } from './dateUtils';
 import { mergeByIdKeep } from './listMerge';
 
 /** Días que Dirección pide de un golpe a la nube. */
-export const CAJA_RANGE_CHUNK_DAYS = 7;
+export const CAJA_RANGE_CHUNK_DAYS = 14;
+
+/** El Corte X de estos días sí necesita la foto de tickets; lo más viejo se aligera. */
+export const CORTE_SNAPSHOT_KEEP_DAYS = 14;
+
+export function slimCorteRecord(corte: CorteXRecord): CorteXRecord {
+  if (!corte?.ticketsSnapshot?.length && !corte?.expensesSnapshot?.length) return corte;
+  const { ticketsSnapshot: _tickets, expensesSnapshot: _expenses, ...rest } = corte;
+  return rest;
+}
+
+export function corteSnapshotKeepFrom(today = todayCashDateKey()): string {
+  return addCashDays(today, -CORTE_SNAPSHOT_KEEP_DAYS);
+}
+
+export function slimOldCortes(cortes: CorteXRecord[] = [], keepFromDateKey?: string): CorteXRecord[] {
+  if (!cortes.length) return cortes;
+  const from = keepFromDateKey || corteSnapshotKeepFrom();
+  let changed = false;
+  const next = cortes.map((corte) => {
+    const key = safeDateIsoKey(corte.timestamp) || safeDateIsoKey(corte.dateStr);
+    if (key && key >= from) return corte;
+    const slim = slimCorteRecord(corte);
+    if (slim !== corte) changed = true;
+    return slim;
+  });
+  return changed ? next : cortes;
+}
 
 export function collectTicketsFromCortes(cortes: CorteXRecord[] = []): SaleTicket[] {
   const rows: SaleTicket[] = [];

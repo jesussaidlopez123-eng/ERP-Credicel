@@ -13,6 +13,7 @@ import { hermosilloDateKey } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
 import { LocalRecord, RecordKind, deleteOutboxRow, deleteRecord, getRecord, listRecords, putRecord, putRecords } from './localDb';
+import { slimCorteRecord } from './executiveHistory';
 import { drainOutbox, enqueue, listPendingOutbox } from './outbox';
 import {
   CORTE_X_COLLECTION,
@@ -394,7 +395,7 @@ export async function rememberCloudHistory(input: {
       id: corte.id,
       branchId,
       dateKey: historyDateKey(corte),
-      data: corte,
+      data: slimCorteRecord(corte),
       updatedAt: now
     });
   }

@@ -70,7 +70,7 @@ import {
   pendingProductWritesFromOutboxPayload,
   type PendingInventoryWrite
 } from '../lib/inventoryMerge';
-import { safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
+import { addCashDays, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
 import {
   SALES_HISTORY_DAYS,
   SALES_HISTORY_MAX_PAGES,
@@ -155,7 +155,8 @@ import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
 import {
   markCashDaysLoaded,
   mergeCajaDocsWithSnapshots,
-  missingCashDays
+  missingCashDays,
+  slimOldCortes
 } from '../lib/executiveHistory';
 import { HISTORY_PAGE, LIVE_LIMIT } from '../lib/queryLimits';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -322,7 +323,7 @@ export default function Dashboard({
     const next = applyLiveCatalog({
       cloud: Array.from(byId.values()),
       pendingWrites: pendingInventoryRef.current,
-      tickets: [...salesTicketsRef.current, ...localOnlyRef.current.sales],
+      tickets: [...localOnlyRef.current.sales, ...salesTicketsRef.current.slice(0, 80)],
       extraSoldImeis: recentlySoldImeisRef.current
     });
     setProducts(next);
@@ -392,7 +393,11 @@ export default function Dashboard({
           setSalesHasMore(false);
         }
         setLiveHistoryReady(true);
-        if (cloudProductsRef.current.length > 0) {
+        const mod = activeModuleRef.current;
+        if (
+          cloudProductsRef.current.length > 0 &&
+          (mod === 'pos' || mod === 'inventory' || mod === 'purchases')
+        ) {
           publishCatalogFromCloud(cloudProductsRef.current);
         }
         markCloudUp();
@@ -649,12 +654,12 @@ export default function Dashboard({
 
   const ensureSalesHistoryWindow = useCallback(async () => {
     if (historyBackfillRef.current) return;
-    if (activeModuleRef.current !== 'sales' && activeModuleRef.current !== 'executive') return;
+    if (activeModuleRef.current !== 'sales') return;
     historyBackfillRef.current = true;
     const today = todayCashDateKey();
     try {
       for (let page = 0; page < SALES_HISTORY_MAX_PAGES; page++) {
-        if (activeModuleRef.current !== 'sales' && activeModuleRef.current !== 'executive') break;
+        if (activeModuleRef.current !== 'sales') break;
         if (historyWindowReached(cortesRef.current, today, SALES_HISTORY_DAYS)) break;
         if (!cortesHasMoreRef.current) break;
         const result = await pullOlderCortes();
@@ -670,7 +675,7 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!liveHistoryReady) return;
-    if (activeModule !== 'sales' && activeModule !== 'executive') return;
+    if (activeModule !== 'sales') return;
     void ensureSalesHistoryWindow();
   }, [liveHistoryReady, activeModule, ensureSalesHistoryWindow]);
 
@@ -873,7 +878,7 @@ export default function Dashboard({
           setExpenses((prev) => sortByTimestampDesc(mergeWithLocal(prev, exps)));
         }
         if (cortes.length > 0) {
-          setCortesX((prev) => sortByTimestampDesc(mergeWithLocal(prev, cortes)));
+          setCortesX((prev) => sortByTimestampDesc(slimOldCortes(mergeWithLocal(prev, cortes))));
         }
         void pruneOldLocalRecords().catch((err) =>
           console.warn('[Local] No se pudo limpiar el historial viejo:', err)
@@ -2289,6 +2294,28 @@ export default function Dashboard({
     [repairRecords]
   );
 
+  const posCajaTickets = useMemo(() => {
+    const from = addCashDays(todayCashDateKey(), -3);
+    const bid = normalizeBranchId(currentBranch.id);
+    const till = hasCashTill(currentBranch.id);
+    return salesTickets.filter((ticket) => {
+      if (till && normalizeBranchId(ticket.branchId) !== bid) return false;
+      const day = safeDateIsoKey(ticket.timestamp);
+      return !day || day >= from;
+    });
+  }, [salesTickets, currentBranch.id]);
+
+  const posCajaExpenses = useMemo(() => {
+    const from = addCashDays(todayCashDateKey(), -3);
+    const bid = normalizeBranchId(currentBranch.id);
+    const till = hasCashTill(currentBranch.id);
+    return expenses.filter((expense) => {
+      if (till && normalizeBranchId(expense.branchId) !== bid) return false;
+      const day = safeDateIsoKey(expense.timestamp || expense.date);
+      return !day || day >= from;
+    });
+  }, [expenses, currentBranch.id]);
+
   const handleDismissNotification = (id: string) => {
     const target = notificationsRef.current.find((n) => n.id === id);
     if (target && notificationIsSticky(target)) return;
@@ -2408,8 +2435,8 @@ export default function Dashboard({
             products={products}
             currentBranch={currentBranch}
             currentOperator={currentOperator}
-            salesTickets={salesTickets}
-            expenses={expenses}
+            salesTickets={posCajaTickets}
+            expenses={posCajaExpenses}
             onCompleteSale={stableCompleteSale}
             onAddExpense={stableAddExpense}
             isCorteXOpen={isCorteXOpen}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftRight,
   Building2,
@@ -72,12 +72,7 @@ import {
 import { downloadExecutivePassExcel } from '../lib/executivePassExcel';
 import { isMatrizRepairExpense } from '../lib/repairCorte';
 import { repairCostFinanceDateKey } from '../lib/repairUtils';
-import {
-  collectExpensesFromCortes,
-  collectTicketsFromCortes,
-  weekStartsFromCortes
-} from '../lib/executiveHistory';
-import { mergeByIdKeep } from '../lib/listMerge';
+import { weekStartsFromCortes } from '../lib/executiveHistory';
 import LoadMoreButton from './LoadMoreButton';
 
 interface ExecutiveModuleProps {
@@ -317,8 +312,6 @@ function buildWeekBlocks(
 ): WeekBlock[] {
   const currentStart = currentWeekStartKey();
   const bucket = new Map<string, { tickets: SaleTicket[]; expenses: Expense[] }>();
-  const mergedTickets = mergeByIdKeep(collectTicketsFromCortes(cortes), tickets);
-  const mergedExpenses = mergeByIdKeep(collectExpensesFromCortes(cortes), expenses);
 
   const take = (weekStart: string) => {
     if (!weekStart) return;
@@ -330,14 +323,14 @@ function buildWeekBlocks(
     take(weekStart);
   });
 
-  mergedTickets.forEach((ticket) => {
+  tickets.forEach((ticket) => {
     const bid = normalizeBranchId(ticket.branchId);
     if (!hasCashTill(bid)) return;
     const group = take(weekStartDateKey(safeDateIsoKey(ticket.timestamp)));
     group?.tickets.push(ticket);
   });
 
-  mergedExpenses.forEach((expense) => {
+  expenses.forEach((expense) => {
     if (isMatrizRepairExpense(expense)) return;
     const bid = normalizeBranchId(expense.branchId);
     if (!hasCashTill(bid)) return;
@@ -861,9 +854,9 @@ export default function ExecutiveModule({
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>('');
   const [historyCategory, setHistoryCategory] = useState<CategoryId | null>(null);
   const [branchId, setBranchId] = useState<string>('all');
-  const handleBranchChange = (clicked: string) => {
+  const handleBranchChange = useCallback((clicked: string) => {
     setBranchId((prev) => toggleExecutiveBranchFilter(prev, clicked));
-  };
+  }, []);
   const [linePeriod, setLinePeriod] = useState<ExecutiveLinePeriod>('semana');
   const todayKey = todayCashDateKey();
   const [rangeFrom, setRangeFrom] = useState(() => addCashDays(todayCashDateKey(), -29));
@@ -876,18 +869,9 @@ export default function ExecutiveModule({
     }
   });
 
-  const viewTickets = useMemo(
-    () => mergeByIdKeep(collectTicketsFromCortes(cortesX), salesTickets),
-    [cortesX, salesTickets]
-  );
-  const viewExpenses = useMemo(
-    () => mergeByIdKeep(collectExpensesFromCortes(cortesX), expenses),
-    [cortesX, expenses]
-  );
-
   const weeks = useMemo(
-    () => buildWeekBlocks(viewTickets, viewExpenses, repairRecords, cortesX),
-    [viewTickets, viewExpenses, repairRecords, cortesX]
+    () => buildWeekBlocks(salesTickets, expenses, repairRecords, cortesX),
+    [salesTickets, expenses, repairRecords, cortesX]
   );
 
   const currentStart = weeks.find((week) => week.isCurrent)?.weekStart || weeks[0]?.weekStart || '';
@@ -912,35 +896,35 @@ export default function ExecutiveModule({
     () =>
       buildExecutiveLinePoints({
         days: lineRange.days,
-        tickets: viewTickets,
-        expenses: viewExpenses,
+        tickets: salesTickets,
+        expenses,
         repairs: repairRecords,
         branchId,
         period: linePeriod
       }),
-    [lineRange.days, viewTickets, viewExpenses, repairRecords, branchId, linePeriod]
+    [lineRange.days, salesTickets, expenses, repairRecords, branchId, linePeriod]
   );
 
   const areaTotals = useMemo(() => sumAreaPoints(areaPoints), [areaPoints]);
   const phoneCounts = useMemo(
     () =>
       countPhonesSold({
-        tickets: viewTickets,
+        tickets: salesTickets,
         from: lineRange.from,
         to: lineRange.to,
         branchId
       }),
-    [viewTickets, lineRange.from, lineRange.to, branchId]
+    [salesTickets, lineRange.from, lineRange.to, branchId]
   );
   const phoneSales = useMemo(
     () =>
       listPhonesSold({
-        tickets: viewTickets,
+        tickets: salesTickets,
         from: lineRange.from,
         to: lineRange.to,
         branchId
       }),
-    [viewTickets, lineRange.from, lineRange.to, branchId]
+    [salesTickets, lineRange.from, lineRange.to, branchId]
   );
 
   useEffect(() => {
@@ -1023,7 +1007,7 @@ export default function ExecutiveModule({
         phoneSales={phoneSales}
         onDownloadExcel={() =>
           downloadExecutivePassExcel({
-            tickets: viewTickets,
+            tickets: salesTickets,
             from: lineRange.from,
             to: lineRange.to,
             branchId,
@@ -1041,7 +1025,7 @@ export default function ExecutiveModule({
           onOpenCategory={setHistoryCategory}
           onDownloadExcel={() =>
             downloadExecutivePassExcel({
-              tickets: viewTickets,
+              tickets: salesTickets,
               from: lineRange.from,
               to: lineRange.to,
               branchId,

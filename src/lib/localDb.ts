@@ -179,8 +179,29 @@ export async function putRecord<T>(row: Omit<LocalRecord<T>, 'pk'>): Promise<voi
 }
 
 export async function putRecords<T>(rows: Omit<LocalRecord<T>, 'pk'>[]): Promise<void> {
-  for (const row of rows) {
-    await putRecord(row);
+  if (!rows.length) return;
+  const full = rows.map((row) => ({ ...row, pk: recordPk(row.kind, row.id) }));
+  if (indexedDbBroken) {
+    for (const row of full) {
+      fallbackPut(RECORDS_STORE, 'pk', row as unknown as Record<string, unknown>);
+    }
+    return;
+  }
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(RECORDS_STORE, 'readwrite');
+      const store = tx.objectStore(RECORDS_STORE);
+      for (const row of full) store.put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Error en la base local'));
+      tx.onabort = () => reject(tx.error || new Error('Transacción local cancelada'));
+    });
+  } catch {
+    indexedDbBroken = true;
+    for (const row of full) {
+      fallbackPut(RECORDS_STORE, 'pk', row as unknown as Record<string, unknown>);
+    }
   }
 }
 

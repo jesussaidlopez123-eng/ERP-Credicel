@@ -560,6 +560,22 @@ async function queryDocsByTimestampRangeOrThrow<T extends { id: string }>(
   return snap.docs.map((d) => ({ ...(d.data() as T), id: d.id }));
 }
 
+/** Si la colección principal ya trae filas, no gasta otra lectura en la copia de compatibilidad. */
+async function queryPrimaryThenSecondary<T extends { id: string }>(
+  primaryName: string,
+  secondaryName: string,
+  start: string,
+  end: string
+): Promise<T[]> {
+  try {
+    const primary = await queryDocsByTimestampRangeOrThrow<T>(primaryName, start, end);
+    if (primary.length > 0) return primary;
+  } catch (err) {
+    console.warn(`[Firestore] rango ${primaryName}:`, err);
+  }
+  return queryDocsByTimestampRangeOrThrow<T>(secondaryName, start, end);
+}
+
 /**
  * Tickets, gastos y cortes de un rango de caja. Dirección lo usa para
  * la semana/mes que se está viendo; no sustituye la escucha en vivo.
@@ -578,14 +594,11 @@ export async function fetchCajaDocsInDateRange(
   for (const chunk of chunks) {
     const bounds = cajaRangeQueryBounds(chunk.from, chunk.to);
     const settled = await Promise.allSettled([
-      queryDocsByTimestampRangeOrThrow<SaleTicket>(VENTAS_COLLECTION, bounds.start, bounds.end),
-      queryDocsByTimestampRangeOrThrow<SaleTicket>(SALES_COLLECTION, bounds.start, bounds.end),
-      queryDocsByTimestampRangeOrThrow<Expense>(GASTOS_COLLECTION, bounds.start, bounds.end),
-      queryDocsByTimestampRangeOrThrow<Expense>(EXPENSES_COLLECTION, bounds.start, bounds.end),
+      queryPrimaryThenSecondary<SaleTicket>(VENTAS_COLLECTION, SALES_COLLECTION, bounds.start, bounds.end),
+      queryPrimaryThenSecondary<Expense>(GASTOS_COLLECTION, EXPENSES_COLLECTION, bounds.start, bounds.end),
       queryDocsByTimestampRangeOrThrow<CorteXRecord>(CORTE_X_COLLECTION, bounds.start, bounds.end)
     ]);
 
-    const [ventas, sales, gastos, exps, cortesChunk] = settled;
     for (const result of settled) {
       if (result.status === 'fulfilled') anyOk = true;
       else {
@@ -594,11 +607,9 @@ export async function fetchCajaDocsInDateRange(
       }
     }
 
-    if (ventas.status === 'fulfilled') tickets = mergeByIdKeep(tickets, ventas.value);
-    if (sales.status === 'fulfilled') tickets = mergeByIdKeep(tickets, sales.value);
-    if (gastos.status === 'fulfilled') expenses = mergeByIdKeep(expenses, gastos.value);
-    if (exps.status === 'fulfilled') expenses = mergeByIdKeep(expenses, exps.value);
-    if (cortesChunk.status === 'fulfilled') cortes = mergeByIdKeep(cortes, cortesChunk.value);
+    if (settled[0].status === 'fulfilled') tickets = mergeByIdKeep(tickets, settled[0].value);
+    if (settled[1].status === 'fulfilled') expenses = mergeByIdKeep(expenses, settled[1].value);
+    if (settled[2].status === 'fulfilled') cortes = mergeByIdKeep(cortes, settled[2].value);
   }
 
   if (!anyOk && lastError) throw lastError;

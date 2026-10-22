@@ -58,7 +58,7 @@ interface ExecutiveAreaChartProps {
   onDownloadExcel?: () => void;
 }
 
-export default function ExecutiveAreaChart({
+function ExecutiveAreaChart({
   points,
   branchId,
   onBranchChange,
@@ -378,6 +378,8 @@ export default function ExecutiveAreaChart({
     </section>
   );
 }
+
+export default React.memo(ExecutiveAreaChart);
 
 function PhonesSoldModal({
   sales,
