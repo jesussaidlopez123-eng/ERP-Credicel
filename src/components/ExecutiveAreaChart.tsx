@@ -18,7 +18,10 @@ import {
   addExecutiveAreaTotals,
   areaStackValues,
   emptyExecutiveAreaTotals,
+  executiveBranchFilterLabel,
   executiveTramoSegments,
+  isExecutiveBranchChipOn,
+  parseExecutiveBranchFilter,
   type ExecutiveAreaPoint,
   type ExecutiveAreaTotals,
   type ExecutiveLinePeriod,
@@ -158,7 +161,7 @@ export default function ExecutiveAreaChart({
               type="button"
               onClick={() => onBranchChange(branch.id)}
               className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
-                branchId === branch.id
+                isExecutiveBranchChipOn(branchId, branch.id)
                   ? 'bg-slate-950 text-white border-slate-950'
                   : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
               }`}
@@ -178,6 +181,9 @@ export default function ExecutiveAreaChart({
             </button>
           ) : null}
         </div>
+        <p className="text-[11px] text-slate-400">
+          Toca más de una sucursal para combinarlas. El Excel baja esa misma mezcla.
+        </p>
 
         <div
           role="button"
@@ -313,7 +319,9 @@ export default function ExecutiveAreaChart({
         {!hasSeries ? (
           <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-500">
             Aún no hay movimiento en este periodo para{' '}
-            {branchId === 'all' ? 'todas las sucursales' : getBranchDisplayName(branchId)}.
+            {executiveBranchFilterLabel(branchId) === 'Todas'
+              ? 'todas las sucursales'
+              : executiveBranchFilterLabel(branchId)}.
           </div>
         ) : (
           <div className="h-44 sm:h-56 w-full">
@@ -383,7 +391,7 @@ function PhonesSoldModal({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const showBranch = branchId === 'all';
+  const showBranch = parseExecutiveBranchFilter(branchId).length !== 1;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -439,7 +447,7 @@ function PhonesSoldModal({
               {periodLabel}
               {' · '}
               {sales.length} {sales.length === 1 ? 'equipo' : 'equipos'}
-              {showBranch ? ' · Todas las sucursales' : ` · ${getBranchDisplayName(branchId)}`}
+              {` · ${executiveBranchFilterLabel(branchId) === 'Todas' ? 'Todas las sucursales' : executiveBranchFilterLabel(branchId)}`}
             </p>
           </div>
           <button

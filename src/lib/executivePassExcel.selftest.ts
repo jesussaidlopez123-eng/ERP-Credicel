@@ -149,6 +149,16 @@ const onlyNav = listExecutivePassRows({
 assert.equal(onlyNav.length, 2, 'Navojoa no incluye Huatabampo');
 assert.ok(onlyNav.every((row) => row.branchId === 'b-navojoa'));
 
+const combo = listExecutivePassRows({
+  tickets,
+  from: '2026-10-13',
+  to: '2026-10-19',
+  branchId: 'b-navojoa,b-huatabampo'
+});
+assert.equal(combo.length, 3, 'Navojoa + Huatabampo juntas, sin Matriz');
+assert.ok(combo.every((row) => row.branchId === 'b-navojoa' || row.branchId === 'b-huatabampo'));
+assert.ok(combo.some((row) => row.branchId === 'b-huatabampo' && row.category === 'recargas'));
+
 const sheets = buildExecutivePassExcelSheets({
   tickets,
   from: '2026-10-13',
@@ -179,5 +189,20 @@ assert.equal(
   executivePassExcelFilename({ from: '2026-10-13', to: '2026-10-19', branchId: 'b-navojoa' }),
   'direccion-abonos-equipos-recargas-navojoa-2026-10-13-a-2026-10-19'
 );
+assert.equal(
+  executivePassExcelFilename({ from: '2026-10-13', to: '2026-10-19', branchId: 'b-matriz,b-navojoa' }),
+  'direccion-abonos-equipos-recargas-matriz-navojoa-2026-10-13-a-2026-10-19'
+);
+
+const comboSheets = buildExecutivePassExcelSheets({
+  tickets,
+  from: '2026-10-13',
+  to: '2026-10-19',
+  branchId: 'b-navojoa,b-huatabampo',
+  periodLabel: '13 – 19 oct 2026',
+  branchLabel: 'Navojoa + Huatabampo'
+});
+assert.ok(comboSheets[0].rows.some((row) => row[0] === 'Sucursal' && row[1] === 'Navojoa + Huatabampo'));
+assert.ok(comboSheets[2].rows.some((row) => row.includes('6440001111')));
 
 console.log('executivePassExcel self-test ok');

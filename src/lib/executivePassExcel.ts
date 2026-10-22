@@ -2,7 +2,7 @@ import type { CartItem, SaleTicket } from '../types';
 import { getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { isCancelledSale } from './corteCategories';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime } from './dateUtils';
-import { matchesExecutiveBranch } from './executiveArea';
+import { executiveBranchFilterLabel, executiveBranchFilterSlug, matchesExecutiveBranch } from './executiveArea';
 import { money, ticketFolioLabel } from './ids';
 import { classifyExecutiveItem } from './saleClassification';
 import { downloadXlsx, type ExcelSheet } from './xlsxMinimal';
@@ -180,15 +180,15 @@ export function buildExecutivePassExcelSheets(params: {
   branchLabel: string;
 }): ExcelSheet[] {
   const rows = listExecutivePassRows(params);
-  const meta = { periodLabel: params.periodLabel, branchLabel: params.branchLabel };
+  const meta = {
+    periodLabel: params.periodLabel,
+    branchLabel: params.branchLabel || executiveBranchFilterLabel(params.branchId)
+  };
   return SHEETS.map((sheet) => sheetFor(sheet.id, sheet.name, rows, meta));
 }
 
 export function executivePassExcelFilename(params: { from: string; to: string; branchId: string }): string {
-  const branch =
-    !params.branchId || params.branchId === 'all'
-      ? 'todas'
-      : getBranchDisplayName(params.branchId).toLowerCase().replace(/\s+/g, '-');
+  const branch = executiveBranchFilterSlug(params.branchId);
   return `direccion-abonos-equipos-recargas-${branch}-${params.from}-a-${params.to}`;
 }
 

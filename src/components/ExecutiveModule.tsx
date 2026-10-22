@@ -59,10 +59,14 @@ import {
 import {
   buildExecutiveLinePoints,
   countPhonesSold,
+  executiveBranchFilterLabel,
+  isExecutiveBranchChipOn,
   listPhonesSold,
+  matchesExecutiveBranch,
   repairFinanceWeekStarts,
   resolveExecutiveLineRange,
   sumRepairCostLinesInWeek,
+  toggleExecutiveBranchFilter,
   type ExecutiveLinePeriod
 } from '../lib/executiveArea';
 import { downloadExecutivePassExcel } from '../lib/executivePassExcel';
@@ -687,27 +691,24 @@ function WeekBoard({
   onDownloadExcel?: () => void;
 }) {
   const scopedTickets = useMemo(
-    () =>
-      week.tickets.filter(
-        (ticket) => branchId === 'all' || normalizeBranchId(ticket.branchId) === branchId
-      ),
+    () => week.tickets.filter((ticket) => matchesExecutiveBranch(ticket.branchId, branchId)),
     [week.tickets, branchId]
   );
   const scopedExpenses = useMemo(
-    () =>
-      week.weekExpenses.filter(
-        (expense) => branchId === 'all' || normalizeBranchId(expense.branchId) === branchId
-      ),
+    () => week.weekExpenses.filter((expense) => matchesExecutiveBranch(expense.branchId, branchId)),
     [week.weekExpenses, branchId]
   );
   const breakdown = useMemo(
     () => buildCorteCategoryBreakdown(scopedTickets, scopedExpenses),
     [scopedTickets, scopedExpenses]
   );
-  const financeRow =
-    branchId === 'all'
-      ? week.totals
-      : week.branches.find((row) => row.branchId === branchId) || week.totals;
+  const financeRow = useMemo(() => {
+    const picked = week.branches.filter((row) => matchesExecutiveBranch(row.branchId, branchId));
+    if (picked.length === week.branches.length) return week.totals;
+    if (picked.length === 1) return picked[0];
+    if (picked.length === 0) return week.totals;
+    return sumBranchRows(picked);
+  }, [week.branches, week.totals, branchId]);
   const branchFilters = [
     { id: 'all', name: 'Todas' },
     ...week.branches.map((row) => ({ id: row.branchId, name: row.branchName }))
@@ -750,7 +751,7 @@ function WeekBoard({
             type="button"
             onClick={() => onBranchChange(branch.id)}
             className={`px-3 py-1.5 rounded-full text-[11px] font-extrabold cursor-pointer border ${
-              branchId === branch.id
+              isExecutiveBranchChipOn(branchId, branch.id)
                 ? 'bg-slate-950 text-white border-slate-950'
                 : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
             }`}
@@ -768,6 +769,9 @@ function WeekBoard({
             Excel abonos · equipos · recargas
           </button>
         ) : null}
+        <p className="w-full text-[11px] text-slate-400">
+          Toca más de una sucursal para combinarlas. El Excel baja esa misma mezcla.
+        </p>
       </div>
 
       <div className="px-4 sm:px-5 py-3 grid grid-cols-2 sm:grid-cols-4 gap-2 border-b border-slate-100 bg-slate-50/70">
@@ -857,6 +861,9 @@ export default function ExecutiveModule({
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>('');
   const [historyCategory, setHistoryCategory] = useState<CategoryId | null>(null);
   const [branchId, setBranchId] = useState<string>('all');
+  const handleBranchChange = (clicked: string) => {
+    setBranchId((prev) => toggleExecutiveBranchFilter(prev, clicked));
+  };
   const [linePeriod, setLinePeriod] = useState<ExecutiveLinePeriod>('semana');
   const todayKey = todayCashDateKey();
   const [rangeFrom, setRangeFrom] = useState(() => addCashDays(todayCashDateKey(), -29));
@@ -1001,7 +1008,7 @@ export default function ExecutiveModule({
       <ExecutiveAreaChart
         points={areaPoints}
         branchId={branchId}
-        onBranchChange={setBranchId}
+        onBranchChange={handleBranchChange}
         totals={areaTotals}
         period={linePeriod}
         onPeriodChange={setLinePeriod}
@@ -1021,7 +1028,7 @@ export default function ExecutiveModule({
             to: lineRange.to,
             branchId,
             periodLabel: lineRange.label,
-            branchLabel: branchId === 'all' ? 'Todas' : getBranchDisplayName(branchId)
+            branchLabel: executiveBranchFilterLabel(branchId)
           })
         }
       />
@@ -1030,7 +1037,7 @@ export default function ExecutiveModule({
         <WeekBoard
           week={activeWeek}
           branchId={branchId}
-          onBranchChange={setBranchId}
+          onBranchChange={handleBranchChange}
           onOpenCategory={setHistoryCategory}
           onDownloadExcel={() =>
             downloadExecutivePassExcel({
@@ -1039,7 +1046,7 @@ export default function ExecutiveModule({
               to: lineRange.to,
               branchId,
               periodLabel: lineRange.label,
-              branchLabel: branchId === 'all' ? 'Todas' : getBranchDisplayName(branchId)
+              branchLabel: executiveBranchFilterLabel(branchId)
             })
           }
         />

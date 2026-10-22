@@ -11,7 +11,11 @@ import {
   listPhonesSold,
   linePointTitle,
   matchesExecutiveBranch,
+  parseExecutiveBranchFilter,
   repairFinanceWeekStarts,
+  toggleExecutiveBranchFilter,
+  executiveBranchFilterLabel,
+  executiveBranchFilterSlug,
   resolveExecutiveLineRange,
   sumRepairCostLines,
   sumRepairCostLinesInWeek
@@ -54,6 +58,18 @@ const repair: RepairRecord = {
 assert.equal(matchesExecutiveBranch('b-navojoa', 'all'), true);
 assert.equal(matchesExecutiveBranch('Navojoa', 'b-navojoa'), true);
 assert.equal(matchesExecutiveBranch('b-huatabampo', 'b-navojoa'), false);
+assert.equal(matchesExecutiveBranch('b-matriz', 'b-matriz,b-navojoa'), true);
+assert.equal(matchesExecutiveBranch('b-navojoa', 'b-matriz,b-navojoa'), true);
+assert.equal(matchesExecutiveBranch('b-huatabampo', 'b-matriz,b-navojoa'), false);
+assert.deepEqual(parseExecutiveBranchFilter('b-navojoa,b-matriz'), ['b-matriz', 'b-navojoa']);
+assert.equal(toggleExecutiveBranchFilter('all', 'b-navojoa'), 'b-navojoa');
+assert.equal(toggleExecutiveBranchFilter('b-navojoa', 'b-matriz'), 'b-matriz,b-navojoa');
+assert.equal(toggleExecutiveBranchFilter('b-matriz,b-navojoa', 'b-huatabampo'), 'all');
+assert.equal(toggleExecutiveBranchFilter('b-matriz,b-navojoa', 'b-navojoa'), 'b-matriz');
+assert.equal(toggleExecutiveBranchFilter('b-navojoa', 'b-navojoa'), 'all');
+assert.equal(toggleExecutiveBranchFilter('b-matriz,b-navojoa', 'all'), 'all');
+assert.equal(executiveBranchFilterLabel('b-matriz,b-navojoa'), 'Matriz + Navojoa');
+assert.equal(executiveBranchFilterSlug('b-matriz,b-navojoa'), 'matriz-navojoa');
 
 const week = '2026-09-07';
 assert.equal(sumRepairCostLinesInWeek([repair], week, { kinds: ['refaccion'] }), 400);
@@ -302,6 +318,24 @@ assert.equal(
     branchId: 'b-navojoa'
   }).total,
   1
+);
+assert.equal(
+  countPhonesSold({
+    tickets: [phoneTicket, creditTicket],
+    from: '2026-09-07',
+    to: '2026-09-10',
+    branchId: 'b-navojoa,b-huatabampo'
+  }).total,
+  2
+);
+assert.equal(
+  countPhonesSold({
+    tickets: [phoneTicket, creditTicket],
+    from: '2026-09-07',
+    to: '2026-09-10',
+    branchId: 'b-navojoa,b-huatabampo'
+  }).byBranch.length,
+  2
 );
 
 const listed = listPhonesSold({

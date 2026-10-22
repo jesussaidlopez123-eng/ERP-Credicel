@@ -167,10 +167,8 @@ export function countPhonesSold(params: {
     }
   }
 
-  const scoped =
-    !params.branchId || params.branchId === 'all'
-      ? rows
-      : rows.filter((row) => row.id === normalizeBranchId(params.branchId));
+  const wanted = parseExecutiveBranchFilter(params.branchId);
+  const scoped = wanted.length === 0 ? rows : rows.filter((row) => wanted.includes(row.id));
 
   return {
     total: scoped.reduce((sum, row) => sum + row.total, 0),
@@ -246,9 +244,64 @@ function inDateRange(dateKey: string, from: string, to: string): boolean {
   return dateKey >= start && dateKey <= end;
 }
 
+/**
+ * Filtro de Dirección: `all`, una sucursal, o varias unidas (`b-matriz,b-navojoa`).
+ * Vacío = todas las que cobran.
+ */
+export function parseExecutiveBranchFilter(filter: string | undefined): string[] {
+  if (!filter || filter === 'all') return [];
+  const parts = String(filter)
+    .split(/[+,]/)
+    .map((part) => normalizeBranchId(part.trim()))
+    .filter((id) => hasCashTill(id));
+  const unique = Array.from(new Set(parts)).sort(compareBranchIds);
+  if (unique.length === 0 || unique.length === COMMERCIAL_BRANCHES.length) return [];
+  return unique;
+}
+
+export function encodeExecutiveBranchFilter(ids: string[]): string {
+  const unique = Array.from(new Set(ids.map((id) => normalizeBranchId(id)).filter((id) => hasCashTill(id)))).sort(
+    compareBranchIds
+  );
+  if (unique.length === 0 || unique.length === COMMERCIAL_BRANCHES.length) return 'all';
+  return unique.join(',');
+}
+
+export function toggleExecutiveBranchFilter(current: string | undefined, clicked: string): string {
+  const chip = String(clicked || '').trim();
+  if (!chip || chip === 'all') return 'all';
+  const id = normalizeBranchId(chip);
+  if (!hasCashTill(id)) return current || 'all';
+  const selected = new Set(parseExecutiveBranchFilter(current));
+  if (selected.size === 0) return id;
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  return encodeExecutiveBranchFilter(Array.from(selected));
+}
+
 export function matchesExecutiveBranch(branchId: string | undefined, filter: string): boolean {
-  if (!filter || filter === 'all') return true;
-  return normalizeBranchId(branchId) === normalizeBranchId(filter);
+  const selected = parseExecutiveBranchFilter(filter);
+  if (selected.length === 0) return true;
+  return selected.includes(normalizeBranchId(branchId));
+}
+
+export function isExecutiveBranchChipOn(filter: string | undefined, chipId: string): boolean {
+  const selected = parseExecutiveBranchFilter(filter);
+  if (!chipId || chipId === 'all') return selected.length === 0;
+  if (selected.length === 0) return false;
+  return selected.includes(normalizeBranchId(chipId));
+}
+
+export function executiveBranchFilterLabel(filter: string | undefined): string {
+  const selected = parseExecutiveBranchFilter(filter);
+  if (selected.length === 0) return 'Todas';
+  return selected.map((id) => getBranchDisplayName(id)).join(' + ');
+}
+
+export function executiveBranchFilterSlug(filter: string | undefined): string {
+  const selected = parseExecutiveBranchFilter(filter);
+  if (selected.length === 0) return 'todas';
+  return selected.map((id) => getBranchDisplayName(id).toLowerCase().replace(/\s+/g, '-')).join('-');
 }
 
 function isCancelledRepair(repair: RepairRecord): boolean {
