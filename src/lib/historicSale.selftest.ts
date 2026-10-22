@@ -8,8 +8,13 @@ import {
   rebuildCorteTotals,
   removeExpenseFromCorte,
   removeTicketFromCorte,
+  resolveHistoricCorteTickets,
+  ticketIncludesPhoneUnit,
+  ticketsNotSealedOnCorte,
+  ticketsSealedOnOtherCorteSameDay,
   validateHistoricSaleTarget
 } from './historicSale.ts';
+import { classifySaleItem, isPhoneUnitSale } from './saleClassification.ts';
 import { hermosilloDateKey } from './shiftHours.ts';
 import type { CorteXRecord, Expense, SaleTicket } from '../types.ts';
 
@@ -110,6 +115,90 @@ assert.equal(withoutExpense.expectedCashInDrawer, 700);
 
 assert.equal(findClosedCorteForDay([corte], 'Navojoa', '2026-09-09')?.id, corte.id);
 assert.equal(findClosedCorteForDay([corte], 'b-huatabampo', '2026-09-09'), null);
+
+const payjoyItem = {
+  cartItemId: 'cel-1',
+  quantity: 1,
+  unitPrice: 3500,
+  totalPrice: 3500,
+  product: { id: 'p1', code: 'CEL-1', name: 'Samsung A15', category: 'equipo_credito', price: 3500, stock: 1 },
+  metadata: {
+    saleType: 'credito' as const,
+    financingPlatform: 'PayJoy',
+    clientName: 'María',
+    deviceModel: 'Samsung A15',
+    imei: '351111111111111'
+  }
+};
+const contadoItem = {
+  cartItemId: 'cel-2',
+  quantity: 1,
+  unitPrice: 2800,
+  totalPrice: 2800,
+  product: { id: 'p2', code: 'CEL-2', name: 'Moto G', category: 'equipo', price: 2800, stock: 1 },
+  metadata: { saleType: 'contado' as const, imei: '352222222222222', deviceModel: 'Moto G' }
+};
+assert.equal(classifySaleItem(payjoyItem), 'enganches');
+assert.equal(classifySaleItem(contadoItem), 'accesorios');
+assert.equal(isPhoneUnitSale(payjoyItem), true);
+assert.equal(isPhoneUnitSale(contadoItem), true);
+
+const sealedPhone: SaleTicket = {
+  id: 'TCK-PAYJOY',
+  folio: 'NAV-0909-010',
+  timestamp: pastStamp,
+  branchId: 'b-navojoa',
+  operatorName: 'Cajero',
+  items: [payjoyItem],
+  total: 3500,
+  paymentMethod: 'Efectivo',
+  corteXId: corte.id
+};
+const unsealedPhone: SaleTicket = {
+  id: 'TCK-ORPHAN',
+  folio: 'NAV-0909-011',
+  timestamp: pastStamp,
+  branchId: 'b-navojoa',
+  operatorName: 'Cajero',
+  items: [contadoItem],
+  total: 2800,
+  paymentMethod: 'Efectivo'
+};
+const otherCortePhone: SaleTicket = {
+  id: 'TCK-OTHER',
+  folio: 'NAV-0909-012',
+  timestamp: pastStamp,
+  branchId: 'b-navojoa',
+  operatorName: 'Cajero',
+  items: [payjoyItem],
+  total: 3500,
+  paymentMethod: 'Efectivo',
+  corteXId: 'SES-NAV-OTRO'
+};
+const slimCorte: CorteXRecord = {
+  ...corte,
+  ticketIds: ['TCK-PAYJOY'],
+  ticketsSnapshot: []
+};
+const available = [sealedPhone, unsealedPhone, otherCortePhone];
+assert.deepEqual(
+  resolveHistoricCorteTickets(slimCorte, available).map((row) => row.id),
+  ['TCK-PAYJOY']
+);
+assert.equal(ticketIncludesPhoneUnit(unsealedPhone), true);
+assert.deepEqual(
+  ticketsNotSealedOnCorte(slimCorte, available).map((row) => row.id),
+  ['TCK-ORPHAN']
+);
+assert.deepEqual(
+  ticketsSealedOnOtherCorteSameDay(slimCorte, available).map((row) => row.id),
+  ['TCK-OTHER']
+);
+assert.deepEqual(
+  resolveHistoricCorteTickets({ ...slimCorte, ticketsSnapshot: [sealedPhone] }, available).map((row) => row.id),
+  ['TCK-PAYJOY'],
+  'si hay foto del corte, no se mezclan ventas huérfanas del mismo día'
+);
 
 const refaccion: Expense = {
   id: 'GTO-REP-1',

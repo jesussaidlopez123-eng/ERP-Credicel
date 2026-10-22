@@ -18,7 +18,7 @@ export const CORTE_CATEGORY_META: Record<
   { label: string; countLabel: string; empty: string }
 > = {
   accesorios: {
-    label: 'Accesorios y Productos de Tienda',
+    label: 'Accesorios y equipos de contado',
     countLabel: 'pzs',
     empty: 'Sin ventas registradas en esta categoría.'
   },
@@ -28,7 +28,7 @@ export const CORTE_CATEGORY_META: Record<
     empty: 'Sin abonos registrados.'
   },
   enganches: {
-    label: 'Enganches de Celular (Financiamiento / Contado)',
+    label: 'Enganches de Celular (PayJoy / CrediYa)',
     countLabel: 'ops',
     empty: 'Sin enganches registrados.'
   },

@@ -17,20 +17,31 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  Trash2
+  Trash2,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 import { SaleTicket, Expense, Branch, Operator, CorteXRecord, CartItemMetadata, RepairRecord } from '../types';
 import { safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
-import { saveBranchFundToFirestore } from '../lib/firebase';
+import { loadHistoricCorteDetail, saveBranchFundToFirestore } from '../lib/firebase';
 import { classifySaleItem } from '../lib/saleClassification';
-import { money } from '../lib/ids';
+import { money, ticketFolioLabel } from '../lib/ids';
+import { mergeByIdKeep } from '../lib/listMerge';
 import { isAndroidPrintHost, printThermalHtml } from '../lib/printWindow';
 import { printThermalTicket } from '../lib/printEscpos';
 import { buildCorteTicketPlainText } from '../lib/escposTickets';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
-import { corteExpenseTotals, expenseAppearsOnCorteX } from '../lib/historicSale';
+import {
+  corteExpenseTotals,
+  expenseAppearsOnCorteX,
+  resolveHistoricCorteExpenses,
+  resolveHistoricCorteTickets,
+  ticketIncludesPhoneUnit,
+  ticketsNotSealedOnCorte,
+  ticketsSealedOnOtherCorteSameDay
+} from '../lib/historicSale';
 import { deliveredRepairsMissingCost } from '../lib/repairUtils';
 import { persistLocalBranchFund, resolveOpeningCashFund, suggestedLeftoverFund } from '../lib/cashFund';
 
@@ -148,14 +159,21 @@ export default function CorteXModal({
   const [finishStatusMessage, setFinishStatusMessage] = useState<string>('');
   const [closedShiftFundSnapshot, setClosedShiftFundSnapshot] = useState<{ fundLeft: number; cashWithdrawn: number; notes: string } | null>(null);
   const [closedPrint, setClosedPrint] = useState<CorteTicketView | null>(null);
+  const [cloudCorte, setCloudCorte] = useState<CorteXRecord | null>(null);
+  const [hydratedTickets, setHydratedTickets] = useState<SaleTicket[] | null>(null);
+  const [hydratedExpenses, setHydratedExpenses] = useState<Expense[] | null>(null);
+  const [unsealedSameDayTickets, setUnsealedSameDayTickets] = useState<SaleTicket[]>([]);
+  const [otherCorteSameDayTickets, setOtherCorteSameDayTickets] = useState<SaleTicket[]>([]);
+  const [hydrateStatus, setHydrateStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
 
   const isHistoric = !!existingCorteRecord;
+  const historicSource = cloudCorte || existingCorteRecord || null;
 
   // Determine branch info
-  const effectiveBranchName = isHistoric ? existingCorteRecord.branchName : (currentBranch?.name || 'Sucursal');
-  const effectiveBranchId = isHistoric ? existingCorteRecord.branchId : (currentBranch?.id || 'main');
-  const effectiveOperatorName = isHistoric
-    ? existingCorteRecord.operatorName
+  const effectiveBranchName = isHistoric && historicSource ? historicSource.branchName : (currentBranch?.name || 'Sucursal');
+  const effectiveBranchId = isHistoric && historicSource ? historicSource.branchId : (currentBranch?.id || 'main');
+  const effectiveOperatorName = isHistoric && historicSource
+    ? historicSource.operatorName
     : (shiftOperatorName || currentOperator?.name || 'Cajero');
   
   const todayDateIsoKey = todayCashDateKey();
@@ -193,40 +211,21 @@ export default function CorteXModal({
     cortes: cortesX
   });
 
-  const effectiveInitialCash = isHistoric
-    ? money(Number(existingCorteRecord.initialCashFund) || 0)
+  const effectiveInitialCash = isHistoric && historicSource
+    ? money(Number(historicSource.initialCashFund) || 0)
     : storedBranchFund;
 
   // Filter tickets and expenses
   let branchTickets: SaleTicket[] = [];
   let branchExpenses: Expense[] = [];
 
-  if (isHistoric && existingCorteRecord) {
-    if (existingCorteRecord.ticketsSnapshot && Array.isArray(existingCorteRecord.ticketsSnapshot) && existingCorteRecord.ticketsSnapshot.length > 0) {
-      branchTickets = existingCorteRecord.ticketsSnapshot;
-    } else {
-      const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
-      branchTickets = (tickets || []).filter((t) => 
-        t && (
-          existingCorteRecord.ticketIds?.includes(t.id) || 
-          (t.corteXId === existingCorteRecord.id) ||
-          (t.branchId === effectiveBranchId && safeDateIsoKey(t.timestamp) === historicDateKey)
-        )
-      );
-    }
-
-    if (existingCorteRecord.expensesSnapshot && Array.isArray(existingCorteRecord.expensesSnapshot) && existingCorteRecord.expensesSnapshot.length > 0) {
-      branchExpenses = existingCorteRecord.expensesSnapshot;
-    } else {
-      const historicDateKey = safeDateIsoKey(existingCorteRecord.timestamp);
-      branchExpenses = (expenses || []).filter((e) => 
-        e && (
-          existingCorteRecord.expenseIds?.includes(e.id) || 
-          (e.corteXId === existingCorteRecord.id) ||
-          (e.branchId === effectiveBranchId && safeDateIsoKey(e.timestamp || e.date) === historicDateKey)
-        )
-      );
-    }
+  if (isHistoric && historicSource) {
+    branchTickets =
+      hydratedTickets ||
+      resolveHistoricCorteTickets(historicSource, tickets || []);
+    branchExpenses =
+      hydratedExpenses ||
+      resolveHistoricCorteExpenses(historicSource, expenses || []);
   } else {
     const todayIso = todayCashDateKey();
     const sessionId = activeSessionId || '';
@@ -425,39 +424,39 @@ export default function CorteXModal({
     gastos: groupedExpenseList,
   };
 
-  // If historic, use stored breakdown totals
-  if (isHistoric && existingCorteRecord) {
-    if (existingCorteRecord.cashSales !== undefined) cashSalesTotal = existingCorteRecord.cashSales;
-    if (existingCorteRecord.cardSales !== undefined) cardSalesTotal = existingCorteRecord.cardSales;
-    if (existingCorteRecord.transferSales !== undefined) transferSalesTotal = existingCorteRecord.transferSales;
-    if (existingCorteRecord.breakdown) {
-      if (existingCorteRecord.breakdown.accesoriosTotal) totalAccesoriosProductos = existingCorteRecord.breakdown.accesoriosTotal;
-      if (existingCorteRecord.breakdown.accesoriosCount) countAccesoriosProductos = existingCorteRecord.breakdown.accesoriosCount;
-      if (existingCorteRecord.breakdown.abonosTotal) totalAbonos = existingCorteRecord.breakdown.abonosTotal;
-      if (existingCorteRecord.breakdown.abonosCount) countAbonos = existingCorteRecord.breakdown.abonosCount;
-      if (existingCorteRecord.breakdown.enganchesTotal) totalEnganches = existingCorteRecord.breakdown.enganchesTotal;
-      if (existingCorteRecord.breakdown.enganchesCount) countEnganches = existingCorteRecord.breakdown.enganchesCount;
-      if (existingCorteRecord.breakdown.reparacionesTotal) totalReparaciones = existingCorteRecord.breakdown.reparacionesTotal;
-      if (existingCorteRecord.breakdown.reparacionesCount) countReparaciones = existingCorteRecord.breakdown.reparacionesCount;
-      if (existingCorteRecord.breakdown.recargasTotal) totalRecargas = existingCorteRecord.breakdown.recargasTotal;
-      if (existingCorteRecord.breakdown.recargasCount) countRecargas = existingCorteRecord.breakdown.recargasCount;
+  // If historic, use stored breakdown totals — never mix in unsealed same-day tickets.
+  if (isHistoric && historicSource) {
+    if (historicSource.cashSales !== undefined) cashSalesTotal = historicSource.cashSales;
+    if (historicSource.cardSales !== undefined) cardSalesTotal = historicSource.cardSales;
+    if (historicSource.transferSales !== undefined) transferSalesTotal = historicSource.transferSales;
+    if (historicSource.breakdown) {
+      if (historicSource.breakdown.accesoriosTotal) totalAccesoriosProductos = historicSource.breakdown.accesoriosTotal;
+      if (historicSource.breakdown.accesoriosCount) countAccesoriosProductos = historicSource.breakdown.accesoriosCount;
+      if (historicSource.breakdown.abonosTotal) totalAbonos = historicSource.breakdown.abonosTotal;
+      if (historicSource.breakdown.abonosCount) countAbonos = historicSource.breakdown.abonosCount;
+      if (historicSource.breakdown.enganchesTotal) totalEnganches = historicSource.breakdown.enganchesTotal;
+      if (historicSource.breakdown.enganchesCount) countEnganches = historicSource.breakdown.enganchesCount;
+      if (historicSource.breakdown.reparacionesTotal) totalReparaciones = historicSource.breakdown.reparacionesTotal;
+      if (historicSource.breakdown.reparacionesCount) countReparaciones = historicSource.breakdown.reparacionesCount;
+      if (historicSource.breakdown.recargasTotal) totalRecargas = historicSource.breakdown.recargasTotal;
+      if (historicSource.breakdown.recargasCount) countRecargas = historicSource.breakdown.recargasCount;
     }
   }
 
   const liveExpTotals = corteExpenseTotals(branchExpenses);
   const corteDateKey = isHistoric
-    ? safeDateIsoKey(existingCorteRecord.timestamp) || safeDateIsoKey(existingCorteRecord.dateStr)
+    ? safeDateIsoKey(historicSource?.timestamp) || safeDateIsoKey(historicSource?.dateStr)
     : todayDateIsoKey;
   const pendingPieces =
     !isHistoric && normalizeBranchId(effectiveBranchId) === 'b-matriz'
       ? deliveredRepairsMissingCost(repairRecords, corteDateKey)
       : [];
   const pendingPieceCount = pendingPieces.length;
-  let totalSalesAll = isHistoric ? existingCorteRecord.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
-  let totalExpenses = isHistoric ? existingCorteRecord.totalExpenses : liveExpTotals.listed;
-  let netIncome = isHistoric ? existingCorteRecord.netIncome : (totalSalesAll - totalExpenses);
-  let expectedCashInDrawer = isHistoric
-    ? existingCorteRecord.expectedCashInDrawer
+  let totalSalesAll = isHistoric && historicSource ? historicSource.totalSales : (cashSalesTotal + cardSalesTotal + transferSalesTotal);
+  let totalExpenses = isHistoric && historicSource ? historicSource.totalExpenses : liveExpTotals.listed;
+  let netIncome = isHistoric && historicSource ? historicSource.netIncome : (totalSalesAll - totalExpenses);
+  let expectedCashInDrawer = isHistoric && historicSource
+    ? historicSource.expectedCashInDrawer
     : (effectiveInitialCash + cashSalesTotal - liveExpTotals.cashOut);
 
   if (closedPrint) {
@@ -506,6 +505,52 @@ export default function CorteXModal({
       setClosedPrint(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !existingCorteRecord) {
+      setCloudCorte(null);
+      setHydratedTickets(null);
+      setHydratedExpenses(null);
+      setUnsealedSameDayTickets([]);
+      setOtherCorteSameDayTickets([]);
+      setHydrateStatus('idle');
+      return;
+    }
+
+    let cancelled = false;
+    const ramTickets = tickets || [];
+    const ramExpenses = expenses || [];
+    const corte = existingCorteRecord;
+    setHydrateStatus('loading');
+
+    const hydrate = async () => {
+      try {
+        const detail = await loadHistoricCorteDetail(corte);
+        if (cancelled) return;
+        const availableTickets = mergeByIdKeep(ramTickets, detail.dayTickets);
+        const availableExpenses = mergeByIdKeep(ramExpenses, detail.dayExpenses);
+        setCloudCorte(detail.corte);
+        setHydratedTickets(resolveHistoricCorteTickets(detail.corte, availableTickets));
+        setHydratedExpenses(resolveHistoricCorteExpenses(detail.corte, availableExpenses));
+        setUnsealedSameDayTickets(ticketsNotSealedOnCorte(detail.corte, availableTickets));
+        setOtherCorteSameDayTickets(ticketsSealedOnOtherCorteSameDay(detail.corte, availableTickets));
+        setHydrateStatus('ok');
+      } catch (err) {
+        console.warn('[CorteX] No se pudo recargar el detalle histórico:', err);
+        if (cancelled) return;
+        setHydratedTickets(resolveHistoricCorteTickets(corte, ramTickets));
+        setHydratedExpenses(resolveHistoricCorteExpenses(corte, ramExpenses));
+        setUnsealedSameDayTickets(ticketsNotSealedOnCorte(corte, ramTickets));
+        setOtherCorteSameDayTickets(ticketsSealedOnOtherCorteSameDay(corte, ramTickets));
+        setHydrateStatus('error');
+      }
+    };
+
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, existingCorteRecord?.id]);
 
   const buildTicketView = (fundLeft?: number, cashWithdrawn?: number, notes?: string): CorteTicketView =>
     closedPrint || {
@@ -594,9 +639,11 @@ export default function CorteXModal({
 
   if (!isOpen) return null;
 
-  const currentDateStr = isHistoric ? existingCorteRecord.dateStr : safeFormatDate(new Date());
-  const currentTimeStr = isHistoric ? existingCorteRecord.timeStr : safeFormatTime(new Date());
-  const corteFolio = isHistoric ? existingCorteRecord.id : (activeSessionId || `SES-${effectiveBranchId}-${Date.now().toString(36).toUpperCase()}`);
+  const currentDateStr = isHistoric && historicSource ? historicSource.dateStr : safeFormatDate(new Date());
+  const currentTimeStr = isHistoric && historicSource ? historicSource.timeStr : safeFormatTime(new Date());
+  const corteFolio = isHistoric && historicSource ? historicSource.id : (activeSessionId || `SES-${effectiveBranchId}-${Date.now().toString(36).toUpperCase()}`);
+  const unsealedPhoneTickets = unsealedSameDayTickets.filter(ticketIncludesPhoneUnit);
+  const otherPhoneTickets = otherCorteSameDayTickets.filter(ticketIncludesPhoneUnit);
 
   const toggleCategory = (cat: string) => {
     setExpandedCategories(prev => ({
@@ -617,9 +664,9 @@ export default function CorteXModal({
 
     lines.push(`💰 RESUMEN FINANCIERO:`);
     lines.push(`----------------------------------------`);
-    lines.push(`• Accesorios/Artículos: $${totalAccesoriosProductos.toFixed(2)} (${countAccesoriosProductos} pzs)`);
+    lines.push(`• Accesorios y equipos de contado: $${totalAccesoriosProductos.toFixed(2)} (${countAccesoriosProductos} pzs)`);
     lines.push(`• Abonos a Crédito: $${totalAbonos.toFixed(2)} (${countAbonos} ops)`);
-    lines.push(`• Enganches Celulares: $${totalEnganches.toFixed(2)} (${countEnganches} ops)`);
+    lines.push(`• Enganches PayJoy / CrediYa: $${totalEnganches.toFixed(2)} (${countEnganches} ops)`);
     lines.push(`• Taller/Reparaciones: $${totalReparaciones.toFixed(2)} (${countReparaciones} ops)`);
     lines.push(`• Recargas Telefónicas: $${totalRecargas.toFixed(2)} (${countRecargas} ops)`);
     lines.push(`----------------------------------------`);
@@ -643,10 +690,10 @@ export default function CorteXModal({
 
     const fundLeftShown =
       closedShiftFundSnapshot?.fundLeft ??
-      (isHistoric ? existingCorteRecord.cashFundLeftForNextShift : undefined);
+      (isHistoric ? historicSource?.cashFundLeftForNextShift : undefined);
     const withdrawnShown =
       closedShiftFundSnapshot?.cashWithdrawn ??
-      (isHistoric ? existingCorteRecord.cashWithdrawn : undefined);
+      (isHistoric ? historicSource?.cashWithdrawn : undefined);
     if (fundLeftShown !== undefined) {
       lines.push(`📌 FONDO PARA MAÑANA: $${Number(fundLeftShown).toFixed(2)}`);
       lines.push(`💵 RETIRADO/ENTREGADO: $${Number(withdrawnShown ?? 0).toFixed(2)}`);
@@ -914,6 +961,78 @@ export default function CorteXModal({
             </div>
           )}
 
+          {isHistoric && (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3.5 py-3 flex gap-2">
+              <Info className="w-4 h-4 text-sky-700 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-black text-sky-950">
+                  Dirección / Excel de financieras lee las ventas. Este Corte X solo el arqueo sellado.
+                </p>
+                <p className="text-[11px] text-sky-900 mt-0.5">
+                  PayJoy y CrediYa van en <span className="font-bold">Enganches</span>. Los celulares de contado van en{' '}
+                  <span className="font-bold">Accesorios y equipos de contado</span>. El Excel de Dirección junta ambos como Equipos.
+                </p>
+                {hydrateStatus === 'loading' && (
+                  <p className="text-[11px] text-sky-800 mt-1">Recargando el detalle de este corte desde la nube…</p>
+                )}
+                {hydrateStatus === 'error' && (
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    No se pudo recargar la foto de la nube. Se muestran los folios que este equipo todavía tiene.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {isHistoric && unsealedSameDayTickets.length > 0 && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-3 flex gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-black text-amber-950">
+                  {unsealedPhoneTickets.length > 0
+                    ? `${unsealedPhoneTickets.length} equipo${unsealedPhoneTickets.length === 1 ? '' : 's'} vendido${unsealedPhoneTickets.length === 1 ? '' : 's'} de este día no quedó${unsealedPhoneTickets.length === 1 ? '' : 'ron'} sellado${unsealedPhoneTickets.length === 1 ? '' : 's'} en este corte.`
+                    : `${unsealedSameDayTickets.length} ticket${unsealedSameDayTickets.length === 1 ? '' : 's'} de este día no quedó${unsealedSameDayTickets.length === 1 ? '' : 'ron'} en este corte.`}
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {unsealedSameDayTickets.slice(0, 6).map((row) => (
+                    <li key={row.id} className="text-[11px] text-amber-900">
+                      {ticketFolioLabel(row)} · {ticketSoldProductsLabel(row)} · {safeFormatTime(row.timestamp)}
+                      {ticketIncludesPhoneUnit(row) ? ' · equipo' : ''}
+                    </li>
+                  ))}
+                </ul>
+                {unsealedSameDayTickets.length > 6 && (
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    y {unsealedSameDayTickets.length - 6} más
+                  </p>
+                )}
+                <p className="text-[11px] text-amber-900 mt-1">
+                  Dirección sí las cuenta porque lee el ticket. No se suman al efectivo ni a los totales de este arqueo.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isHistoric && otherCorteSameDayTickets.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 flex gap-2">
+              <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-black text-slate-800">
+                  {otherPhoneTickets.length > 0
+                    ? `${otherPhoneTickets.length} equipo${otherPhoneTickets.length === 1 ? '' : 's'} de este día está${otherPhoneTickets.length === 1 ? '' : 'n'} en otro corte de la sucursal.`
+                    : `${otherCorteSameDayTickets.length} venta${otherCorteSameDayTickets.length === 1 ? '' : 's'} de este día quedó${otherCorteSameDayTickets.length === 1 ? '' : 'ron'} en otro turno.`}
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {otherCorteSameDayTickets.slice(0, 4).map((row) => (
+                    <li key={row.id} className="text-[11px] text-slate-600">
+                      {ticketFolioLabel(row)} · {ticketSoldProductsLabel(row)} · corte {row.corteXId || row.sesion_caja_id}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {/* Arqueo de turno */}
             <div className="space-y-4">
               
@@ -1013,7 +1132,7 @@ export default function CorteXModal({
                     <div className="flex items-center gap-2">
                       <ShoppingBag className="w-4 h-4 text-blue-600 shrink-0" />
                       <div>
-                        <span className="text-xs font-bold text-slate-900">Accesorios y Productos de Tienda</span>
+                        <span className="text-xs font-bold text-slate-900">Accesorios y equipos de contado</span>
                         <span className="text-[11px] text-slate-500 ml-2">({countAccesoriosProductos} pzs)</span>
                       </div>
                     </div>
@@ -1115,7 +1234,7 @@ export default function CorteXModal({
                     <div className="flex items-center gap-2">
                       <Store className="w-4 h-4 text-emerald-600 shrink-0" />
                       <div>
-                        <span className="text-xs font-bold text-slate-900">Enganches de Celular (Financiamiento / Contado)</span>
+                        <span className="text-xs font-bold text-slate-900">Enganches de Celular (PayJoy / CrediYa)</span>
                         <span className="text-[11px] text-slate-500 ml-2">({countEnganches} ops)</span>
                       </div>
                     </div>

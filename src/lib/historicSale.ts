@@ -2,7 +2,7 @@ import { CorteXRecord, Expense, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { money } from './ids';
 import { getHermosilloClock, hermosilloDateKey, isActiveCorteRecord } from './shiftHours';
-import { summarizeTickets } from './saleClassification';
+import { isPhoneUnitSale, summarizeTickets } from './saleClassification';
 
 export type HistoricSaleTarget = {
   branchId: string;
@@ -145,6 +145,130 @@ export function removeTicketFromCorte(corte: CorteXRecord, ticketId: string): Co
 /** Ticket o gasto que todavía no quedó sellado en un corte cerrado. */
 export function isOpenShiftMovement(row: { corteXId?: string; corteXClosedAt?: string }): boolean {
   return !String(row.corteXId || '').trim() && !String(row.corteXClosedAt || '').trim();
+}
+
+function corteDayKey(corte: Pick<CorteXRecord, 'timestamp' | 'dateStr'>): string {
+  return (
+    hermosilloDateKey(corte.timestamp) ||
+    hermosilloDateKey(corte.dateStr) ||
+    String(corte.dateStr || '').slice(0, 10)
+  );
+}
+
+function ticketDayKey(ticket: Pick<SaleTicket, 'timestamp'>): string {
+  return hermosilloDateKey(ticket.timestamp) || String(ticket.timestamp || '').slice(0, 10);
+}
+
+function sameCorteStamp(ticket: Pick<SaleTicket, 'corteXId' | 'sesion_caja_id'>, corte: CorteXRecord): boolean {
+  const stamp = String(ticket.corteXId || ticket.sesion_caja_id || '').trim();
+  if (!stamp) return false;
+  if (stamp === corte.id) return true;
+  const sessionId = String(corte.sesion_caja_id || '').trim();
+  return !!sessionId && stamp === sessionId;
+}
+
+function pushUnique<T extends { id: string }>(rows: T[], seen: Set<string>, row?: T): void {
+  if (!row?.id || seen.has(row.id)) return;
+  seen.add(row.id);
+  rows.push(row);
+}
+
+/**
+ * Tickets que sí pertenecen al arqueo guardado.
+ * No mezcla ventas del mismo día que nunca se sellaron: esas se listan aparte.
+ */
+export function resolveHistoricCorteTickets(
+  corte: CorteXRecord,
+  available: SaleTicket[] = []
+): SaleTicket[] {
+  const snapshot = (corte.ticketsSnapshot || []).filter((row) => row?.id);
+  if (snapshot.length > 0) return snapshot;
+
+  const byId = new Map<string, SaleTicket>();
+  for (const ticket of available) {
+    if (ticket?.id) byId.set(ticket.id, ticket);
+  }
+  const seen = new Set<string>();
+  const rows: SaleTicket[] = [];
+  for (const id of corte.ticketIds || []) {
+    pushUnique(rows, seen, byId.get(id));
+  }
+  for (const ticket of available) {
+    if (sameCorteStamp(ticket, corte)) pushUnique(rows, seen, ticket);
+  }
+  return rows;
+}
+
+export function resolveHistoricCorteExpenses(
+  corte: CorteXRecord,
+  available: Expense[] = []
+): Expense[] {
+  const snapshot = (corte.expensesSnapshot || []).filter((row) => row?.id);
+  if (snapshot.length > 0) return snapshot;
+
+  const byId = new Map<string, Expense>();
+  for (const expense of available) {
+    if (expense?.id) byId.set(expense.id, expense);
+  }
+  const seen = new Set<string>();
+  const rows: Expense[] = [];
+  for (const id of corte.expenseIds || []) {
+    pushUnique(rows, seen, byId.get(id));
+  }
+  for (const expense of available) {
+    const stamp = String(expense.corteXId || expense.sesion_caja_id || '').trim();
+    if (stamp && (stamp === corte.id || stamp === String(corte.sesion_caja_id || '').trim())) {
+      pushUnique(rows, seen, expense);
+    }
+  }
+  return rows;
+}
+
+export function ticketIncludesPhoneUnit(ticket: SaleTicket | null | undefined): boolean {
+  return (ticket?.items || []).some((item) => isPhoneUnitSale(item));
+}
+
+function sameBranchAndDay(ticket: SaleTicket, corte: CorteXRecord, dateKey: string): boolean {
+  if (String(ticket.estado || '').toUpperCase() === 'CANCELADA') return false;
+  if (normalizeBranchId(ticket.branchId || ticket.sucursal_id) !== normalizeBranchId(corte.branchId || corte.sucursal_id)) {
+    return false;
+  }
+  return !!dateKey && ticketDayKey(ticket) === dateKey;
+}
+
+/** Ventas del mismo día/sucursal que Dirección sí ve y este corte no selló. */
+export function ticketsNotSealedOnCorte(corte: CorteXRecord, tickets: SaleTicket[] = []): SaleTicket[] {
+  const sealed = new Set((corte.ticketIds || []).filter(Boolean));
+  for (const row of corte.ticketsSnapshot || []) {
+    if (row?.id) sealed.add(row.id);
+  }
+  const dateKey = corteDayKey(corte);
+  return tickets.filter((ticket) => {
+    if (!ticket?.id || sealed.has(ticket.id)) return false;
+    if (sameCorteStamp(ticket, corte)) return false;
+    if (!sameBranchAndDay(ticket, corte, dateKey)) return false;
+    const stamp = String(ticket.corteXId || ticket.sesion_caja_id || '').trim();
+    return !stamp;
+  });
+}
+
+/** Ventas del mismo día que quedaron en otro turno/corte de la sucursal. */
+export function ticketsSealedOnOtherCorteSameDay(
+  corte: CorteXRecord,
+  tickets: SaleTicket[] = []
+): SaleTicket[] {
+  const sealed = new Set((corte.ticketIds || []).filter(Boolean));
+  for (const row of corte.ticketsSnapshot || []) {
+    if (row?.id) sealed.add(row.id);
+  }
+  const dateKey = corteDayKey(corte);
+  return tickets.filter((ticket) => {
+    if (!ticket?.id || sealed.has(ticket.id)) return false;
+    if (sameCorteStamp(ticket, corte)) return false;
+    if (!sameBranchAndDay(ticket, corte, dateKey)) return false;
+    const stamp = String(ticket.corteXId || ticket.sesion_caja_id || '').trim();
+    return !!stamp;
+  });
 }
 
 export function removeExpenseFromCorte(corte: CorteXRecord, expenseId: string): CorteXRecord {

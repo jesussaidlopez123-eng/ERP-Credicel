@@ -616,6 +616,71 @@ export async function fetchCajaDocsInDateRange(
   return { tickets, expenses, cortes };
 }
 
+export async function fetchCorteXRecord(corteId: string): Promise<CorteXRecord | null> {
+  const id = String(corteId || '').trim();
+  if (!id) return null;
+  try {
+    const snap = await getDoc(doc(db, CORTE_X_COLLECTION, id));
+    if (snap.exists()) return { ...(snap.data() as CorteXRecord), id: snap.id };
+  } catch (err) {
+    console.warn('[Firestore] No se pudo leer el corte histórico:', id, err);
+  }
+  return null;
+}
+
+export async function fetchSaleTicketsByIds(ids: string[]): Promise<SaleTicket[]> {
+  const unique = Array.from(new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const rows: SaleTicket[] = [];
+  const CHUNK = 16;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const slice = unique.slice(i, i + CHUNK);
+    const found = await Promise.all(
+      slice.map(async (ticketId) => {
+        try {
+          const ventasSnap = await getDoc(doc(db, VENTAS_COLLECTION, ticketId));
+          if (ventasSnap.exists()) return { ...(ventasSnap.data() as SaleTicket), id: ventasSnap.id };
+          const salesSnap = await getDoc(doc(db, SALES_COLLECTION, ticketId));
+          if (salesSnap.exists()) return { ...(salesSnap.data() as SaleTicket), id: salesSnap.id };
+        } catch (err) {
+          console.warn('[Firestore] Ticket ausente al hidratar corte:', ticketId, err);
+        }
+        return null;
+      })
+    );
+    for (const row of found) if (row) rows.push(row);
+  }
+  return rows;
+}
+
+/** Foto completa del corte + ventas de ese día de caja, para rellenar un arqueo aligerado. */
+export async function loadHistoricCorteDetail(corte: CorteXRecord): Promise<{
+  corte: CorteXRecord;
+  dayTickets: SaleTicket[];
+  dayExpenses: Expense[];
+}> {
+  const dateKey =
+    hermosilloDateKey(corte.timestamp) ||
+    hermosilloDateKey(corte.dateStr) ||
+    String(corte.dateStr || '').slice(0, 10);
+  const [cloud, day, stampedVentas, stampedSales] = await Promise.all([
+    fetchCorteXRecord(corte.id),
+    dateKey
+      ? fetchCajaDocsInDateRange(dateKey, dateKey)
+      : Promise.resolve({ tickets: [] as SaleTicket[], expenses: [] as Expense[], cortes: [] as CorteXRecord[] }),
+    queryDocsByField<SaleTicket>(VENTAS_COLLECTION, 'corteXId', corte.id),
+    queryDocsByField<SaleTicket>(SALES_COLLECTION, 'corteXId', corte.id)
+  ]);
+  const resolved = cloud || corte;
+  let dayTickets = mergeByIdKeep(day.tickets, mergeByIdKeep(stampedVentas, stampedSales));
+  const have = new Set(dayTickets.map((row) => row.id));
+  const snapshotIds = new Set((resolved.ticketsSnapshot || []).map((row) => row.id));
+  const missing = (resolved.ticketIds || []).filter((id) => id && !have.has(id) && !snapshotIds.has(id));
+  if (missing.length) {
+    dayTickets = mergeByIdKeep(dayTickets, await fetchSaleTicketsByIds(missing));
+  }
+  return { corte: resolved, dayTickets, dayExpenses: day.expenses };
+}
+
 async function readOpenSessionId(branchId: string): Promise<string> {
   try {
     const snap = await getDoc(doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normalizeBranchId(branchId)));
