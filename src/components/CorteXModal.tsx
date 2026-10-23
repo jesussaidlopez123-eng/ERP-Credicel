@@ -29,7 +29,7 @@ import { money, ticketFolioLabel } from '../lib/ids';
 import { mergeByIdKeep } from '../lib/listMerge';
 import { isAndroidPrintHost, printThermalHtml } from '../lib/printWindow';
 import { printThermalTicket } from '../lib/printEscpos';
-import { buildCorteTicketPlainText } from '../lib/escposTickets';
+import { buildCorteTicketEscPos, buildCorteTicketPlainText } from '../lib/escposTickets';
 import { buildCorteThermalInnerHtml, type CorteTicketView } from '../lib/corteTicket';
 import { isActiveCorteRecord } from '../lib/shiftHours';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
@@ -600,7 +600,7 @@ export default function CorteXModal({
       image();
       return;
     }
-    void printThermalTicket(buildCorteTicketPlainText(view), image);
+    void printThermalTicket(buildCorteTicketPlainText(view), image, buildCorteTicketEscPos(view));
   };
 
   const handlePrintThermal = (asImage = false) => {
@@ -915,7 +915,7 @@ export default function CorteXModal({
                 title="Imprimir Corte X en Ticket Térmico 58mm (Atajo: P)"
               >
                 <Printer className="w-4 h-4 text-cyan-200" />
-                <span>{isAndroidPrintHost() ? 'Imprimir texto (58mm)' : 'Imprimir Ticket (58mm)'}</span>
+                <span>{isAndroidPrintHost() ? 'Imprimir ticket (58mm)' : 'Imprimir Ticket (58mm)'}</span>
               </button>
 
               <button
@@ -1470,8 +1470,8 @@ export default function CorteXModal({
               <span>
                 {isAndroidPrintHost()
                   ? isHistoric
-                    ? 'Reimprimir texto (58mm)'
-                    : 'Imprimir texto (58mm)'
+                    ? 'Reimprimir ticket (58mm)'
+                    : 'Imprimir ticket (58mm)'
                   : isHistoric
                     ? 'Reimprimir Ticket (58mm)'
                     : 'Imprimir Ticket (58mm)'}

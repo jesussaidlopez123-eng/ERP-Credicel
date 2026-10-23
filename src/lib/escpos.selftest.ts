@@ -8,7 +8,7 @@ import {
   buildSaleTicketEscPos,
   buildSaleTicketPlainText
 } from './escposTickets.ts';
-import { buildRawBtTextUrl, prefersEscPosText } from './printEscpos.ts';
+import { buildRawBtEscPosUrl, buildRawBtTextUrl, prefersEscPosText } from './printEscpos.ts';
 import { isAndroidPrintHost } from './printWindow.ts';
 import type { Expense, SaleTicket } from '../types.ts';
 import type { CorteTicketView } from './corteTicket.ts';
@@ -68,11 +68,31 @@ assert.match(saleText, /CELULAR CONTADO/);
 assert.match(saleText, /IMEI 351111111111111/);
 assert.match(saleText, /TOTAL/);
 assert.ok(!saleText.includes('<div'), 'texto plano, no HTML');
-assert.ok(!saleText.includes('\x1b'), 'RawBT recibe letra, no ESC binario');
+assert.ok(!saleText.includes('\x1b'), 'el respaldo de texto no lleva ESC binario');
+assert.ok(!/\n{3,}$/.test(saleText), 'sin cola de renglones vacíos que empujen el rollo');
 
 const saleBytes = buildSaleTicketEscPos(ticket, { name: 'Huatabampo' });
+const saleList = Array.from(saleBytes);
 const saleAscii = String.fromCharCode(...saleBytes.filter((b) => b >= 32 && b < 127));
 assert.match(saleAscii, /CREDI CEL/);
+assert.equal(saleBytes[0], 0x1b);
+assert.equal(saleBytes[1], 0x40, 'ESC @ init');
+assert.ok(!saleList.includes(0x0c), 'sin form feed de página');
+assert.ok(
+  saleList.some((b, i) => b === 0x1d && saleList[i + 1] === 0x21 && saleList[i + 2] === 0x10),
+  'letra alto x2'
+);
+assert.ok(
+  saleList.some((b, i) => b === 0x1d && saleList[i + 1] === 0x56 && saleList[i + 2] === 0x42 && saleList[i + 3] === 0x00),
+  'corte parcial sin avance extra'
+);
+const feedIdx = saleList.findIndex((b, i) => b === 0x1b && saleList[i + 1] === 0x64);
+assert.ok(feedIdx >= 0, 'avanza unas líneas para el cuchillo');
+assert.ok(saleList[feedIdx + 2] <= 2, 'no alimenta un pedazo enorme de papel');
+
+const escUrl = buildRawBtEscPosUrl(saleBytes);
+assert.match(escUrl, /^rawbt:base64,/);
+assert.ok(!escUrl.includes('%1B'), 'bytes en base64, no URL-encoded');
 
 const expense: Expense = {
   id: 'EXP-ABC-1',

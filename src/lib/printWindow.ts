@@ -22,41 +22,43 @@ export const THERMAL_PAGE_CSS = `
     margin: 0;
     padding: 0;
     width: 58mm;
+    min-height: 0;
+    height: auto;
     background: #fff !important;
     color: #000 !important;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 8px;
-    line-height: 1.1;
+    font-size: 13px;
+    line-height: 1.25;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .sheet {
     width: 54mm;
     margin: 0 auto;
-    padding: 0.5mm 0.4mm 5mm 0.4mm;
-    font-size: 8px;
-    line-height: 1.1;
+    padding: 0.5mm 0.5mm 2mm 0.5mm;
+    font-size: 13px;
+    line-height: 1.25;
     color: #000;
   }
   .sheet, .sheet * {
-    font-size: 8px;
-    line-height: 1.1;
+    font-size: 13px;
+    line-height: 1.25;
     margin: 0;
     padding: 0;
   }
   .sheet h1, .sheet h2, .sheet h3 {
-    font-size: 10px !important;
+    font-size: 16px !important;
     font-weight: 800;
-    line-height: 1.05;
+    line-height: 1.15;
     text-align: center;
     letter-spacing: 0;
   }
-  .sheet p { font-size: 8px !important; }
+  .sheet p { font-size: 13px !important; }
   .sheet svg {
     display: block;
     width: 100%;
     max-width: 46mm;
-    height: 10px !important;
+    height: 14px !important;
     margin: 1px auto 0 auto;
   }
   /* Tailwind no viaja al iframe de impresión: recrear lo mínimo. */

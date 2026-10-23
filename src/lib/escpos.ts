@@ -97,6 +97,24 @@ export class EscPosBuilder {
     return this;
   }
 
+  /** Solo alto ×2: 32 columnas y letra que se lee en 58 mm. */
+  doubleHeight(on: boolean): this {
+    this.bytes.push(0x1d, 0x21, on ? 0x10 : 0x00);
+    return this;
+  }
+
+  codePage850(): this {
+    this.bytes.push(0x1b, 0x74, 0x02);
+    return this;
+  }
+
+  normal(): this {
+    this.bytes.push(0x1d, 0x21, 0x00);
+    this.bytes.push(0x1b, 0x45, 0);
+    this.bytes.push(0x1b, 0x61, 0);
+    return this;
+  }
+
   text(value: string): this {
     this.bytes.push(...encodeCp850(value));
     return this;
@@ -137,11 +155,12 @@ export class EscPosBuilder {
     return this;
   }
 
-  feed(lines = 3): this {
-    this.bytes.push(0x1b, 0x64, Math.max(0, Math.min(10, lines)));
+  feed(lines = 2): this {
+    this.bytes.push(0x1b, 0x64, Math.max(0, Math.min(4, lines)));
     return this;
   }
 
+  /** Corte parcial sin avance extra. Si no hay cuchilla, no empuja el rollo. */
   cut(): this {
     this.bytes.push(0x1d, 0x56, 0x42, 0x00);
     return this;
@@ -171,16 +190,26 @@ export function centerLine(text: string, cols = ESC_POS_COLS): string {
   return `${' '.repeat(Math.floor((cols - t.length) / 2))}${t}`;
 }
 
+type DraftLine =
+  | { kind: 'center'; text: string }
+  | { kind: 'left'; text: string }
+  | { kind: 'pair'; left: string; right: string }
+  | { kind: 'dash' };
+
+const TOTAL_LABEL = /^(TOTAL|TOTAL VENTAS|TOTAL CAJA|SALIDA|UTILIDAD)\b/i;
+const BRAND_LINE = /^CREDI CEL$/i;
+const TITLE_LINE = /^(CORTE DE CAJA|VALE DE SALIDA|FIN DE CORTE)/i;
+
 export class TicketDraft {
-  private lines: string[] = [];
+  private lines: DraftLine[] = [];
 
   center(value: string): this {
-    this.lines.push(centerLine(value));
+    this.lines.push({ kind: 'center', text: String(value || '') });
     return this;
   }
 
   left(value: string): this {
-    this.lines.push(String(value || ''));
+    this.lines.push({ kind: 'left', text: String(value || '') });
     return this;
   }
 
@@ -190,23 +219,50 @@ export class TicketDraft {
   }
 
   pair(left: string, right: string): this {
-    this.left(pairLine(left, right));
+    this.lines.push({ kind: 'pair', left: String(left || ''), right: String(right || '') });
     return this;
   }
 
   dash(): this {
-    this.left(dashedLine());
+    this.lines.push({ kind: 'dash' });
     return this;
   }
 
   toPlainText(): string {
-    return `${this.lines.join('\n')}\n\n\n\n`;
+    const out: string[] = [];
+    for (const line of this.lines) {
+      if (line.kind === 'center') out.push(centerLine(line.text));
+      else if (line.kind === 'left') out.push(line.text);
+      else if (line.kind === 'pair') out.push(pairLine(line.left, line.right));
+      else out.push(dashedLine());
+    }
+    return `${out.join('\n')}\n\n`;
   }
 
   toEscPos(): Uint8Array {
-    const esc = new EscPosBuilder().init();
-    for (const line of this.lines) esc.line(line);
-    esc.text('\n\n\n');
+    const esc = new EscPosBuilder().init().codePage850();
+    for (const line of this.lines) {
+      if (line.kind === 'center') {
+        esc.align('center');
+        if (BRAND_LINE.test(line.text)) esc.double(true).bold(true);
+        else if (TITLE_LINE.test(line.text)) esc.doubleHeight(true).bold(true);
+        else esc.doubleHeight(true).bold(false);
+        esc.line(line.text);
+        esc.double(false).bold(false);
+        continue;
+      }
+      esc.align('left').doubleHeight(true);
+      if (line.kind === 'pair') {
+        if (TOTAL_LABEL.test(line.left)) esc.bold(true);
+        esc.line(pairLine(line.left, line.right));
+        esc.bold(false);
+      } else if (line.kind === 'left') {
+        esc.line(line.text);
+      } else {
+        esc.line(dashedLine());
+      }
+    }
+    esc.normal().feed(2).cut();
     return esc.toBytes();
   }
 }

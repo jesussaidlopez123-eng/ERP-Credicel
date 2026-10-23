@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { isAndroidPrintHost, isRestrictedPrintHost, printThermalFromElement } from '../lib/printWindow';
 import { printThermalTicket } from '../lib/printEscpos';
-import { buildSaleTicketPlainText } from '../lib/escposTickets';
+import { buildSaleTicketEscPos, buildSaleTicketPlainText } from '../lib/escposTickets';
 import { SaleTicket, Branch } from '../types';
 import { formatMoney, ticketFolioLabel } from '../lib/ids';
 
@@ -88,7 +88,11 @@ export default function TicketReceiptModal({
       setHasPrinted(true);
       return;
     }
-    await printThermalTicket(buildSaleTicketPlainText(ticket, currentBranch), printAsImage);
+    await printThermalTicket(
+      buildSaleTicketPlainText(ticket, currentBranch),
+      printAsImage,
+      buildSaleTicketEscPos(ticket, currentBranch)
+    );
     setHasPrinted(true);
   };
 
@@ -245,7 +249,7 @@ export default function TicketReceiptModal({
               <span>
                 {hasPrinted
                   ? isAndroidPrintHost()
-                    ? '✓ Enviado en letra (58mm)'
+                    ? '✓ Enviado a la térmica (58mm)'
                     : '✓ Impreso (58mm)'
                   : isAndroidPrintHost()
                     ? 'Toca Imprimir (texto)'
@@ -466,7 +470,7 @@ export default function TicketReceiptModal({
         <div className="p-3 bg-slate-900 text-white flex flex-col gap-2 shrink-0 no-print border-t border-slate-800">
           {isAndroidPrintHost() ? (
             <p className="text-[10px] text-slate-300 leading-snug">
-              Android manda el ticket en <strong className="text-white">letra</strong> a RawBT (no como foto). Si el rollo sale vacío, usa “como foto”.
+              Android manda el ticket en <strong className="text-white">letra grande</strong> a RawBT y corta al final. Si el rollo sale vacío, usa “como foto”.
             </p>
           ) : null}
           <div className="flex items-center justify-between gap-2">
@@ -477,7 +481,7 @@ export default function TicketReceiptModal({
               title="Mandar este ticket a la térmica (Atajo: P o R)"
             >
               <Printer className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isAndroidPrintHost() ? 'Imprimir texto' : 'Reimprimir'}</span>
+              <span>{isAndroidPrintHost() ? 'Imprimir ticket' : 'Reimprimir'}</span>
             </button>
 
             <button

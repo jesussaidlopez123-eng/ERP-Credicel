@@ -3,7 +3,7 @@ import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2
 import { Expense, Branch, Operator } from '../types';
 import { isAndroidPrintHost, printThermalFromElement } from '../lib/printWindow';
 import { printThermalTicket } from '../lib/printEscpos';
-import { buildExpenseTicketPlainText } from '../lib/escposTickets';
+import { buildExpenseTicketEscPos, buildExpenseTicketPlainText } from '../lib/escposTickets';
 import { formatMoney, money, newUniqueId } from '../lib/ids';
 import { formatHermosilloDate } from '../lib/shiftHours';
 
@@ -76,7 +76,11 @@ export default function ExpenseModal({
       printAsImage();
       return;
     }
-    await printThermalTicket(buildExpenseTicketPlainText(createdExpense, currentBranch), printAsImage);
+    await printThermalTicket(
+      buildExpenseTicketPlainText(createdExpense, currentBranch),
+      printAsImage,
+      buildExpenseTicketEscPos(createdExpense, currentBranch)
+    );
   };
 
   return (
@@ -180,7 +184,7 @@ export default function ExpenseModal({
                 className="w-full sm:flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
               >
                 <Printer className="w-4 h-4 text-yellow-300" />
-                {isAndroidPrintHost() ? 'Imprimir texto' : 'Imprimir Ticket de Gasto'}
+                {isAndroidPrintHost() ? 'Imprimir ticket' : 'Imprimir Ticket de Gasto'}
               </button>
               {isAndroidPrintHost() ? (
                 <button

@@ -1,4 +1,4 @@
-import { utf8ToBase64 } from './escpos';
+import { bytesToBase64, utf8ToBase64 } from './escpos';
 import { isAndroidPrintHost, isRestrictedPrintHost } from './printWindow';
 
 const RAWBT_PACKAGE = 'ru.a402d.rawbtprinter';
@@ -24,6 +24,15 @@ export function buildRawBtIntentUrl(text: string): string {
   return `intent:${encodeURIComponent(String(text || ''))}#Intent;scheme=rawbt;package=${RAWBT_PACKAGE};end`;
 }
 
+/** RawBT recibe bytes ESC/POS; no rasteriza una hoja en blanco. */
+export function buildRawBtEscPosUrl(bytes: Uint8Array): string {
+  return `rawbt:base64,${bytesToBase64(bytes)}`;
+}
+
+export function buildRawBtEscPosDataUrl(bytes: Uint8Array): string {
+  return `rawbt:data:application/vnd.escpos;base64,${bytesToBase64(bytes)}`;
+}
+
 function openHref(url: string): boolean {
   if (typeof document === 'undefined') return false;
   if (!url || url.length > 70000) return false;
@@ -37,6 +46,12 @@ function openHref(url: string): boolean {
   return true;
 }
 
+export function openRawBtEscPos(bytes: Uint8Array): boolean {
+  if (!bytes?.length) return false;
+  if (openHref(buildRawBtEscPosUrl(bytes))) return true;
+  return openHref(buildRawBtEscPosDataUrl(bytes));
+}
+
 export function openRawBtText(text: string): boolean {
   const body = String(text || '');
   if (!body.trim()) return false;
@@ -47,12 +62,14 @@ export function openRawBtText(text: string): boolean {
 
 export async function printThermalTicket(
   plainText: string,
-  imageFallback?: () => void
+  imageFallback?: () => void,
+  escPos?: Uint8Array
 ): Promise<ThermalPrintChannel> {
   if (typeof window === 'undefined') return 'image';
 
-  if (prefersEscPosText() && openRawBtText(plainText)) {
-    return 'rawbt';
+  if (prefersEscPosText()) {
+    if (escPos && escPos.length && openRawBtEscPos(escPos)) return 'rawbt';
+    if (!escPos && openRawBtText(plainText)) return 'rawbt';
   }
 
   imageFallback?.();
