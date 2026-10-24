@@ -115,20 +115,32 @@ export function buildImeiCountReportSheet(params: {
   branchId?: string;
 }): ExcelSheet {
   const branchName = getBranchDisplayName(params.branchId || 'b-matriz');
+  const marked = params.result.rows.filter((row) => row.found);
   const missing = params.result.rows.filter((row) => !row.found);
   const extras = params.result.extras;
+  const countHeaders = ['Modelo', 'Código interno', 'Fecha de ingreso', 'IMEI'] as const;
   const rows: ExcelSheet['rows'] = [
     ['Informe de conteo IMEI', '', '', ''],
     ['Sucursal', branchName, '', ''],
     ['Fecha', safeFormatDate(new Date().toISOString()), '', ''],
     ['En sistema', params.result.rows.length, '', ''],
-    ['Contados', params.result.foundCount, '', ''],
+    ['Marcados / correctos', params.result.foundCount, '', ''],
     ['No marcados', params.result.missingCount, '', ''],
     ['No detectados', extras.length, '', ''],
     ['', '', '', ''],
-    ['NO MARCADOS (en sistema, no en físico)', '', '', ''],
-    ['Modelo', 'Código interno', 'Fecha de ingreso', 'IMEI']
+    ['MARCADOS (en sistema y en físico)', '', '', ''],
+    [...countHeaders]
   ];
+  if (marked.length === 0) {
+    rows.push(['Sin IMEI marcados', '', '', '']);
+  } else {
+    for (const row of marked) {
+      rows.push([row.model, row.code, row.enteredAtLabel, row.imei]);
+    }
+  }
+  rows.push(['', '', '', '']);
+  rows.push(['NO MARCADOS (en sistema, no en físico)', '', '', '']);
+  rows.push([...countHeaders]);
   if (missing.length === 0) {
     rows.push(['Sin IMEI sin marcar', '', '', '']);
   } else {

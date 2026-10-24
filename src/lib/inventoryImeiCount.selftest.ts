@@ -87,6 +87,12 @@ assert.match(reportText, /NO DETECTADOS/);
 assert.match(reportText, /359999999999999/);
 assert.ok(!reportText.includes('PayJoy'));
 
+const okReport = buildImeiCountReportSheet({ result: counted, branchId: 'b-matriz' });
+const okText = okReport.rows.map((row) => row.join('|')).join('\n');
+assert.match(okText, /MARCADOS/);
+assert.match(okText, /351111111111111/);
+assert.match(okText, /359999999999999/);
+
 assert.equal(isInventoryHistoryMovement('ingreso'), true);
 assert.equal(isInventoryHistoryMovement('traspaso'), true);
 assert.equal(isInventoryHistoryMovement('creacion'), true);
