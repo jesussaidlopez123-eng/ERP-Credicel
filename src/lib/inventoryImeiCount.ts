@@ -1,5 +1,6 @@
 import type { InventoryMovement, Product, SaleTicket } from '../types';
 import { getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import { safeFormatDate } from './dateUtils';
 import {
   canonicalImei,
   collectSoldImeisFromHistory,
@@ -8,6 +9,7 @@ import {
   normalizeImei
 } from './imeiInventory';
 import { listExistingEquipmentRows, type EquipmentCountRow } from './inventoryEquipmentExcel';
+import { downloadXlsx, type ExcelSheet } from './xlsxMinimal';
 
 export type ImeiCountExpected = EquipmentCountRow & { found: boolean };
 
@@ -98,4 +100,63 @@ export function applyImeiCountScan(params: {
 
 export function isInventoryHistoryMovement(type?: string): boolean {
   return type === 'ingreso' || type === 'creacion' || type === 'traspaso';
+}
+
+export function extraKindLabel(row: ImeiCountExtra): string {
+  if (row.kind === 'other_branch') {
+    return `Está en ${row.branchName || 'otra sucursal'}`;
+  }
+  if (row.kind === 'sold') return 'Ya vendido';
+  return 'En físico, no está en el sistema';
+}
+
+export function buildImeiCountReportSheet(params: {
+  result: ImeiCountResult;
+  branchId?: string;
+}): ExcelSheet {
+  const branchName = getBranchDisplayName(params.branchId || 'b-matriz');
+  const missing = params.result.rows.filter((row) => !row.found);
+  const extras = params.result.extras;
+  const rows: ExcelSheet['rows'] = [
+    ['Informe de conteo IMEI', '', '', ''],
+    ['Sucursal', branchName, '', ''],
+    ['Fecha', safeFormatDate(new Date().toISOString()), '', ''],
+    ['En sistema', params.result.rows.length, '', ''],
+    ['Contados', params.result.foundCount, '', ''],
+    ['No marcados', params.result.missingCount, '', ''],
+    ['No detectados', extras.length, '', ''],
+    ['', '', '', ''],
+    ['NO MARCADOS (en sistema, no en físico)', '', '', ''],
+    ['Modelo', 'Código interno', 'Fecha de ingreso', 'IMEI']
+  ];
+  if (missing.length === 0) {
+    rows.push(['Sin IMEI sin marcar', '', '', '']);
+  } else {
+    for (const row of missing) {
+      rows.push([row.model, row.code, row.enteredAtLabel, row.imei]);
+    }
+  }
+  rows.push(['', '', '', '']);
+  rows.push(['NO DETECTADOS (en físico, no en esta sucursal)', '', '', '']);
+  rows.push(['IMEI', 'Motivo', 'Modelo', '']);
+  if (extras.length === 0) {
+    rows.push(['Sin IMEI no detectados', '', '', '']);
+  } else {
+    for (const row of extras) {
+      rows.push([row.imei, extraKindLabel(row), row.model || '', '']);
+    }
+  }
+  return { name: 'Informe', rows };
+}
+
+export function downloadImeiCountReport(params: {
+  result: ImeiCountResult;
+  branchId?: string;
+}): void {
+  const branchId = params.branchId || 'b-matriz';
+  const branchTag = getBranchDisplayName(branchId).toLowerCase().replace(/\s+/g, '-');
+  const dateTag = new Date().toISOString().slice(0, 10);
+  downloadXlsx(`informe-conteo-imei-${branchTag}-${dateTag}.xlsx`, [
+    buildImeiCountReportSheet(params)
+  ]);
 }

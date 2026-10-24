@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { Product, SaleTicket } from '../types.ts';
 import {
   applyImeiCountScan,
+  buildImeiCountReportSheet,
   expectedImeisForCount,
   isInventoryHistoryMovement,
   normalizeScannedImei
@@ -68,6 +69,23 @@ const soldGhost = applyImeiCountScan({
   branchId: 'b-matriz'
 });
 assert.equal(soldGhost.extras[0].kind, 'sold');
+
+const gap = applyImeiCountScan({
+  expected,
+  scanned: ['359999999999999'],
+  products: [a16],
+  tickets: [soldTicket],
+  branchId: 'b-matriz'
+});
+assert.equal(gap.missingCount, 1);
+assert.equal(gap.extras.length, 1);
+const report = buildImeiCountReportSheet({ result: gap, branchId: 'b-matriz' });
+const reportText = report.rows.map((row) => row.join('|')).join('\n');
+assert.match(reportText, /NO MARCADOS/);
+assert.match(reportText, /351111111111111/);
+assert.match(reportText, /NO DETECTADOS/);
+assert.match(reportText, /359999999999999/);
+assert.ok(!reportText.includes('PayJoy'));
 
 assert.equal(isInventoryHistoryMovement('ingreso'), true);
 assert.equal(isInventoryHistoryMovement('traspaso'), true);

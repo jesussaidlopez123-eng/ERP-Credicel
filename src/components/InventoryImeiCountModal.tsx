@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ScanLine, Smartphone, X } from 'lucide-react';
+import { AlertTriangle, Check, FileSpreadsheet, ScanLine, Smartphone, X } from 'lucide-react';
 import { InventoryMovement, Product, SaleTicket } from '../types';
 import { ALL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { imeisEqual } from '../lib/imeiInventory';
 import {
   applyImeiCountScan,
+  downloadImeiCountReport,
   expectedImeisForCount,
   normalizeScannedImei,
   type ImeiCountExtra
@@ -282,17 +283,32 @@ export default function InventoryImeiCountModal({
           )}
         </div>
 
-        <div className="px-4 py-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2">
+        <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
           <p className="text-[11px] text-slate-500 font-medium">
             Los sin marcar están en el sistema y no se escanearon.
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-extrabold cursor-pointer"
-          >
-            Cerrar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                downloadImeiCountReport({
+                  result,
+                  branchId
+                })
+              }
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-extrabold cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Imprimir resultado
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 sm:flex-initial px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-extrabold cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       </div>
     </div>
