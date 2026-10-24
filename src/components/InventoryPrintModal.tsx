@@ -258,7 +258,6 @@ export default function InventoryPrintModal({
 
     try {
       const isOnlyAccessories = selectedCategory === 'accesorio';
-      const isOnlyPhones = selectedCategory === 'equipo';
 
       // Build context-aware headers
       const headers = isOnlyAccessories ? [
@@ -361,7 +360,7 @@ export default function InventoryPrintModal({
       const url = URL.createObjectURL(blob);
       
       const branchTag = selectedBranchId === 'all' ? 'CONSOLIDADO' : getBranchName(selectedBranchId).toUpperCase().replace(/\s+/g, '_');
-      const categoryTag = selectedCategory === 'equipo' ? 'EQUIPOS' : (selectedCategory === 'accesorio' ? 'ACCESORIOS' : 'COMPLETO');
+      const categoryTag = selectedCategory === 'accesorio' ? 'ACCESORIOS' : 'COMPLETO';
       const dateTag = new Date().toISOString().slice(0, 10);
       const filename = `INVENTARIO_${categoryTag}_${branchTag}_${dateTag}.csv`;
 
