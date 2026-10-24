@@ -51,6 +51,7 @@ import {
   toInventoryBranchId,
   unmappedImeis
 } from '../lib/imeiInventory';
+import { countEquipmentByBranch } from '../lib/inventoryEquipmentExcel';
 import {
   accessoryStockAt,
   accessoryTotalStock,
@@ -265,17 +266,34 @@ function InventoryModule({
     setSecurityError('');
   };
 
+  const soldImeis = useMemo(
+    () => collectSoldImeisFromHistory(salesTickets, inventoryMovements),
+    [salesTickets, inventoryMovements]
+  );
+
+  const imeiIsSold = (raw?: string | null): boolean => {
+    if (!raw) return false;
+    const key = canonicalImei(raw) || normalizeImei(raw);
+    if (soldImeis.has(key) || soldImeis.has(normalizeImei(raw))) return true;
+    for (const value of soldImeis) {
+      if (imeisEqual(value, raw)) return true;
+    }
+    return false;
+  };
+
+  const stockImeis = (list: string[] = []): string[] => list.filter((im) => !imeiIsSold(im));
+
   // Helper stock per branch
   const getBranchStock = (p: Product, branchId: string): number => {
     if (isEquipmentProduct(p)) {
-      return imeisAtBranch(p, branchId).length;
+      return stockImeis(imeisAtBranch(p, branchId)).length;
     }
     return accessoryStockAt(p, branchId);
   };
 
   const getTotalStock = (p: Product): number => {
     if (isEquipmentProduct(p)) {
-      return collectProductImeis(p).length;
+      return stockImeis(collectProductImeis(p)).length;
     }
     return accessoryTotalStock(p);
   };
@@ -283,6 +301,10 @@ function InventoryModule({
   const orphanImeiCount = unassignedEquipmentCount(products);
   const equipmentAudit = useMemo(
     () => auditEquipmentInventory(products, salesTickets, inventoryMovements),
+    [products, salesTickets, inventoryMovements]
+  );
+  const equipmentStockCounts = useMemo(
+    () => countEquipmentByBranch(products, salesTickets, inventoryMovements),
     [products, salesTickets, inventoryMovements]
   );
   const orphanProducts = useMemo(
@@ -422,10 +444,10 @@ function InventoryModule({
 
       const matchesName = p.name.toLowerCase().includes(q);
       const matchesCode = p.code.toLowerCase().includes(q);
-      const matchesImeiDirect = p.imei?.toLowerCase().includes(q) || false;
-      const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q)) || false;
+      const matchesImeiDirect = Boolean(p.imei?.toLowerCase().includes(q) && !imeiIsSold(p.imei));
+      const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q) && !imeiIsSold(im)) || false;
       const matchesBranchImeiMap = p.branchImeiMap
-        ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q)))
+        ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q) && !imeiIsSold(im)))
         : false;
 
       const isImeiMatch = matchesImeiDirect || matchesImeiList || matchesBranchImeiMap;
@@ -437,8 +459,21 @@ function InventoryModule({
       return matchesSearch && pType === activeInventoryTab;
     });
 
-    return list.sort(naturalProductSort);
-  }, [products, debouncedSearch, activeInventoryTab]);
+    const visible = activeInventoryTab === 'equipo'
+      ? list.filter((p) => {
+          const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
+          if (pType !== 'equipo') return true;
+          const atBranch =
+            stockImeis(imeisAtBranch(p, 'b-matriz')).length +
+            stockImeis(imeisAtBranch(p, 'b-navojoa')).length +
+            stockImeis(imeisAtBranch(p, 'b-huatabampo')).length;
+          const orphans = stockImeis(unmappedImeis(p)).length;
+          return atBranch > 0 || orphans > 0;
+        })
+      : list;
+
+    return visible.sort(naturalProductSort);
+  }, [products, debouncedSearch, activeInventoryTab, soldImeis]);
 
   // --- SISTEMA ANTI-DUPLICADOS (CÓDIGOS E IMEIS ESTRICTAMENTE ÚNICOS) ---
 
@@ -1617,7 +1652,7 @@ function InventoryModule({
                       <div className="flex items-center justify-center gap-1.5">
                         <span>MATRIZ</span>
                         {activeInventoryTab === 'equipo' && (
-                          <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-matriz']}</span>
+                          <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-matriz']}</span>
                         )}
                         <button
                           type="button"
@@ -1633,7 +1668,7 @@ function InventoryModule({
                       </div>
                       {activeInventoryTab === 'equipo' && (
                         <span className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wide">
-                          total {equipmentAudit.totals['b-matriz'] + equipmentAudit.totals['b-navojoa'] + equipmentAudit.totals['b-huatabampo']} equipos
+                          total {equipmentStockCounts.total} equipos
                         </span>
                       )}
                     </div>
@@ -1642,7 +1677,7 @@ function InventoryModule({
                     <div className="flex items-center justify-center gap-1.5">
                       <span>NAVOJOA</span>
                       {activeInventoryTab === 'equipo' && (
-                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-navojoa']}</span>
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-navojoa']}</span>
                       )}
                       <button
                         type="button"
@@ -1661,7 +1696,7 @@ function InventoryModule({
                     <div className="flex items-center justify-center gap-1.5">
                       <span>HUATABAMPO</span>
                       {activeInventoryTab === 'equipo' && (
-                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-huatabampo']}</span>
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-huatabampo']}</span>
                       )}
                       <button
                         type="button"
@@ -1726,11 +1761,11 @@ function InventoryModule({
                           <td className="p-3 font-mono font-bold text-xs bg-blue-50/30">
                             {(() => {
                               const grouped = imeisGroupedByBranch(p);
-                              const loose = unmappedImeis(p);
+                              const loose = stockImeis(unmappedImeis(p));
                               const imeiList = [
-                                ...grouped['b-matriz'],
-                                ...grouped['b-navojoa'],
-                                ...grouped['b-huatabampo'],
+                                ...stockImeis(grouped['b-matriz']),
+                                ...stockImeis(grouped['b-navojoa']),
+                                ...stockImeis(grouped['b-huatabampo']),
                                 ...loose
                               ];
 
@@ -1739,8 +1774,8 @@ function InventoryModule({
                               }
 
                               const locLabel = loose.length
-                                ? `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · sin sucursal ${loose.length}`
-                                : `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length}`;
+                                ? `MTZ ${stockImeis(grouped['b-matriz']).length} · NAV ${stockImeis(grouped['b-navojoa']).length} · HUA ${stockImeis(grouped['b-huatabampo']).length} · sin sucursal ${loose.length}`
+                                : `MTZ ${stockImeis(grouped['b-matriz']).length} · NAV ${stockImeis(grouped['b-navojoa']).length} · HUA ${stockImeis(grouped['b-huatabampo']).length}`;
 
                               if (imeiList.length === 1) {
                                 const isLoose = loose.length === 1;

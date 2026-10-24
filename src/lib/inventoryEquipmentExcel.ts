@@ -1,8 +1,14 @@
 import type { InventoryMovement, Product, SaleTicket } from '../types';
 import { getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { safeFormatDate } from './dateUtils';
-import { canonicalImei, imeisAtBranch, isCancelledSaleTicket, isEquipmentProduct, normalizeImei } from './imeiInventory';
-import { isPhoneUnitSale } from './saleClassification';
+import {
+  canonicalImei,
+  collectSoldImeisFromHistory,
+  imeisAtBranch,
+  imeisEqual,
+  isEquipmentProduct,
+  normalizeImei
+} from './imeiInventory';
 import { downloadXlsx, type ExcelSheet } from './xlsxMinimal';
 
 export type EquipmentCountRow = {
@@ -20,9 +26,14 @@ function imeiKey(raw?: string | null): string {
   return canonicalImei(raw) || normalizeImei(raw);
 }
 
-function matchesBranchFilter(branchId: string, filter: string): boolean {
-  if (!filter || filter === 'all') return true;
-  return normalizeBranchId(branchId) === normalizeBranchId(filter);
+function soldSetHas(sold: Set<string>, raw: string): boolean {
+  const key = imeiKey(raw);
+  if (!key) return false;
+  if (sold.has(key) || sold.has(normalizeImei(raw))) return true;
+  for (const value of sold) {
+    if (imeisEqual(value, raw)) return true;
+  }
+  return false;
 }
 
 function formatIngresoDate(iso?: string): string {
@@ -57,17 +68,32 @@ export function ingresoDatesByImei(movements: InventoryMovement[] = []): Map<str
   return out;
 }
 
-export function countEquipmentByBranch(products: Product[] = []): {
+export function inStockImeisAtBranch(
+  product: Product,
+  branchId: string,
+  tickets: SaleTicket[] = [],
+  movements: InventoryMovement[] = []
+): string[] {
+  const sold = collectSoldImeisFromHistory(tickets, movements);
+  return imeisAtBranch(product, branchId).filter((imei) => !soldSetHas(sold, imei));
+}
+
+export function countEquipmentByBranch(
+  products: Product[] = [],
+  tickets: SaleTicket[] = [],
+  movements: InventoryMovement[] = []
+): {
   'b-matriz': number;
   'b-navojoa': number;
   'b-huatabampo': number;
   total: number;
 } {
+  const sold = collectSoldImeisFromHistory(tickets, movements);
   const counts = { 'b-matriz': 0, 'b-navojoa': 0, 'b-huatabampo': 0, total: 0 };
   for (const product of products) {
     if (!isEquipmentProduct(product)) continue;
     for (const branchId of TILL_BRANCHES) {
-      const n = imeisAtBranch(product, branchId).length;
+      const n = imeisAtBranch(product, branchId).filter((imei) => !soldSetHas(sold, imei)).length;
       counts[branchId] += n;
       counts.total += n;
     }
@@ -105,9 +131,11 @@ function sortCountRows(rows: EquipmentCountRow[]): EquipmentCountRow[] {
 export function listExistingEquipmentRows(
   products: Product[] = [],
   branchId = 'all',
-  movements: InventoryMovement[] = []
+  movements: InventoryMovement[] = [],
+  tickets: SaleTicket[] = []
 ): EquipmentCountRow[] {
   const dates = ingresoDatesByImei(movements);
+  const sold = collectSoldImeisFromHistory(tickets, movements);
   const rows: EquipmentCountRow[] = [];
   const branches = branchId === 'all' ? TILL_BRANCHES : [normalizeBranchId(branchId)];
   for (const product of products) {
@@ -115,38 +143,9 @@ export function listExistingEquipmentRows(
     for (const bid of branches) {
       if (!hasCashTill(bid)) continue;
       for (const imei of imeisAtBranch(product, bid)) {
+        if (soldSetHas(sold, imei)) continue;
         rows.push(toCountRow(product, imei, dates));
       }
-    }
-  }
-  return sortCountRows(rows);
-}
-
-export function listSoldEquipmentRows(
-  tickets: SaleTicket[] = [],
-  branchId = 'all',
-  movements: InventoryMovement[] = []
-): EquipmentCountRow[] {
-  const dates = ingresoDatesByImei(movements);
-  const rows: EquipmentCountRow[] = [];
-  for (const ticket of tickets) {
-    if (isCancelledSaleTicket(ticket)) continue;
-    const bid = normalizeBranchId(ticket.branchId);
-    if (!matchesBranchFilter(bid, branchId)) continue;
-    for (const item of ticket.items || []) {
-      if (!isPhoneUnitSale(item)) continue;
-      const imei = String(item.metadata?.imei || '').trim();
-      if (!imei) continue;
-      rows.push(
-        toCountRow(
-          {
-            name: String(item.metadata?.deviceModel || item.product?.name || 'Celular').trim(),
-            code: String(item.product?.code || '').trim()
-          },
-          imei,
-          dates
-        )
-      );
     }
   }
   return sortCountRows(rows);
@@ -161,31 +160,18 @@ export function buildEquipmentInventorySheet(params: {
   tickets?: SaleTicket[];
   movements?: InventoryMovement[];
   branchId?: string;
-  includeSold?: boolean;
 }): ExcelSheet {
   const branchId = params.branchId || 'all';
-  const movements = params.movements || [];
-  const existing = listExistingEquipmentRows(params.products, branchId, movements);
-  const sold = params.includeSold ? listSoldEquipmentRows(params.tickets || [], branchId, movements) : [];
-  const rows: ExcelSheet['rows'] = [
-    [...COUNT_HEADERS],
-    ...existing.map(countRowCells)
-  ];
+  const existing = listExistingEquipmentRows(
+    params.products,
+    branchId,
+    params.movements || [],
+    params.tickets || []
+  );
+  const rows: ExcelSheet['rows'] = [[...COUNT_HEADERS], ...existing.map(countRowCells)];
   if (existing.length === 0) {
     rows.push(['Sin equipos en existencia', '', '', '']);
   }
-
-  if (params.includeSold) {
-    rows.push(['', '', '', '']);
-    rows.push(['IMEI REGISTRADOS COMO VENDIDOS', '', '', '']);
-    rows.push([...COUNT_HEADERS]);
-    if (sold.length === 0) {
-      rows.push(['Sin IMEI vendidos en esta vista', '', '', '']);
-    } else {
-      for (const row of sold) rows.push(countRowCells(row));
-    }
-  }
-
   return { name: 'Equipos', rows };
 }
 
@@ -194,7 +180,6 @@ export function downloadEquipmentInventoryExcel(params: {
   tickets?: SaleTicket[];
   movements?: InventoryMovement[];
   branchId?: string;
-  includeSold?: boolean;
 }): void {
   const branchId = params.branchId || 'all';
   const branchTag = branchId === 'all' ? 'consolidado' : getBranchDisplayName(branchId).toLowerCase().replace(/\s+/g, '-');
@@ -209,7 +194,6 @@ export function equipmentInventoryTsv(params: {
   tickets?: SaleTicket[];
   movements?: InventoryMovement[];
   branchId?: string;
-  includeSold?: boolean;
 }): string {
   const sheet = buildEquipmentInventorySheet(params);
   return sheet.rows

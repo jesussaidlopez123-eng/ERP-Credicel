@@ -30,8 +30,7 @@ import { imeisAtBranch, imeisGroupedByBranch, isEquipmentProduct } from '../lib/
 import {
   downloadEquipmentInventoryExcel,
   equipmentInventoryTsv,
-  listExistingEquipmentRows,
-  listSoldEquipmentRows
+  listExistingEquipmentRows
 } from '../lib/inventoryEquipmentExcel';
 
 interface InventoryPrintModalProps {
@@ -74,7 +73,6 @@ export default function InventoryPrintModal({
   const [showCosts, setShowCosts] = useState<boolean>(true);
   const [showAuditCheckboxes, setShowAuditCheckboxes] = useState<boolean>(true);
   const [hideZeroStock, setHideZeroStock] = useState<boolean>(initialCategory === 'equipo');
-  const [includeSoldImeis, setIncludeSoldImeis] = useState<boolean>(false);
   const [printFormat, setPrintFormat] = useState<'letter' | 'thermal'>('letter');
 
   // 3. COPY & EXPORT FEEDBACK STATES
@@ -179,7 +177,7 @@ export default function InventoryPrintModal({
   }, [filteredProducts]);
 
   const equipmentCountRows = useMemo(() => {
-    const rows = listExistingEquipmentRows(products, selectedBranchId, inventoryMovements);
+    const rows = listExistingEquipmentRows(products, selectedBranchId, inventoryMovements, salesTickets);
     const q = searchQuery.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter(
@@ -188,20 +186,7 @@ export default function InventoryPrintModal({
         row.code.toLowerCase().includes(q) ||
         row.imei.toLowerCase().includes(q)
     );
-  }, [products, selectedBranchId, inventoryMovements, searchQuery]);
-
-  const soldCountRows = useMemo(() => {
-    if (!includeSoldImeis) return [];
-    const rows = listSoldEquipmentRows(salesTickets, selectedBranchId, inventoryMovements);
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (row) =>
-        row.model.toLowerCase().includes(q) ||
-        row.code.toLowerCase().includes(q) ||
-        row.imei.toLowerCase().includes(q)
-    );
-  }, [includeSoldImeis, salesTickets, selectedBranchId, inventoryMovements, searchQuery]);
+  }, [products, selectedBranchId, inventoryMovements, salesTickets, searchQuery]);
 
   // 6. SUMMARY METRICS (Unconditional Hook)
   const summaryMetrics = useMemo(() => {
@@ -266,7 +251,7 @@ export default function InventoryPrintModal({
   const handleDownloadExcelCSV = () => {
     if (selectedCategory === 'equipo') {
       const existingOnly = filteredProducts.filter((prod) => getProductStock(prod, selectedBranchId) > 0);
-      if (existingOnly.length === 0 && !includeSoldImeis) {
+      if (existingOnly.length === 0) {
         alert('No hay equipos existentes para este filtro.');
         return;
       }
@@ -274,8 +259,7 @@ export default function InventoryPrintModal({
         products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
         tickets: salesTickets,
         movements: inventoryMovements,
-        branchId: selectedBranchId,
-        includeSold: includeSoldImeis
+        branchId: selectedBranchId
       });
       return;
     }
@@ -416,8 +400,7 @@ export default function InventoryPrintModal({
         products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
         tickets: salesTickets,
         movements: inventoryMovements,
-        branchId: selectedBranchId,
-        includeSold: includeSoldImeis
+        branchId: selectedBranchId
       });
       if (!text.trim()) {
         alert('No hay equipos existentes para copiar.');
@@ -851,18 +834,6 @@ export default function InventoryPrintModal({
                 </label>
               )}
 
-              {selectedCategory === 'equipo' && (
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={includeSoldImeis}
-                    onChange={(e) => setIncludeSoldImeis(e.target.checked)}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                  />
-                  <span>Agregar IMEI vendidos al final del Excel</span>
-                </label>
-              )}
-
             </div>
 
             {/* Print Format Selector */}
@@ -1050,39 +1021,6 @@ export default function InventoryPrintModal({
                   </div>
                 )}
 
-                {includeSoldImeis && (
-                  <div className="space-y-2 pt-2">
-                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-600">
-                      IMEI registrados como vendidos · {soldCountRows.length}
-                    </h3>
-                    {soldCountRows.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">Sin IMEI vendidos en esta vista.</p>
-                    ) : (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50 text-slate-700 font-black border-b border-slate-200 text-[11px]">
-                              <th className="p-2">Modelo</th>
-                              <th className="p-2 w-28">Código interno</th>
-                              <th className="p-2 w-28">Fecha de ingreso</th>
-                              <th className="p-2 font-mono">IMEI</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-slate-600">
-                            {soldCountRows.map((row, idx) => (
-                              <tr key={`sold-${row.imei}-${idx}`}>
-                                <td className="p-2">{row.model}</td>
-                                <td className="p-2 font-mono">{row.code}</td>
-                                <td className="p-2 font-mono">{row.enteredAtLabel}</td>
-                                <td className="p-2 font-mono">{row.imei}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 
