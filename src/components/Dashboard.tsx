@@ -149,6 +149,12 @@ import {
   normalizeAgendaTask
 } from '../lib/agenda';
 import { deleteAgendaTaskFromCloud, saveAgendaTaskToCloud, subscribeToAgendaTasks } from '../lib/agendaCloud';
+import {
+  arrivalFromMovement,
+  confirmMerchandiseReceipt,
+  isPendingMerchandiseReceipt,
+  upsertMerchandiseReceiptNotice
+} from '../lib/inventoryReceipt';
 import SyncStatusChip from './SyncStatusChip';
 import LazyWhen, { ModuleLoading } from './LazyWhen';
 import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
@@ -1208,6 +1214,15 @@ export default function Dashboard({
     saveInventoryMovementToFirestore(newMovement).catch((err) =>
       console.error('Error saving inventory movement to Firestore:', err)
     );
+    const arrival = arrivalFromMovement(newMovement);
+    if (arrival) {
+      const notice = upsertMerchandiseReceiptNotice(notificationsRef.current, arrival);
+      notificationsRef.current = [notice, ...notificationsRef.current.filter((n) => n.id !== notice.id)];
+      setNotifications((prev) => [notice, ...prev.filter((n) => n.id !== notice.id)]);
+      saveNotificationToFirestore(notice).catch((err) =>
+        console.error('Error avisando mercancía a la sucursal:', err)
+      );
+    }
   };
 
   // Repair Price Catalog Handlers
@@ -2339,7 +2354,22 @@ export default function Dashboard({
       setIsMobileMenuOpen(false);
       return;
     }
+    if (n.type === 'ingreso_mercancia') {
+      if (isPendingMerchandiseReceipt(n)) return;
+      handleDismissNotification(n.id);
+      return;
+    }
     handleDismissNotification(n.id);
+  };
+
+  const handleConfirmMerchandise = (n: AppNotification) => {
+    if (!isPendingMerchandiseReceipt(n)) return;
+    const updated = confirmMerchandiseReceipt(n, currentOperator);
+    notificationsRef.current = notificationsRef.current.map((row) => (row.id === updated.id ? updated : row));
+    setNotifications((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+    saveNotificationToFirestore(updated).catch((err) =>
+      console.error('Error confirmando mercancía:', err)
+    );
   };
 
   const handleClearAllNotifications = () => {
@@ -2422,6 +2452,7 @@ export default function Dashboard({
   const stableSelectNotification = useStableCallback(handleSelectNotification);
   const stableClearNotifications = useStableCallback(handleClearAllNotifications);
   const stableUpdateNotifStatus = useStableCallback(handleUpdateNotificationStatus);
+  const stableConfirmMerchandise = useStableCallback(handleConfirmMerchandise);
 
   // Render Module Content based on activeModule
   const renderModuleContent = () => {
@@ -2697,9 +2728,11 @@ export default function Dashboard({
               }`}
               title="Avisos"
             >
-              <Bell className="w-4 h-4" />
+              <Bell className={`w-4 h-4 ${visibleNotifications.some(isPendingMerchandiseReceipt) ? 'text-emerald-600' : ''}`} />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white bg-red-600">
+                <span className={`absolute -top-1 -right-1 flex items-center justify-center min-w-4 h-4 px-1 text-[10px] font-semibold rounded-full text-white ${
+                  visibleNotifications.some(isPendingMerchandiseReceipt) ? 'bg-emerald-600' : 'bg-red-600'
+                }`}>
                   {unreadCount}
                 </span>
               )}
@@ -2712,6 +2745,7 @@ export default function Dashboard({
               onSelectNotification={stableSelectNotification}
               onDismissNotification={stableDismissNotification}
               onClearAllNotifications={stableClearNotifications}
+              onConfirmMerchandise={stableConfirmMerchandise}
               onOpenCreateModal={() => {
                 setIsNotificationsOpen(false);
                 setIsCreateNoticeOpen(true);

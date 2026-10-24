@@ -10,11 +10,14 @@ import {
   User,
   CheckCircle2,
   Wrench,
-  CalendarDays
+  CalendarDays,
+  Package
 } from 'lucide-react';
 import { AppNotification, Branch, Operator } from '../types';
 import { notificationVisibleToOperator } from '../lib/repairUtils';
 import { notificationIsSticky } from '../lib/agenda';
+import { formatReceiptWhen, isPendingMerchandiseReceipt } from '../lib/inventoryReceipt';
+import { getBranchDisplayName } from '../data/initialBranches';
 
 interface NotificationsPopoverProps {
   isOpen: boolean;
@@ -24,6 +27,7 @@ interface NotificationsPopoverProps {
   onDismissNotification: (id: string) => void;
   onClearAllNotifications: () => void;
   onOpenCreateModal: () => void;
+  onConfirmMerchandise?: (notification: AppNotification) => void;
   currentBranch: Branch;
   currentOperator: Operator;
 }
@@ -36,6 +40,7 @@ export default function NotificationsPopover({
   onDismissNotification,
   onClearAllNotifications,
   onOpenCreateModal,
+  onConfirmMerchandise,
   currentBranch,
   currentOperator
 }: NotificationsPopoverProps) {
@@ -119,33 +124,47 @@ export default function NotificationsPopover({
               const isUrgente = n.urgency === 'urgente';
               const isRepairCost = n.type === 'gasto_reparacion';
               const isAgenda = n.type === 'agenda_tarea';
+              const isReceipt = n.type === 'ingreso_mercancia';
+              const pendingReceipt = isPendingMerchandiseReceipt(n);
+              const destLabel =
+                n.receiptDetails?.destBranchName ||
+                (n.branchId === 'all' ? 'Todas las sucursales' : getBranchDisplayName(n.branchId) || currentBranch.name);
 
               return (
                 <div
                   key={n.id}
-                  onClick={() =>
-                    onSelectNotification ? onSelectNotification(n) : onDismissNotification(n.id)
-                  }
+                  onClick={() => {
+                    if (pendingReceipt) return;
+                    onSelectNotification ? onSelectNotification(n) : onDismissNotification(n.id);
+                  }}
                   title={
-                    isAgenda
+                    pendingReceipt
+                      ? 'Confirma que la mercancía ya está en anaquel'
+                      : isAgenda
                       ? 'Abrir el calendario'
                       : isRepairCost
                       ? 'Abrir Reparaciones para capturar el gasto interno'
                       : 'Marcar leído'
                   }
-                  className={`p-3.5 transition-all cursor-pointer relative group ${
-                    isAgenda
-                      ? 'bg-indigo-50/70 hover:bg-indigo-50 border-l-4 border-l-indigo-600'
+                  className={`p-3.5 transition-all relative group ${
+                    pendingReceipt
+                      ? 'bg-emerald-50/80 border-l-4 border-l-emerald-600'
+                      : isReceipt
+                      ? 'bg-emerald-50/40 hover:bg-emerald-50 border-l-4 border-l-emerald-500 cursor-pointer'
+                      : isAgenda
+                      ? 'bg-indigo-50/70 hover:bg-indigo-50 border-l-4 border-l-indigo-600 cursor-pointer'
                       : isRepairCost
-                      ? 'bg-amber-50/70 hover:bg-amber-50 border-l-4 border-l-amber-600'
+                      ? 'bg-amber-50/70 hover:bg-amber-50 border-l-4 border-l-amber-600 cursor-pointer'
                       : isUrgente
-                      ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-600'
-                      : 'bg-blue-50/30 hover:bg-blue-50 border-l-4 border-l-blue-600'
+                      ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-600 cursor-pointer'
+                      : 'bg-blue-50/30 hover:bg-blue-50 border-l-4 border-l-blue-600 cursor-pointer'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-xl shrink-0 ${
-                      isAgenda
+                      isReceipt
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : isAgenda
                         ? 'bg-indigo-100 text-indigo-700'
                         : isRepairCost
                         ? 'bg-amber-100 text-amber-700'
@@ -153,7 +172,9 @@ export default function NotificationsPopover({
                         ? 'bg-red-100 text-red-600'
                         : 'bg-blue-100 text-blue-600'
                     }`}>
-                      {isAgenda ? (
+                      {isReceipt ? (
+                        <Package className="w-4 h-4" />
+                      ) : isAgenda ? (
                         <CalendarDays className="w-4 h-4" />
                       ) : isRepairCost ? (
                         <Wrench className="w-4 h-4" />
@@ -167,12 +188,14 @@ export default function NotificationsPopover({
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center justify-between gap-1">
                         <h4 className={`text-xs font-bold ${
-                          isAgenda ? 'text-indigo-950' : isRepairCost ? 'text-amber-950' : isUrgente ? 'text-red-950' : 'text-slate-900'
+                          isReceipt ? 'text-emerald-950' : isAgenda ? 'text-indigo-950' : isRepairCost ? 'text-amber-950' : isUrgente ? 'text-red-950' : 'text-slate-900'
                         }`}>
                           {n.title}
                         </h4>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                          isAgenda
+                          isReceipt
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : isAgenda
                             ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                             : isRepairCost
                             ? 'bg-amber-100 text-amber-800 border border-amber-200'
@@ -180,18 +203,32 @@ export default function NotificationsPopover({
                             ? 'bg-red-100 text-red-700 border border-red-200'
                             : 'bg-blue-100 text-blue-700 border border-blue-200'
                         }`}>
-                          {isAgenda ? 'Agenda' : isRepairCost ? 'Taller' : isUrgente ? 'Urgente' : 'Normal'}
+                          {isReceipt ? (pendingReceipt ? 'Por confirmar' : 'Confirmada') : isAgenda ? 'Agenda' : isRepairCost ? 'Taller' : isUrgente ? 'Urgente' : 'Normal'}
                         </span>
                       </div>
 
-                      <p className="text-xs text-slate-700 leading-relaxed">
+                      <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line">
                         {n.message}
                       </p>
+
+                      {pendingReceipt && onConfirmMerchandise && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onConfirmMerchandise(n);
+                          }}
+                          className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Sí, ya está en anaquel
+                        </button>
+                      )}
 
                       <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-100/80 gap-1">
                         <span className="flex items-center gap-1 font-medium text-slate-500">
                           <Store className="w-3 h-3 text-slate-400" />
-                          {n.branchId === 'all' ? 'Todas las sucursales' : currentBranch.name}
+                          {destLabel}
                         </span>
 
                         {n.targetOperatorName && n.targetOperatorId !== 'all' && (
@@ -203,7 +240,7 @@ export default function NotificationsPopover({
 
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          {n.createdAt}
+                          {formatReceiptWhen(n.createdAt) || n.createdAt}
                         </span>
                       </div>
 

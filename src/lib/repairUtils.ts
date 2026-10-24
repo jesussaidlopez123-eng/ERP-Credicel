@@ -3,6 +3,7 @@ import { money, newUniqueId } from './ids';
 import { addCashDays, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from './dateUtils';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { normalizeRole } from './roles';
+import { merchandiseReceiptVisibleTo } from './inventoryReceipt';
 
 const LEGACY_PREFIX = 'erp_repair_records_';
 
@@ -327,6 +328,9 @@ export function notificationVisibleToOperator(
   n: AppNotification,
   opts: { role?: string; branchId?: string; operatorId?: string }
 ): boolean {
+  if (n.type === 'ingreso_mercancia') {
+    return merchandiseReceiptVisibleTo(n, opts);
+  }
   if (n.type === 'gasto_reparacion') {
     return normalizeRole(opts.role) === 'admin';
   }

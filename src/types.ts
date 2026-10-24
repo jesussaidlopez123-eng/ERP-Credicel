@@ -22,6 +22,28 @@ export interface Operator {
 
 export type NoticeUrgency = 'normal' | 'urgente';
 
+export type MerchandiseReceiptSource = 'traspaso' | 'ingreso' | 'compra';
+
+export type MerchandiseReceiptLine = {
+  productName: string;
+  quantity: number;
+  imeis?: string[];
+};
+
+export type MerchandiseReceiptDetails = {
+  source: MerchandiseReceiptSource;
+  destBranchId: string;
+  destBranchName: string;
+  originBranchId?: string;
+  originBranchName?: string;
+  lines: MerchandiseReceiptLine[];
+  status: 'pendiente' | 'confirmado';
+  confirmedAt?: string;
+  confirmedBy?: string;
+  confirmedById?: string;
+  movementIds?: string[];
+};
+
 export interface AppNotification {
   id: string;
   urgency: NoticeUrgency;
@@ -33,7 +55,7 @@ export interface AppNotification {
   branchId: string; // 'all' or specific branch id
   targetOperatorId?: string; // 'all' or specific operator id
   targetOperatorName?: string;
-  type?: 'aviso' | 'pedido_stock' | 'gasto_reparacion' | 'agenda_tarea';
+  type?: 'aviso' | 'pedido_stock' | 'gasto_reparacion' | 'agenda_tarea' | 'ingreso_mercancia';
   repairId?: string;
   agendaTaskId?: string;
   agendaDateKey?: string;
@@ -43,7 +65,8 @@ export interface AppNotification {
     currentStock: number;
     status: 'pendiente' | 'en_camino' | 'cumplido';
   };
-}
+  receiptDetails?: MerchandiseReceiptDetails;
+};
 
 export interface PurchaseDraftItem {
   id: string;

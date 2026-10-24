@@ -212,6 +212,9 @@ export function agendaNotificationPlan(
   return { add, dismissIds };
 }
 
-export function notificationIsSticky(n: Pick<AppNotification, 'type'>): boolean {
-  return n.type === 'gasto_reparacion' || n.type === 'agenda_tarea';
+export function notificationIsSticky(
+  n: Pick<AppNotification, 'type' | 'receiptDetails'>
+): boolean {
+  if (n.type === 'gasto_reparacion' || n.type === 'agenda_tarea') return true;
+  return n.type === 'ingreso_mercancia' && n.receiptDetails?.status !== 'confirmado';
 }
