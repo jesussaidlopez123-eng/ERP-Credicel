@@ -1613,24 +1613,37 @@ function InventoryModule({
                   <th className="p-3 text-right w-32">3. PRECIO INICIAL</th>
                   <th className="p-3 text-right w-32">4. PRECIO FINAL</th>
                   <th className="p-3 text-center w-32 bg-blue-950 border-l border-slate-800">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>MATRIZ</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenPrintModalForBranch('b-matriz');
-                        }}
-                        className="p-1 hover:bg-blue-800 text-blue-300 hover:text-amber-300 rounded transition-all cursor-pointer"
-                        title="Imprimir inventario exclusivo de Matriz"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                      </button>
+                    <div className="flex flex-col items-center justify-center gap-0.5">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>MATRIZ</span>
+                        {activeInventoryTab === 'equipo' && (
+                          <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-matriz']}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenPrintModalForBranch('b-matriz');
+                          }}
+                          className="p-1 hover:bg-blue-800 text-blue-300 hover:text-amber-300 rounded transition-all cursor-pointer"
+                          title="Imprimir inventario exclusivo de Matriz"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {activeInventoryTab === 'equipo' && (
+                        <span className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wide">
+                          total {equipmentAudit.totals['b-matriz'] + equipmentAudit.totals['b-navojoa'] + equipmentAudit.totals['b-huatabampo']} equipos
+                        </span>
+                      )}
                     </div>
                   </th>
                   <th className="p-3 text-center w-32 bg-emerald-950">
                     <div className="flex items-center justify-center gap-1.5">
                       <span>NAVOJOA</span>
+                      {activeInventoryTab === 'equipo' && (
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-navojoa']}</span>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1647,6 +1660,9 @@ function InventoryModule({
                   <th className="p-3 text-center w-32 bg-purple-950 border-r border-slate-800">
                     <div className="flex items-center justify-center gap-1.5">
                       <span>HUATABAMPO</span>
+                      {activeInventoryTab === 'equipo' && (
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-huatabampo']}</span>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -3667,6 +3683,7 @@ function InventoryModule({
           allBranches={allBranches}
           initialCategory={activeInventoryTab}
           initialBranchId={printBranchId}
+          salesTickets={salesTickets}
         />
       </LazyWhen>
 

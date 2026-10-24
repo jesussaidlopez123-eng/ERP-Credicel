@@ -24,9 +24,13 @@ import {
   Table,
   Sparkles
 } from 'lucide-react';
-import { Product, Branch, Operator } from '../types';
+import { Product, Branch, Operator, SaleTicket, InventoryMovement } from '../types';
 import { accessoryStockAt, accessoryTotalStock } from '../lib/accessoryInventory';
 import { imeisAtBranch, imeisGroupedByBranch, isEquipmentProduct } from '../lib/imeiInventory';
+import {
+  downloadEquipmentInventoryExcel,
+  equipmentInventoryTsv
+} from '../lib/inventoryEquipmentExcel';
 
 interface InventoryPrintModalProps {
   isOpen: boolean;
@@ -37,6 +41,8 @@ interface InventoryPrintModalProps {
   allBranches?: Branch[];
   initialCategory?: 'accesorio' | 'equipo' | 'all';
   initialBranchId?: string;
+  salesTickets?: SaleTicket[];
+  inventoryMovements?: InventoryMovement[];
 }
 
 export default function InventoryPrintModal({
@@ -51,7 +57,8 @@ export default function InventoryPrintModal({
     { id: 'b-huatabampo', name: 'Huatabampo' }
   ],
   initialCategory = 'all',
-  initialBranchId = 'all'
+  initialBranchId = 'all',
+  salesTickets = []
 }: InventoryPrintModalProps) {
 
   // 1. FILTER STATES (Declared unconditionally at top level)
@@ -63,7 +70,8 @@ export default function InventoryPrintModal({
   const [showImeis, setShowImeis] = useState<boolean>(true);
   const [showCosts, setShowCosts] = useState<boolean>(true);
   const [showAuditCheckboxes, setShowAuditCheckboxes] = useState<boolean>(true);
-  const [hideZeroStock, setHideZeroStock] = useState<boolean>(false);
+  const [hideZeroStock, setHideZeroStock] = useState<boolean>(initialCategory === 'equipo');
+  const [includeSoldImeis, setIncludeSoldImeis] = useState<boolean>(false);
   const [printFormat, setPrintFormat] = useState<'letter' | 'thermal'>('letter');
 
   // 3. COPY & EXPORT FEEDBACK STATES
@@ -77,6 +85,7 @@ export default function InventoryPrintModal({
       if (initialBranchId) {
         setSelectedBranchId(initialBranchId);
       }
+      if (initialCategory === 'equipo') setHideZeroStock(true);
     }
   }, [isOpen, initialCategory, initialBranchId]);
 
@@ -227,6 +236,21 @@ export default function InventoryPrintModal({
   // EXPORT TO EXCEL (.CSV with UTF-8 BOM)
   // ==========================================
   const handleDownloadExcelCSV = () => {
+    if (selectedCategory === 'equipo') {
+      const existingOnly = filteredProducts.filter((prod) => getProductStock(prod, selectedBranchId) > 0);
+      if (existingOnly.length === 0 && !includeSoldImeis) {
+        alert('No hay equipos existentes para este filtro.');
+        return;
+      }
+      downloadEquipmentInventoryExcel({
+        products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
+        tickets: salesTickets,
+        branchId: selectedBranchId,
+        includeSold: includeSoldImeis
+      });
+      return;
+    }
+
     if (filteredProducts.length === 0) {
       alert('No hay productos en el inventario que coincidan con los filtros seleccionados.');
       return;
@@ -359,6 +383,24 @@ export default function InventoryPrintModal({
   // Direct paste into Excel / Google Sheets
   // ==========================================
   const handleCopyForExcel = () => {
+    if (selectedCategory === 'equipo') {
+      const text = equipmentInventoryTsv({
+        products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
+        tickets: salesTickets,
+        branchId: selectedBranchId,
+        includeSold: includeSoldImeis
+      });
+      if (!text.trim()) {
+        alert('No hay equipos existentes para copiar.');
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        setIsCopiedExcel(true);
+        setTimeout(() => setIsCopiedExcel(false), 2500);
+      });
+      return;
+    }
+
     if (filteredProducts.length === 0) {
       alert('No hay productos para copiar.');
       return;
@@ -776,6 +818,18 @@ export default function InventoryPrintModal({
                 />
                 <span>Ocultar agotados (Stock 0)</span>
               </label>
+
+              {selectedCategory === 'equipo' && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeSoldImeis}
+                    onChange={(e) => setIncludeSoldImeis(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span>Agregar IMEI vendidos al final del Excel</span>
+                </label>
+              )}
 
             </div>
 
