@@ -74,6 +74,7 @@ const InventoryPrintModal = lazy(() => import('./InventoryPrintModal'));
 const InventoryLabelsModal = lazy(() => import('./InventoryLabelsModal'));
 const EditProductModal = lazy(() => import('./EditProductModal'));
 const ImeiTraceModal = lazy(() => import('./ImeiTraceModal'));
+const InventoryImeiCountModal = lazy(() => import('./InventoryImeiCountModal'));
 const InventoryLoteModal = lazy(() => import('./InventoryLoteModal'));
 const InventoryRestoreModal = lazy(() => import('./InventoryRestoreModal'));
 
@@ -180,6 +181,7 @@ function InventoryModule({
   const [imeiSearchQuery, setImeiSearchQuery] = useState('');
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [isImeiTraceOpen, setIsImeiTraceOpen] = useState(false);
+  const [isImeiCountOpen, setIsImeiCountOpen] = useState(false);
   const [traceInitialImei, setTraceInitialImei] = useState('');
   const [isKardexOpen, setIsKardexOpen] = useState(false);
 
@@ -1499,10 +1501,7 @@ function InventoryModule({
             {activeInventoryTab === 'equipo' && (
               <button
                 type="button"
-                onClick={() => {
-                  setTraceInitialImei('');
-                  setIsImeiTraceOpen(true);
-                }}
+                onClick={() => setIsImeiCountOpen(true)}
                 className="tool-btn"
               >
                 <ScanSearch className="w-3.5 h-3.5" />
@@ -3720,6 +3719,17 @@ function InventoryModule({
           initialBranchId={printBranchId}
           salesTickets={salesTickets}
           inventoryMovements={inventoryMovements}
+        />
+      </LazyWhen>
+
+      <LazyWhen when={isImeiCountOpen}>
+        <InventoryImeiCountModal
+          isOpen={isImeiCountOpen}
+          onClose={() => setIsImeiCountOpen(false)}
+          products={products}
+          salesTickets={salesTickets}
+          inventoryMovements={inventoryMovements}
+          initialBranchId={currentBranch?.id}
         />
       </LazyWhen>
 

@@ -6,6 +6,7 @@ import {
   Store, User, ShieldAlert, CheckCircle2, Info, AlertTriangle, Printer
 } from 'lucide-react';
 import { InventoryMovement, InventoryMovementType, Branch } from '../types';
+import { isInventoryHistoryMovement } from '../lib/inventoryImeiCount';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
@@ -86,7 +87,9 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
       }
 
       const cutoff = now - maxAgeMs;
-      const rawList = Array.isArray(movements) ? movements : [];
+      const rawList = (Array.isArray(movements) ? movements : []).filter((m) =>
+        isInventoryHistoryMovement(m?.type)
+      );
 
       return rawList.filter((m) => {
         if (!m || typeof m !== 'object') return false;
@@ -107,9 +110,6 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
         if (selectedType !== 'all') {
           if (selectedType === 'ingreso' && m.type !== 'ingreso' && m.type !== 'creacion') return false;
           if (selectedType === 'traspaso' && m.type !== 'traspaso') return false;
-          if (selectedType === 'ajuste' && m.type !== 'ajuste' && m.type !== 'baja') return false;
-          if (selectedType === 'venta' && m.type !== 'venta') return false;
-          if (selectedType === 'precio' && m.type !== 'precio') return false;
         }
 
         // Filter by Search Query
@@ -138,29 +138,21 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
   // Statistics for summary banner
   const stats = useMemo(() => {
     let totalIngresosQty = 0;
-    let totalVentasQty = 0;
     let totalTraspasosCount = 0;
-    let totalAjustesCount = 0;
 
     filteredMovements.forEach((m) => {
       if (!m) return;
       const q = Math.abs(Number(m.quantity) || 0);
       if (m.type === 'ingreso' || m.type === 'creacion') {
         totalIngresosQty += q;
-      } else if (m.type === 'venta') {
-        totalVentasQty += q;
       } else if (m.type === 'traspaso') {
         totalTraspasosCount++;
-      } else if (m.type === 'ajuste' || m.type === 'baja') {
-        totalAjustesCount++;
       }
     });
 
     return {
       totalIngresosQty,
-      totalVentasQty,
       totalTraspasosCount,
-      totalAjustesCount,
       totalCount: filteredMovements.length
     };
   }, [filteredMovements]);
@@ -286,7 +278,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
                 </span>
               </div>
               <p className="text-xs text-slate-300 font-medium">
-                Auditoría cronológica de ingresos, traspasos, ajustes, ventas y cambios de precio con auto-borrado a los 15 días.
+                  Solo ingresos y traspasos de mercancía. Las ventas no aparecen aquí.
               </p>
             </div>
           </div>
@@ -324,7 +316,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
         </div>
 
         {/* METRICS SUMMARY CARDS */}
-        <div className="p-3 sm:p-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 bg-white border-b border-slate-200 shrink-0">
+        <div className="p-3 sm:p-4 grid grid-cols-2 gap-2.5 sm:gap-3 bg-white border-b border-slate-200 shrink-0">
           
           <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200/80 flex items-center gap-3">
             <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
@@ -336,16 +328,6 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
             </div>
           </div>
 
-          <div className="p-3 bg-purple-50/80 rounded-2xl border border-purple-200/80 flex items-center gap-3">
-            <div className="p-2 bg-purple-600 text-white rounded-xl shadow-xs">
-              <MinusCircle className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[11px] text-purple-800 font-extrabold uppercase tracking-wide">Salidas / Ventas</p>
-              <p className="text-xl font-black text-purple-950">-{stats.totalVentasQty} <span className="text-xs font-semibold text-purple-700">pzs</span></p>
-            </div>
-          </div>
-
           <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-200/80 flex items-center gap-3">
             <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
               <ArrowRightLeft className="w-4 h-4" />
@@ -353,16 +335,6 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
             <div>
               <p className="text-[11px] text-blue-800 font-extrabold uppercase tracking-wide">Traspasos Entre Suc.</p>
               <p className="text-xl font-black text-blue-950">{stats.totalTraspasosCount} <span className="text-xs font-semibold text-blue-700">movs</span></p>
-            </div>
-          </div>
-
-          <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200/80 flex items-center gap-3">
-            <div className="p-2 bg-amber-600 text-white rounded-xl shadow-xs">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-            <div>
-              <p className="text-[11px] text-amber-800 font-extrabold uppercase tracking-wide">Ajustes & Mermas</p>
-              <p className="text-xl font-black text-amber-950">{stats.totalAjustesCount} <span className="text-xs font-semibold text-amber-700">movs</span></p>
             </div>
           </div>
 
@@ -405,12 +377,9 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
               onChange={(e) => setSelectedType(e.target.value)}
               className="py-2 px-3 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-600 focus:outline-none cursor-pointer"
             >
-              <option value="all">🏷️ Todos los Tipos</option>
-              <option value="ingreso">📥 Ingresos y Nuevos</option>
+              <option value="all">🏷️ Ingresos y traspasos</option>
+              <option value="ingreso">📥 Ingresos</option>
               <option value="traspaso">🔄 Traspasos</option>
-              <option value="ajuste">⚖️ Ajustes & Mermas</option>
-              <option value="venta">🛒 Ventas POS</option>
-              <option value="precio">💲 Cambios de Precio</option>
             </select>
 
           </div>
@@ -462,7 +431,7 @@ export const InventoryMovementsModal: React.FC<InventoryMovementsModalProps> = (
               </div>
               <h3 className="font-extrabold text-slate-800 text-sm">No hay movimientos registrados en este rango</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto font-medium">
-                Cualquier ingreso, venta en caja, traspaso o ajuste de inventario realizado en los últimos 15 días se reflejará automáticamente aquí.
+                Aquí solo aparecen ingresos y traspasos de los últimos 15 días. Las ventas no se listan.
               </p>
             </div>
           ) : (
