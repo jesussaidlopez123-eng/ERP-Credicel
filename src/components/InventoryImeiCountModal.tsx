@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, ScanLine, Smartphone, X } from 'lucide-react';
 import { InventoryMovement, Product, SaleTicket } from '../types';
 import { ALL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
+import { imeisEqual } from '../lib/imeiInventory';
 import {
   applyImeiCountScan,
   expectedImeisForCount,
@@ -42,7 +43,10 @@ export default function InventoryImeiCountModal({
   const [draft, setDraft] = useState('');
   const [scanned, setScanned] = useState<string[]>([]);
   const [flash, setFlash] = useState<string>('');
+  const [lastHit, setLastHit] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef<Record<string, HTMLLIElement | null>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,6 +54,7 @@ export default function InventoryImeiCountModal({
     setDraft('');
     setScanned([]);
     setFlash('');
+    setLastHit('');
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [isOpen, initialBranchId]);
 
@@ -71,21 +76,47 @@ export default function InventoryImeiCountModal({
     [expected, scanned, products, salesTickets, inventoryMovements, branchId]
   );
 
+  useEffect(() => {
+    if (!lastHit) return;
+    const el = rowRefs.current[lastHit];
+    if (!el) return;
+    const timer = window.setTimeout(() => {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth', inline: 'nearest' });
+    }, 30);
+    return () => window.clearTimeout(timer);
+  }, [lastHit, result.foundCount]);
+
+  const focusInput = () => {
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const jumpToExpected = (clean: string) => {
+    const match = expected.find((row) => imeisEqual(row.imei, clean));
+    if (!match) return match;
+    setLastHit(match.imei);
+    const el = rowRefs.current[match.imei];
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth', inline: 'nearest' });
+    return match;
+  };
+
   const pushImei = (raw: string) => {
     const clean = normalizeScannedImei(raw);
     if (!clean) {
       setFlash('Escanee o escriba un IMEI.');
       return;
     }
-    if (scanned.some((item) => normalizeScannedImei(item) === clean)) {
+    if (scanned.some((item) => imeisEqual(item, clean))) {
+      jumpToExpected(clean);
       setFlash('Ese IMEI ya se contó.');
       setDraft('');
+      focusInput();
       return;
     }
     setScanned((prev) => [...prev, clean]);
     setDraft('');
     setFlash('');
-    requestAnimationFrame(() => inputRef.current?.focus());
+    jumpToExpected(clean);
+    focusInput();
   };
 
   if (!isOpen) return null;
@@ -121,6 +152,7 @@ export default function InventoryImeiCountModal({
                   setScanned([]);
                   setDraft('');
                   setFlash('');
+                  setLastHit('');
                 }}
                 className="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 cursor-pointer"
               >
@@ -204,7 +236,7 @@ export default function InventoryImeiCountModal({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+        <div ref={listRef} className="flex-1 overflow-y-auto p-3 sm:p-4">
           {result.rows.length === 0 ? (
             <p className="text-sm text-slate-500 font-medium text-center py-10">
               No hay equipos en existencia en esta sucursal.
@@ -214,9 +246,15 @@ export default function InventoryImeiCountModal({
               {result.rows.map((row) => (
                 <li
                   key={row.imei}
-                  className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-xs ${
+                  ref={(node) => {
+                    rowRefs.current[row.imei] = node;
+                  }}
+                  data-imei={row.imei}
+                  className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-xs transition-shadow ${
                     row.found
-                      ? 'bg-emerald-50 border-emerald-300'
+                      ? lastHit === row.imei
+                        ? 'bg-emerald-100 border-emerald-500 ring-2 ring-emerald-400 shadow-sm'
+                        : 'bg-emerald-50 border-emerald-300'
                       : 'bg-white border-slate-200'
                   }`}
                 >
