@@ -29,7 +29,9 @@ import { accessoryStockAt, accessoryTotalStock } from '../lib/accessoryInventory
 import { imeisAtBranch, imeisGroupedByBranch, isEquipmentProduct } from '../lib/imeiInventory';
 import {
   downloadEquipmentInventoryExcel,
-  equipmentInventoryTsv
+  equipmentInventoryTsv,
+  listExistingEquipmentRows,
+  listSoldEquipmentRows
 } from '../lib/inventoryEquipmentExcel';
 
 interface InventoryPrintModalProps {
@@ -58,7 +60,8 @@ export default function InventoryPrintModal({
   ],
   initialCategory = 'all',
   initialBranchId = 'all',
-  salesTickets = []
+  salesTickets = [],
+  inventoryMovements = []
 }: InventoryPrintModalProps) {
 
   // 1. FILTER STATES (Declared unconditionally at top level)
@@ -175,6 +178,31 @@ export default function InventoryPrintModal({
     return filteredProducts.filter(p => !(p.inventoryType === 'equipo' || p.category === 'equipo_credito'));
   }, [filteredProducts]);
 
+  const equipmentCountRows = useMemo(() => {
+    const rows = listExistingEquipmentRows(products, selectedBranchId, inventoryMovements);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (row) =>
+        row.model.toLowerCase().includes(q) ||
+        row.code.toLowerCase().includes(q) ||
+        row.imei.toLowerCase().includes(q)
+    );
+  }, [products, selectedBranchId, inventoryMovements, searchQuery]);
+
+  const soldCountRows = useMemo(() => {
+    if (!includeSoldImeis) return [];
+    const rows = listSoldEquipmentRows(salesTickets, selectedBranchId, inventoryMovements);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (row) =>
+        row.model.toLowerCase().includes(q) ||
+        row.code.toLowerCase().includes(q) ||
+        row.imei.toLowerCase().includes(q)
+    );
+  }, [includeSoldImeis, salesTickets, selectedBranchId, inventoryMovements, searchQuery]);
+
   // 6. SUMMARY METRICS (Unconditional Hook)
   const summaryMetrics = useMemo(() => {
     let totalItems = filteredProducts.length;
@@ -218,7 +246,7 @@ export default function InventoryPrintModal({
   // Dynamic titles and labels based on active selected category
   const reportCategoryTitle = useMemo(() => {
     if (selectedCategory === 'equipo') {
-      return 'REPORTE DE INVENTARIO: EQUIPOS CELULARES';
+      return 'CONTEO DE EQUIPOS';
     }
     if (selectedCategory === 'accesorio') {
       return 'REPORTE DE INVENTARIO: ACCESORIOS Y REFACCIONES';
@@ -245,6 +273,7 @@ export default function InventoryPrintModal({
       downloadEquipmentInventoryExcel({
         products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
         tickets: salesTickets,
+        movements: inventoryMovements,
         branchId: selectedBranchId,
         includeSold: includeSoldImeis
       });
@@ -386,6 +415,7 @@ export default function InventoryPrintModal({
       const text = equipmentInventoryTsv({
         products: products.filter((prod) => isEquipmentProduct(prod) && getProductStock(prod, selectedBranchId) > 0),
         tickets: salesTickets,
+        movements: inventoryMovements,
         branchId: selectedBranchId,
         includeSold: includeSoldImeis
       });
@@ -764,7 +794,7 @@ export default function InventoryPrintModal({
             <div className="flex flex-wrap items-center gap-4 font-bold text-slate-700">
               
               {/* Desglosar IMEIs (only relevant when phones are included) */}
-              {selectedCategory !== 'accesorio' && (
+              {selectedCategory === 'all' && (
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -779,44 +809,47 @@ export default function InventoryPrintModal({
                 </label>
               )}
 
-              {/* Mostrar Costos y Márgenes */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showCosts}
-                  onChange={(e) => setShowCosts(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="flex items-center gap-1">
-                  <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                  Mostrar Precios de Costo y Margen
-                </span>
-              </label>
+              {selectedCategory !== 'equipo' && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showCosts}
+                    onChange={(e) => setShowCosts(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1">
+                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                    Mostrar Precios de Costo y Margen
+                  </span>
+                </label>
+              )}
 
-              {/* Casillas de Conteo Físico */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={showAuditCheckboxes}
-                  onChange={(e) => setShowAuditCheckboxes(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <span className="flex items-center gap-1">
-                  <CheckSquare className="w-3.5 h-3.5 text-purple-600" />
-                  Casillas para Conteo Físico
-                </span>
-              </label>
+              {selectedCategory !== 'equipo' && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showAuditCheckboxes}
+                    onChange={(e) => setShowAuditCheckboxes(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1">
+                    <CheckSquare className="w-3.5 h-3.5 text-purple-600" />
+                    Casillas para Conteo Físico
+                  </span>
+                </label>
+              )}
 
-              {/* Ocultar Stock en Cero */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={hideZeroStock}
-                  onChange={(e) => setHideZeroStock(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                />
-                <span>Ocultar agotados (Stock 0)</span>
-              </label>
+              {selectedCategory !== 'equipo' && (
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hideZeroStock}
+                    onChange={(e) => setHideZeroStock(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span>Ocultar agotados (Stock 0)</span>
+                </label>
+              )}
 
               {selectedCategory === 'equipo' && (
                 <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -877,12 +910,14 @@ export default function InventoryPrintModal({
                 
                 {/* Brand / Company Title */}
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 bg-slate-900 text-white font-black text-xs rounded-md uppercase tracking-wider">
-                      SISTEMA ERP POS
-                    </span>
-                    <span className="text-xs font-bold text-slate-500">CONTROL MULTI-SUCURSAL</span>
-                  </div>
+                  {selectedCategory !== 'equipo' && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-slate-900 text-white font-black text-xs rounded-md uppercase tracking-wider">
+                        SISTEMA ERP POS
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">CONTROL MULTI-SUCURSAL</span>
+                    </div>
+                  )}
                   <h1 className="text-xl sm:text-2xl font-black text-slate-950 tracking-tight mt-1">
                     {reportCategoryTitle}
                   </h1>
@@ -911,19 +946,18 @@ export default function InventoryPrintModal({
             </div>
 
             {/* 2. EXECUTIVE VALUATION & STOCK KPI SUMMARY */}
+            {selectedCategory !== 'equipo' && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs print-break-inside-avoid">
               
               <div className="space-y-0.5">
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-                  {selectedCategory === 'equipo' ? 'Modelos de Celular' : selectedCategory === 'accesorio' ? 'Modelos / SKUs' : 'Modelos / SKUs'}
+                  Modelos / SKUs
                 </span>
                 <span className="text-base font-black text-slate-900 font-mono block">
                   {summaryMetrics.totalItems} productos
                 </span>
                 <span className="text-[10px] text-slate-500 font-semibold">
-                  {selectedCategory === 'equipo' 
-                    ? `${phoneProducts.length} equipos registrados` 
-                    : selectedCategory === 'accesorio'
+                  {selectedCategory === 'accesorio'
                     ? `${accessoryProducts.length} accesorios`
                     : `${phoneProducts.length} equipos • ${accessoryProducts.length} acc.`}
                 </span>
@@ -931,15 +965,13 @@ export default function InventoryPrintModal({
 
               <div className="space-y-0.5">
                 <span className="text-[10px] font-black text-blue-600 uppercase tracking-wider block">
-                  {selectedCategory === 'equipo' ? 'Equipos Celulares (Stock)' : 'Piezas Físicas (Stock)'}
+                  Piezas Físicas (Stock)
                 </span>
                 <span className="text-base font-black text-blue-950 font-mono block">
                   {summaryMetrics.totalUnits} piezas
                 </span>
                 <span className="text-[10px] text-blue-700 font-semibold">
-                  {selectedCategory === 'equipo'
-                    ? `${summaryMetrics.totalPhoneUnits} unidades en existencia`
-                    : selectedCategory === 'accesorio'
+                  {selectedCategory === 'accesorio'
                     ? `${summaryMetrics.totalAccessoryUnits} accesorios en existencia`
                     : `${summaryMetrics.totalPhoneUnits} celulares • ${summaryMetrics.totalAccessoryUnits} accesorios`}
                 </span>
@@ -968,9 +1000,93 @@ export default function InventoryPrintModal({
               </div>
 
             </div>
+            )}
 
-            {/* 3. SECTION 1: EQUIPOS CELULARES (CON DESGLOSE DE IMEIs) */}
-            {(selectedCategory === 'all' || selectedCategory === 'equipo') && (
+            {/* 3. CONTEO DE EQUIPOS: modelo, código, fecha de ingreso, IMEI */}
+            {selectedCategory === 'equipo' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between bg-blue-950 text-white px-3.5 py-2 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-amber-300" />
+                    <h2 className="text-xs font-black uppercase tracking-wider">
+                      Conteo de equipos · {equipmentCountRows.length} IMEI
+                    </h2>
+                  </div>
+                  <span className="text-[10px] font-extrabold text-blue-200">
+                    Modelo · código · ingreso · IMEI
+                  </span>
+                </div>
+
+                {equipmentCountRows.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400 italic bg-slate-50 rounded-xl border border-slate-200">
+                    No hay equipos existentes en este filtro.
+                  </div>
+                ) : (
+                  <div className="border border-slate-300 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[11px]">
+                          <th className="p-2">Modelo</th>
+                          <th className="p-2 w-28">Código interno</th>
+                          <th className="p-2 w-28">Fecha de ingreso</th>
+                          <th className="p-2 font-mono">IMEI</th>
+                          <th className="p-2 text-center w-14">✓</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {equipmentCountRows.map((row, idx) => (
+                          <tr key={`${row.imei}-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
+                            <td className="p-2 font-bold text-slate-900">{row.model}</td>
+                            <td className="p-2 font-mono font-extrabold text-blue-900">{row.code}</td>
+                            <td className="p-2 font-mono text-slate-700">{row.enteredAtLabel}</td>
+                            <td className="p-2 font-mono font-extrabold text-slate-950 tracking-wide">{row.imei}</td>
+                            <td className="p-2 text-center">
+                              <div className="w-5 h-5 border-2 border-slate-400 rounded-sm mx-auto bg-white" />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {includeSoldImeis && (
+                  <div className="space-y-2 pt-2">
+                    <h3 className="text-[11px] font-black uppercase tracking-wider text-slate-600">
+                      IMEI registrados como vendidos · {soldCountRows.length}
+                    </h3>
+                    {soldCountRows.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">Sin IMEI vendidos en esta vista.</p>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-700 font-black border-b border-slate-200 text-[11px]">
+                              <th className="p-2">Modelo</th>
+                              <th className="p-2 w-28">Código interno</th>
+                              <th className="p-2 w-28">Fecha de ingreso</th>
+                              <th className="p-2 font-mono">IMEI</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-600">
+                            {soldCountRows.map((row, idx) => (
+                              <tr key={`sold-${row.imei}-${idx}`}>
+                                <td className="p-2">{row.model}</td>
+                                <td className="p-2 font-mono">{row.code}</td>
+                                <td className="p-2 font-mono">{row.enteredAtLabel}</td>
+                                <td className="p-2 font-mono">{row.imei}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(selectedCategory === 'all') && (
               <div className="space-y-3 print-break-inside-avoid">
                 
                 <div className="flex items-center justify-between bg-blue-950 text-white px-3.5 py-2 rounded-xl">

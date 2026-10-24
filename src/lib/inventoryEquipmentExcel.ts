@@ -1,36 +1,60 @@
-import type { Product, SaleTicket } from '../types';
+import type { InventoryMovement, Product, SaleTicket } from '../types';
 import { getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
-import { safeFormatDate, safeFormatTime } from './dateUtils';
-import { ticketFolioLabel } from './ids';
-import { imeisAtBranch, isCancelledSaleTicket, isEquipmentProduct } from './imeiInventory';
+import { safeFormatDate } from './dateUtils';
+import { canonicalImei, imeisAtBranch, isCancelledSaleTicket, isEquipmentProduct, normalizeImei } from './imeiInventory';
 import { isPhoneUnitSale } from './saleClassification';
 import { downloadXlsx, type ExcelSheet } from './xlsxMinimal';
 
-export type EquipmentStockRow = {
+export type EquipmentCountRow = {
+  model: string;
   code: string;
-  model: string;
-  branchId: string;
-  branchName: string;
+  enteredAt: string;
+  enteredAtLabel: string;
   imei: string;
-  price: number;
-};
-
-export type SoldEquipmentRow = {
-  imei: string;
-  model: string;
-  branchId: string;
-  branchName: string;
-  folio: string;
-  dateLabel: string;
-  clientName: string;
-  saleType: string;
 };
 
 const TILL_BRANCHES = ['b-matriz', 'b-navojoa', 'b-huatabampo'] as const;
+const COUNT_HEADERS = ['Modelo', 'Código interno', 'Fecha de ingreso', 'IMEI'] as const;
+
+function imeiKey(raw?: string | null): string {
+  return canonicalImei(raw) || normalizeImei(raw);
+}
 
 function matchesBranchFilter(branchId: string, filter: string): boolean {
   if (!filter || filter === 'all') return true;
   return normalizeBranchId(branchId) === normalizeBranchId(filter);
+}
+
+function formatIngresoDate(iso?: string): string {
+  if (!iso) return '—';
+  const label = safeFormatDate(iso);
+  return label && label !== '--/--/----' ? label : '—';
+}
+
+/** Primera fecha de ingreso/creación del IMEI; si no hay, el movimiento más viejo que no sea venta. */
+export function ingresoDatesByImei(movements: InventoryMovement[] = []): Map<string, string> {
+  const preferred = new Map<string, string>();
+  const fallback = new Map<string, string>();
+  for (const mov of movements) {
+    const ts = String(mov.timestamp || '');
+    if (!ts) continue;
+    const isIngreso = mov.type === 'ingreso' || mov.type === 'creacion';
+    const isSale = mov.type === 'venta' || mov.type === 'baja';
+    for (const raw of mov.imeis || []) {
+      const key = imeiKey(raw);
+      if (!key) continue;
+      if (isIngreso) {
+        const prev = preferred.get(key);
+        if (!prev || ts.localeCompare(prev) < 0) preferred.set(key, ts);
+      } else if (!isSale) {
+        const prev = fallback.get(key);
+        if (!prev || ts.localeCompare(prev) < 0) fallback.set(key, ts);
+      }
+    }
+  }
+  const out = new Map(fallback);
+  for (const [key, ts] of preferred) out.set(key, ts);
+  return out;
 }
 
 export function countEquipmentByBranch(products: Product[] = []): {
@@ -51,53 +75,60 @@ export function countEquipmentByBranch(products: Product[] = []): {
   return counts;
 }
 
+function toCountRow(
+  product: Pick<Product, 'name' | 'code'>,
+  imei: string,
+  dates: Map<string, string>
+): EquipmentCountRow {
+  const enteredAt = dates.get(imeiKey(imei)) || '';
+  return {
+    model: product.name,
+    code: product.code || '',
+    enteredAt,
+    enteredAtLabel: formatIngresoDate(enteredAt),
+    imei
+  };
+}
+
+function sortCountRows(rows: EquipmentCountRow[]): EquipmentCountRow[] {
+  return rows.sort((a, b) => {
+    const model = a.model.localeCompare(b.model, 'es');
+    if (model) return model;
+    const code = a.code.localeCompare(b.code, 'es');
+    if (code) return code;
+    const date = (a.enteredAt || '').localeCompare(b.enteredAt || '');
+    if (date) return date;
+    return a.imei.localeCompare(b.imei);
+  });
+}
+
 export function listExistingEquipmentRows(
   products: Product[] = [],
-  branchId = 'all'
-): EquipmentStockRow[] {
-  const rows: EquipmentStockRow[] = [];
+  branchId = 'all',
+  movements: InventoryMovement[] = []
+): EquipmentCountRow[] {
+  const dates = ingresoDatesByImei(movements);
+  const rows: EquipmentCountRow[] = [];
   const branches = branchId === 'all' ? TILL_BRANCHES : [normalizeBranchId(branchId)];
   for (const product of products) {
     if (!isEquipmentProduct(product)) continue;
     for (const bid of branches) {
       if (!hasCashTill(bid)) continue;
       for (const imei of imeisAtBranch(product, bid)) {
-        rows.push({
-          code: product.code || '',
-          model: product.name,
-          branchId: bid,
-          branchName: getBranchDisplayName(bid),
-          imei,
-          price: Number(product.price) || 0
-        });
+        rows.push(toCountRow(product, imei, dates));
       }
     }
   }
-  rows.sort((a, b) => {
-    const branch = a.branchName.localeCompare(b.branchName, 'es');
-    if (branch) return branch;
-    const model = a.model.localeCompare(b.model, 'es');
-    if (model) return model;
-    return a.imei.localeCompare(b.imei);
-  });
-  return rows;
-}
-
-function saleTypeLabel(item: SaleTicket['items'][number]): string {
-  const meta = item.metadata || {};
-  const blob = `${meta.financingPlatform || ''} ${item.product?.name || ''}`.toLowerCase();
-  if (blob.includes('payjoy')) return 'PayJoy';
-  if (blob.includes('crediya') || blob.includes('credi ya')) return 'CrediYa';
-  if (meta.saleType === 'credito') return 'Crédito';
-  if (meta.saleType === 'contado') return 'Contado';
-  return 'Contado';
+  return sortCountRows(rows);
 }
 
 export function listSoldEquipmentRows(
   tickets: SaleTicket[] = [],
-  branchId = 'all'
-): SoldEquipmentRow[] {
-  const rows: SoldEquipmentRow[] = [];
+  branchId = 'all',
+  movements: InventoryMovement[] = []
+): EquipmentCountRow[] {
+  const dates = ingresoDatesByImei(movements);
+  const rows: EquipmentCountRow[] = [];
   for (const ticket of tickets) {
     if (isCancelledSaleTicket(ticket)) continue;
     const bid = normalizeBranchId(ticket.branchId);
@@ -106,55 +137,53 @@ export function listSoldEquipmentRows(
       if (!isPhoneUnitSale(item)) continue;
       const imei = String(item.metadata?.imei || '').trim();
       if (!imei) continue;
-      rows.push({
-        imei,
-        model: String(item.metadata?.deviceModel || item.product?.name || 'Celular').trim(),
-        branchId: bid,
-        branchName: getBranchDisplayName(bid),
-        folio: ticketFolioLabel(ticket),
-        dateLabel: `${safeFormatDate(ticket.timestamp)} ${safeFormatTime(ticket.timestamp)}`,
-        clientName: String(item.metadata?.clientName || '').trim() || 'Mostrador',
-        saleType: saleTypeLabel(item)
-      });
+      rows.push(
+        toCountRow(
+          {
+            name: String(item.metadata?.deviceModel || item.product?.name || 'Celular').trim(),
+            code: String(item.product?.code || '').trim()
+          },
+          imei,
+          dates
+        )
+      );
     }
   }
-  rows.sort((a, b) => b.dateLabel.localeCompare(a.dateLabel, 'es'));
-  return rows;
+  return sortCountRows(rows);
+}
+
+function countRowCells(row: EquipmentCountRow): ExcelSheet['rows'][number] {
+  return [row.model, row.code, row.enteredAtLabel, row.imei];
 }
 
 export function buildEquipmentInventorySheet(params: {
   products: Product[];
   tickets?: SaleTicket[];
+  movements?: InventoryMovement[];
   branchId?: string;
   includeSold?: boolean;
 }): ExcelSheet {
   const branchId = params.branchId || 'all';
-  const existing = listExistingEquipmentRows(params.products, branchId);
-  const sold = params.includeSold ? listSoldEquipmentRows(params.tickets || [], branchId) : [];
+  const movements = params.movements || [];
+  const existing = listExistingEquipmentRows(params.products, branchId, movements);
+  const sold = params.includeSold ? listSoldEquipmentRows(params.tickets || [], branchId, movements) : [];
   const rows: ExcelSheet['rows'] = [
-    ['EXISTENTES EN ANAQUEL', '', '', '', '', ''],
-    ['Código', 'Modelo', 'Sucursal', 'IMEI', 'Precio', 'Estado'],
-    ...existing.map((row) => [row.code, row.model, row.branchName, row.imei, row.price, 'Existente'])
+    [...COUNT_HEADERS],
+    ...existing.map(countRowCells)
   ];
   if (existing.length === 0) {
-    rows.push(['', 'Sin equipos en existencia', '', '', '', '']);
+    rows.push(['Sin equipos en existencia', '', '', '']);
   }
-  rows.push(['', '', '', '', '', '']);
-  rows.push(['Total existentes', existing.length, '', '', '', '']);
 
   if (params.includeSold) {
-    rows.push(['', '', '', '', '', '']);
-    rows.push(['IMEI REGISTRADOS COMO VENDIDOS', '', '', '', '', '']);
-    rows.push(['Fecha', 'Folio', 'Sucursal', 'Modelo', 'IMEI', 'Tipo / Cliente']);
+    rows.push(['', '', '', '']);
+    rows.push(['IMEI REGISTRADOS COMO VENDIDOS', '', '', '']);
+    rows.push([...COUNT_HEADERS]);
     if (sold.length === 0) {
-      rows.push(['', 'Sin IMEI vendidos en esta vista', '', '', '', '']);
+      rows.push(['Sin IMEI vendidos en esta vista', '', '', '']);
     } else {
-      for (const row of sold) {
-        rows.push([row.dateLabel, row.folio, row.branchName, row.model, row.imei, `${row.saleType} · ${row.clientName}`]);
-      }
+      for (const row of sold) rows.push(countRowCells(row));
     }
-    rows.push(['', '', '', '', '', '']);
-    rows.push(['Total vendidos', sold.length, '', '', '', '']);
   }
 
   return { name: 'Equipos', rows };
@@ -163,13 +192,14 @@ export function buildEquipmentInventorySheet(params: {
 export function downloadEquipmentInventoryExcel(params: {
   products: Product[];
   tickets?: SaleTicket[];
+  movements?: InventoryMovement[];
   branchId?: string;
   includeSold?: boolean;
 }): void {
   const branchId = params.branchId || 'all';
   const branchTag = branchId === 'all' ? 'consolidado' : getBranchDisplayName(branchId).toLowerCase().replace(/\s+/g, '-');
   const dateTag = new Date().toISOString().slice(0, 10);
-  downloadXlsx(`inventario-equipos-${branchTag}-${dateTag}.xlsx`, [
+  downloadXlsx(`conteo-equipos-${branchTag}-${dateTag}.xlsx`, [
     buildEquipmentInventorySheet(params)
   ]);
 }
@@ -177,6 +207,7 @@ export function downloadEquipmentInventoryExcel(params: {
 export function equipmentInventoryTsv(params: {
   products: Product[];
   tickets?: SaleTicket[];
+  movements?: InventoryMovement[];
   branchId?: string;
   includeSold?: boolean;
 }): string {

@@ -3684,6 +3684,7 @@ function InventoryModule({
           initialCategory={activeInventoryTab}
           initialBranchId={printBranchId}
           salesTickets={salesTickets}
+          inventoryMovements={inventoryMovements}
         />
       </LazyWhen>
 
