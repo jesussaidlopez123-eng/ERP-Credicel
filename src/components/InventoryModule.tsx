@@ -51,7 +51,6 @@ import {
   toInventoryBranchId,
   unmappedImeis
 } from '../lib/imeiInventory';
-import { countEquipmentByBranch } from '../lib/inventoryEquipmentExcel';
 import {
   accessoryStockAt,
   accessoryTotalStock,
@@ -268,34 +267,17 @@ function InventoryModule({
     setSecurityError('');
   };
 
-  const soldImeis = useMemo(
-    () => collectSoldImeisFromHistory(salesTickets, inventoryMovements),
-    [salesTickets, inventoryMovements]
-  );
-
-  const imeiIsSold = (raw?: string | null): boolean => {
-    if (!raw) return false;
-    const key = canonicalImei(raw) || normalizeImei(raw);
-    if (soldImeis.has(key) || soldImeis.has(normalizeImei(raw))) return true;
-    for (const value of soldImeis) {
-      if (imeisEqual(value, raw)) return true;
-    }
-    return false;
-  };
-
-  const stockImeis = (list: string[] = []): string[] => list.filter((im) => !imeiIsSold(im));
-
-  // Helper stock per branch
+  // Helper stock per branch: lo que el anaquel tiene asignado, para poder traspasar.
   const getBranchStock = (p: Product, branchId: string): number => {
     if (isEquipmentProduct(p)) {
-      return stockImeis(imeisAtBranch(p, branchId)).length;
+      return imeisAtBranch(p, branchId).length;
     }
     return accessoryStockAt(p, branchId);
   };
 
   const getTotalStock = (p: Product): number => {
     if (isEquipmentProduct(p)) {
-      return stockImeis(collectProductImeis(p)).length;
+      return collectProductImeis(p).length;
     }
     return accessoryTotalStock(p);
   };
@@ -303,10 +285,6 @@ function InventoryModule({
   const orphanImeiCount = unassignedEquipmentCount(products);
   const equipmentAudit = useMemo(
     () => auditEquipmentInventory(products, salesTickets, inventoryMovements),
-    [products, salesTickets, inventoryMovements]
-  );
-  const equipmentStockCounts = useMemo(
-    () => countEquipmentByBranch(products, salesTickets, inventoryMovements),
     [products, salesTickets, inventoryMovements]
   );
   const orphanProducts = useMemo(
@@ -446,10 +424,10 @@ function InventoryModule({
 
       const matchesName = p.name.toLowerCase().includes(q);
       const matchesCode = p.code.toLowerCase().includes(q);
-      const matchesImeiDirect = Boolean(p.imei?.toLowerCase().includes(q) && !imeiIsSold(p.imei));
-      const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q) && !imeiIsSold(im)) || false;
+      const matchesImeiDirect = p.imei?.toLowerCase().includes(q) || false;
+      const matchesImeiList = p.imeiList?.some((im) => im.toLowerCase().includes(q)) || false;
       const matchesBranchImeiMap = p.branchImeiMap
-        ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q) && !imeiIsSold(im)))
+        ? Object.values(p.branchImeiMap).some((arr) => arr.some((im) => im.toLowerCase().includes(q)))
         : false;
 
       const isImeiMatch = matchesImeiDirect || matchesImeiList || matchesBranchImeiMap;
@@ -461,21 +439,8 @@ function InventoryModule({
       return matchesSearch && pType === activeInventoryTab;
     });
 
-    const visible = activeInventoryTab === 'equipo'
-      ? list.filter((p) => {
-          const pType = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
-          if (pType !== 'equipo') return true;
-          const atBranch =
-            stockImeis(imeisAtBranch(p, 'b-matriz')).length +
-            stockImeis(imeisAtBranch(p, 'b-navojoa')).length +
-            stockImeis(imeisAtBranch(p, 'b-huatabampo')).length;
-          const orphans = stockImeis(unmappedImeis(p)).length;
-          return atBranch > 0 || orphans > 0;
-        })
-      : list;
-
-    return visible.sort(naturalProductSort);
-  }, [products, debouncedSearch, activeInventoryTab, soldImeis]);
+    return list.sort(naturalProductSort);
+  }, [products, debouncedSearch, activeInventoryTab]);
 
   // --- SISTEMA ANTI-DUPLICADOS (CÓDIGOS E IMEIS ESTRICTAMENTE ÚNICOS) ---
 
@@ -1651,7 +1616,7 @@ function InventoryModule({
                       <div className="flex items-center justify-center gap-1.5">
                         <span>MATRIZ</span>
                         {activeInventoryTab === 'equipo' && (
-                          <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-matriz']}</span>
+                          <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-matriz']}</span>
                         )}
                         <button
                           type="button"
@@ -1667,7 +1632,7 @@ function InventoryModule({
                       </div>
                       {activeInventoryTab === 'equipo' && (
                         <span className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wide">
-                          total {equipmentStockCounts.total} equipos
+                          total {equipmentAudit.totals['b-matriz'] + equipmentAudit.totals['b-navojoa'] + equipmentAudit.totals['b-huatabampo']} equipos
                         </span>
                       )}
                     </div>
@@ -1676,7 +1641,7 @@ function InventoryModule({
                     <div className="flex items-center justify-center gap-1.5">
                       <span>NAVOJOA</span>
                       {activeInventoryTab === 'equipo' && (
-                        <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-navojoa']}</span>
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-navojoa']}</span>
                       )}
                       <button
                         type="button"
@@ -1695,7 +1660,7 @@ function InventoryModule({
                     <div className="flex items-center justify-center gap-1.5">
                       <span>HUATABAMPO</span>
                       {activeInventoryTab === 'equipo' && (
-                        <span className="text-amber-300 font-black tabular-nums">{equipmentStockCounts['b-huatabampo']}</span>
+                        <span className="text-amber-300 font-black tabular-nums">{equipmentAudit.totals['b-huatabampo']}</span>
                       )}
                       <button
                         type="button"
@@ -1760,11 +1725,11 @@ function InventoryModule({
                           <td className="p-3 font-mono font-bold text-xs bg-blue-50/30">
                             {(() => {
                               const grouped = imeisGroupedByBranch(p);
-                              const loose = stockImeis(unmappedImeis(p));
+                              const loose = unmappedImeis(p);
                               const imeiList = [
-                                ...stockImeis(grouped['b-matriz']),
-                                ...stockImeis(grouped['b-navojoa']),
-                                ...stockImeis(grouped['b-huatabampo']),
+                                ...grouped['b-matriz'],
+                                ...grouped['b-navojoa'],
+                                ...grouped['b-huatabampo'],
                                 ...loose
                               ];
 
@@ -1773,8 +1738,8 @@ function InventoryModule({
                               }
 
                               const locLabel = loose.length
-                                ? `MTZ ${stockImeis(grouped['b-matriz']).length} · NAV ${stockImeis(grouped['b-navojoa']).length} · HUA ${stockImeis(grouped['b-huatabampo']).length} · sin sucursal ${loose.length}`
-                                : `MTZ ${stockImeis(grouped['b-matriz']).length} · NAV ${stockImeis(grouped['b-navojoa']).length} · HUA ${stockImeis(grouped['b-huatabampo']).length}`;
+                                ? `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length} · sin sucursal ${loose.length}`
+                                : `MTZ ${grouped['b-matriz'].length} · NAV ${grouped['b-navojoa'].length} · HUA ${grouped['b-huatabampo'].length}`;
 
                               if (imeiList.length === 1) {
                                 const isLoose = loose.length === 1;
@@ -3328,16 +3293,20 @@ function InventoryModule({
                   value={transferImeiScanInput}
                   onChange={(e) => setTransferImeiScanInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const val = transferImeiScanInput.trim().toUpperCase();
-                      if (val) {
-                        if (!selectedTransferImeis.includes(val)) {
-                          setSelectedTransferImeis(prev => [...prev, val]);
-                        }
-                        setTransferImeiScanInput('');
-                      }
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    const raw = transferImeiScanInput.trim();
+                    if (!raw) return;
+                    const avail = imeisAtBranch(pendingTransferData.product, pendingTransferData.fromBranchId);
+                    const match =
+                      avail.find((im) => imeisEqual(im, raw)) ||
+                      imeiForStorage(raw) ||
+                      canonicalImei(raw) ||
+                      raw;
+                    if (!selectedTransferImeis.some((im) => imeisEqual(im, match))) {
+                      setSelectedTransferImeis((prev) => [...prev, match]);
                     }
+                    setTransferImeiScanInput('');
                   }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-600 uppercase"
                 />
@@ -3365,7 +3334,7 @@ function InventoryModule({
                     }
 
                     return avail.map((imei, idx) => {
-                      const isChecked = selectedTransferImeis.includes(imei);
+                      const isChecked = selectedTransferImeis.some((im) => imeisEqual(im, imei));
                       return (
                         <label
                           key={idx}
@@ -3381,11 +3350,11 @@ function InventoryModule({
                               checked={isChecked}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  if (!selectedTransferImeis.includes(imei)) {
-                                    setSelectedTransferImeis(prev => [...prev, imei]);
+                                  if (!selectedTransferImeis.some((im) => imeisEqual(im, imei))) {
+                                    setSelectedTransferImeis((prev) => [...prev, imei]);
                                   }
                                 } else {
-                                  setSelectedTransferImeis(prev => prev.filter(i => i !== imei));
+                                  setSelectedTransferImeis((prev) => prev.filter((i) => !imeisEqual(i, imei)));
                                 }
                               }}
                               className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
