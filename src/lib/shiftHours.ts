@@ -158,6 +158,15 @@ export function isHollowAutoCloseCorte(corte: {
   return !corteHasMovements(corte);
 }
 
+/** Quita del listado los cierres 23:00 vacíos para que no tapen Matriz, Navojoa ni Huatabampo. */
+export function withoutHollowAutoCloseCortes<T extends Parameters<typeof isHollowAutoCloseCorte>[0]>(
+  cortes: T[] = []
+): T[] {
+  if (!cortes.length) return cortes;
+  const kept = cortes.filter((row) => !isHollowAutoCloseCorte(row));
+  return kept.length === cortes.length ? cortes : kept;
+}
+
 export function isPrematureAutoCorte(
   session: { estado?: string; fecha_apertura?: string; arqueo_cierre?: { notas_observaciones?: string } } | null | undefined,
   now: Date = new Date()

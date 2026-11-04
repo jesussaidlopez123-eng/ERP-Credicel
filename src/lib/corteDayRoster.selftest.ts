@@ -91,6 +91,30 @@ assert.equal(
   'el cierre 23:00 vacío no debe tapar el corte de Teresa'
 );
 
+const recoveredHua = foldOnePerBranchPerDay([
+  stub({
+    id: 'SES-HUA-20261101-MVY0X5OC',
+    branchId: 'b-huatabampo',
+    timestamp: '2026-11-01T21:55:02.918Z',
+    totalSales: 7704,
+    ticketIds: ['TCK-H1']
+  }),
+  stub({
+    id: 'SES-HUA-20261101-MVYDC5MK',
+    branchId: 'b-huatabampo',
+    timestamp: '2026-11-01T23:00:00-07:00',
+    totalSales: 0,
+    ticketIds: [],
+    closingNotes:
+      'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.'
+  })
+]);
+assert.equal(
+  recoveredHua.find((r) => r.branchId === 'b-huatabampo')?.id,
+  'SES-HUA-20261101-MVY0X5OC',
+  'Huatabampo del 1 de noviembre no se pierde por el cierre 23:00 vacío'
+);
+
 const twoDays = foldOnePerBranchPerDay([
   stub({ id: 'A', branchId: 'b-navojoa', timestamp: '2026-10-03T23:00:00-07:00' }),
   stub({ id: 'B', branchId: 'b-matriz', timestamp: '2026-10-02T23:00:00-07:00' })

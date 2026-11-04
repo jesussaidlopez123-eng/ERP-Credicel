@@ -8,6 +8,7 @@ import {
   isActiveCorteRecord,
   isAutomaticCloseNote,
   isHollowAutoCloseCorte,
+  withoutHollowAutoCloseCortes,
   isPrematureAutoCorte,
   isPrematureAutoCorteRecord,
   parseSessionInstant,
@@ -97,6 +98,13 @@ assert.equal(
   }),
   false,
   'si el automático sí llevó ventas, se conserva'
+);
+assert.deepEqual(
+  withoutHollowAutoCloseCortes([
+    { id: 'SES-HUA-REAL', totalSales: 7704, ticketIds: ['TCK-H'] },
+    { id: 'SES-HUA-EMPTY', closingNotes: AUTO_CORTE_NOTE, totalSales: 0, ticketIds: [] }
+  ]).map((row) => row.id),
+  ['SES-HUA-REAL']
 );
 
 console.log('shiftHours self-test ok');

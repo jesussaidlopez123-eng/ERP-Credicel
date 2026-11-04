@@ -1,5 +1,6 @@
 import { CorteXRecord, Expense, Product, SaleTicket, SesionCaja } from '../types';
 import { slimCorteRecord } from './executiveHistory';
+import { withoutHollowAutoCloseCortes } from './shiftHours';
 
 const PREFIX = 'erp_cloud_cache_v1';
 const PENDING_PREFIX = 'erp_pending_corte_v1';
@@ -49,7 +50,10 @@ const CACHE_MAX_ROWS = 400;
 
 export function saveCachedList<T>(name: string, rows: T[]): void {
   if (!Array.isArray(rows)) return;
-  const trimmed = name === 'cortes' ? (rows as CorteXRecord[]).map(slimCorteRecord) : rows;
+  const trimmed =
+    name === 'cortes'
+      ? withoutHollowAutoCloseCortes(rows as CorteXRecord[]).map(slimCorteRecord)
+      : rows;
   writeJson(`${PREFIX}_${name}`, trimmed.slice(0, CACHE_MAX_ROWS));
 }
 

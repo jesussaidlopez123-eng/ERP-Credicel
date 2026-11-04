@@ -305,4 +305,119 @@ const recoveredSunday = hiddenByEmptyNight.find(
 assert.equal(recoveredSunday?.id, 'SES-MTZ-20261101-MVY18ZX3');
 assert.equal(recoveredSunday?.totalSales, 1578);
 
+const recoveredHua = buildCortesRoster({
+  cortes: [
+    {
+      id: 'SES-HUA-20261101-MVY0X5OC',
+      timestamp: '2026-11-01T21:55:02.918Z',
+      dateStr: '01/11/2026',
+      timeStr: '2:55 p.m.',
+      branchId: 'b-huatabampo',
+      branchName: 'Huatabampo',
+      operatorName: 'GERALDIN FLORES',
+      initialCashFund: 288,
+      cashSales: 6635,
+      cardSales: 1069,
+      transferSales: 0,
+      totalSales: 7704,
+      totalExpenses: 100,
+      netIncome: 7604,
+      expectedCashInDrawer: 6823,
+      ticketIds: ['TCK-H1'],
+      expenseIds: ['EXP-H1'],
+      breakdown: {
+        accesoriosTotal: 7704,
+        accesoriosCount: 40,
+        abonosTotal: 0,
+        abonosCount: 0,
+        enganchesTotal: 0,
+        enganchesCount: 0,
+        reparacionesTotal: 0,
+        reparacionesCount: 0,
+        recargasTotal: 0,
+        recargasCount: 0
+      }
+    },
+    {
+      id: 'SES-HUA-20261101-MVYDC5MK',
+      timestamp: '2026-11-01T23:00:00-07:00',
+      dateStr: '01/11/2026',
+      timeStr: '11:00 p.m.',
+      branchId: 'b-huatabampo',
+      branchName: 'Huatabampo',
+      operatorName: 'Said',
+      initialCashFund: 0,
+      cashSales: 0,
+      cardSales: 0,
+      transferSales: 0,
+      totalSales: 0,
+      totalExpenses: 0,
+      netIncome: 0,
+      expectedCashInDrawer: 0,
+      ticketIds: [],
+      expenseIds: [],
+      closingNotes:
+        'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.',
+      breakdown: {
+        accesoriosTotal: 0,
+        accesoriosCount: 0,
+        abonosTotal: 0,
+        abonosCount: 0,
+        enganchesTotal: 0,
+        enganchesCount: 0,
+        reparacionesTotal: 0,
+        reparacionesCount: 0,
+        recargasTotal: 0,
+        recargasCount: 0
+      }
+    },
+    {
+      id: 'SES-HUA-20261102-MVZGH3TN',
+      timestamp: '2026-11-02T20:58:14.945Z',
+      dateStr: '02/11/2026',
+      timeStr: '1:58 p.m.',
+      branchId: 'b-huatabampo',
+      branchName: 'Huatabampo',
+      operatorName: 'GERALDIN FLORES',
+      initialCashFund: 122,
+      cashSales: 2696,
+      cardSales: 582,
+      transferSales: 0,
+      totalSales: 3278,
+      totalExpenses: 100,
+      netIncome: 3178,
+      expectedCashInDrawer: 2718,
+      ticketIds: ['TCK-H2'],
+      expenseIds: ['EXP-H2'],
+      breakdown: {
+        accesoriosTotal: 3278,
+        accesoriosCount: 19,
+        abonosTotal: 0,
+        abonosCount: 0,
+        enganchesTotal: 0,
+        enganchesCount: 0,
+        reparacionesTotal: 0,
+        reparacionesCount: 0,
+        recargasTotal: 0,
+        recargasCount: 0
+      }
+    }
+  ],
+  tickets: [],
+  expenses: [],
+  todayKey: '2026-11-04',
+  currentBranch: { id: 'b-huatabampo', name: 'Huatabampo' },
+  currentOperator: operator,
+  openingFund: () => 0,
+  now: new Date('2026-11-04T12:00:00-07:00')
+});
+assert.equal(
+  recoveredHua.find((row) => row.branchId === 'b-huatabampo' && (row.timestamp || '').includes('2026-11-01'))?.totalSales,
+  7704
+);
+assert.equal(
+  recoveredHua.find((row) => row.branchId === 'b-huatabampo' && (row.timestamp || '').includes('2026-11-02'))?.totalSales,
+  3278
+);
+
 console.log('salesCortesBuild self-test ok');

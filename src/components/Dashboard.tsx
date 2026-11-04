@@ -88,6 +88,7 @@ import {
   loggedInBeforeCashClose,
   msUntilCashClose,
   sessionNeedsAutomaticCorte,
+  withoutHollowAutoCloseCortes,
   CashTillLockedError
 } from '../lib/shiftHours';
 import {
@@ -433,7 +434,9 @@ export default function Dashboard({
         setCortesX((prev) => {
           const fromCloud = keepIfCloudEmpty(cortes, prev);
           const next = sortByTimestampDesc(
-            mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.cortes)
+            withoutHollowAutoCloseCortes(
+              mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.cortes)
+            )
           );
           scheduleSaveCachedList('cortes', next);
           return next;
@@ -700,8 +703,10 @@ export default function Dashboard({
         startTransition(() => setExpenses(next));
         scheduleSaveCachedList('expenses', next);
       }
-      if (merged.cortes.length > 0) {
-        const next = sortByTimestampDesc(mergeByIdKeep(cortesRef.current, merged.cortes));
+        if (merged.cortes.length > 0) {
+        const next = sortByTimestampDesc(
+          withoutHollowAutoCloseCortes(mergeByIdKeep(cortesRef.current, merged.cortes))
+        );
         cortesRef.current = next;
         startTransition(() => setCortesX(next));
         scheduleSaveCachedList('cortes', next);
@@ -884,7 +889,9 @@ export default function Dashboard({
           setExpenses((prev) => sortByTimestampDesc(mergeWithLocal(prev, exps)));
         }
         if (cortes.length > 0) {
-          setCortesX((prev) => sortByTimestampDesc(slimOldCortes(mergeWithLocal(prev, cortes))));
+          setCortesX((prev) =>
+            sortByTimestampDesc(slimOldCortes(withoutHollowAutoCloseCortes(mergeWithLocal(prev, cortes))))
+          );
         }
         void pruneOldLocalRecords().catch((err) =>
           console.warn('[Local] No se pudo limpiar el historial viejo:', err)
