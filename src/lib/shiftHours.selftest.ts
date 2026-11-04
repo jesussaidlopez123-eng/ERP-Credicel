@@ -7,6 +7,7 @@ import {
   hermosilloDateKey,
   isActiveCorteRecord,
   isAutomaticCloseNote,
+  isHollowAutoCloseCorte,
   isPrematureAutoCorte,
   isPrematureAutoCorteRecord,
   parseSessionInstant,
@@ -77,5 +78,25 @@ assert.equal(isActiveCorteRecord(autoRecord, morning), false);
 assert.equal(isAutomaticCloseNote(AUTO_CORTE_NOTE), true);
 assert.equal(isAutomaticCloseNote('Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.'), true);
 assert.equal(isAutomaticCloseNote('Fondo de $200 en monedas'), false);
+assert.equal(
+  isHollowAutoCloseCorte({
+    id: 'SES-MTZ-EMPTY',
+    closingNotes: AUTO_CORTE_NOTE,
+    totalSales: 0,
+    ticketIds: []
+  }),
+  true,
+  'el cierre 23:00 sin tickets no debe contar como corte del día'
+);
+assert.equal(
+  isHollowAutoCloseCorte({
+    id: 'SES-MTZ-REAL',
+    closingNotes: AUTO_CORTE_NOTE,
+    totalSales: 1578,
+    ticketIds: ['TCK-1']
+  }),
+  false,
+  'si el automático sí llevó ventas, se conserva'
+);
 
 console.log('shiftHours self-test ok');

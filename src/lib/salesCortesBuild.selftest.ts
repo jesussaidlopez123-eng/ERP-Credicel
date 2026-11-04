@@ -212,4 +212,97 @@ assert.equal(matrizToday?.id.startsWith('CTX-TURNO'), true, 'el turno reabierto 
 assert.equal(matrizToday?.totalSales, 1334, 'las ventas de la mañana y la tarde entran al turno en curso');
 assert.equal((matrizToday?.ticketIds || []).length, 2);
 
+const hiddenByEmptyNight = buildCortesRoster({
+  cortes: [
+    {
+      id: 'SES-MTZ-20261101-MVY18ZX3',
+      timestamp: '2026-11-01T22:32:48.269Z',
+      dateStr: '01/11/2026',
+      timeStr: '3:32 p.m.',
+      branchId: 'b-matriz',
+      branchName: 'Matriz',
+      operatorName: 'Teresa Lopez',
+      initialCashFund: 0,
+      cashSales: 1578,
+      cardSales: 0,
+      transferSales: 0,
+      totalSales: 1578,
+      totalExpenses: 290,
+      netIncome: 1288,
+      expectedCashInDrawer: 1288,
+      ticketIds: ['TCK-A'],
+      expenseIds: ['GTO-A'],
+      breakdown: {
+        accesoriosTotal: 1578,
+        accesoriosCount: 1,
+        abonosTotal: 0,
+        abonosCount: 0,
+        enganchesTotal: 0,
+        enganchesCount: 0,
+        reparacionesTotal: 0,
+        reparacionesCount: 0,
+        recargasTotal: 0,
+        recargasCount: 0
+      }
+    },
+    {
+      id: 'SES-MTZ-20261101-MVYEOM6K',
+      timestamp: '2026-11-01T23:00:00-07:00',
+      dateStr: '01/11/2026',
+      timeStr: '11:00 p.m.',
+      branchId: 'b-matriz',
+      branchName: 'Matriz',
+      operatorName: 'GERALDIN FLORES',
+      initialCashFund: 0,
+      cashSales: 0,
+      cardSales: 0,
+      transferSales: 0,
+      totalSales: 0,
+      totalExpenses: 0,
+      netIncome: 0,
+      expectedCashInDrawer: 0,
+      ticketIds: [],
+      expenseIds: [],
+      closingNotes:
+        'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.',
+      breakdown: {
+        accesoriosTotal: 0,
+        accesoriosCount: 0,
+        abonosTotal: 0,
+        abonosCount: 0,
+        enganchesTotal: 0,
+        enganchesCount: 0,
+        reparacionesTotal: 0,
+        reparacionesCount: 0,
+        recargasTotal: 0,
+        recargasCount: 0
+      }
+    }
+  ],
+  tickets: [
+    {
+      id: 'TCK-A',
+      folio: 'MTZ-0111-001',
+      timestamp: '2026-11-01T18:37:42.085Z',
+      branchId: 'b-matriz',
+      operatorName: 'Teresa Lopez',
+      items: [],
+      total: 1578,
+      paymentMethod: 'Efectivo',
+      corteXId: 'SES-MTZ-20261101-MVY18ZX3'
+    } as SaleTicket
+  ],
+  expenses: [],
+  todayKey: '2026-11-04',
+  currentBranch: { id: 'b-matriz', name: 'Matriz' },
+  currentOperator: operator,
+  openingFund: () => 0,
+  now: new Date('2026-11-04T12:00:00-07:00')
+});
+const recoveredSunday = hiddenByEmptyNight.find(
+  (row) => row.branchId === 'b-matriz' && (row.timestamp || '').includes('2026-11-01')
+);
+assert.equal(recoveredSunday?.id, 'SES-MTZ-20261101-MVY18ZX3');
+assert.equal(recoveredSunday?.totalSales, 1578);
+
 console.log('salesCortesBuild self-test ok');

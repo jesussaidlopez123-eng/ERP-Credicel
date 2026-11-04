@@ -1,6 +1,7 @@
 import { getBranchDisplayName } from '../data/initialBranches';
 import { safeDateIsoKey, safeFormatDate, parseSafeDate } from './dateUtils';
 import { toInventoryBranchId, type InventoryBranchId } from './imeiInventory';
+import { corteMovementScore, isHollowAutoCloseCorte } from './shiftHours';
 import type { CorteXRecord } from '../types';
 
 export const DAY_BRANCH_IDS = ['b-matriz', 'b-navojoa', 'b-huatabampo'] as const;
@@ -55,6 +56,12 @@ function rowRank(corte: CorteXRecord): number {
 
 export function pickBetterDayCorte(current: CorteXRecord | undefined, incoming: CorteXRecord): CorteXRecord {
   if (!current) return incoming;
+  const hollowA = isHollowAutoCloseCorte(current);
+  const hollowB = isHollowAutoCloseCorte(incoming);
+  if (hollowA !== hollowB) return hollowA ? incoming : current;
+  const scoreA = corteMovementScore(current);
+  const scoreB = corteMovementScore(incoming);
+  if (scoreB !== scoreA) return scoreB > scoreA ? incoming : current;
   const a = rowRank(current);
   const b = rowRank(incoming);
   if (b !== a) return b > a ? incoming : current;

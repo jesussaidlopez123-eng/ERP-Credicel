@@ -47,6 +47,7 @@ import {
   hermosilloDateKey,
   isAfterCashClose,
   isAutomaticCloseNote,
+  isHollowAutoCloseCorte,
   isPrematureAutoCorte,
   sessionNeedsAutomaticCorte
 } from './shiftHours';
@@ -809,10 +810,10 @@ export async function executeCorteSesionCajaTransaction(params: {
       const existingCorte = corteSnap.exists()
         ? ({ ...(corteSnap.data() as CorteXRecord), id: corteSnap.id } as CorteXRecord)
         : null;
-      if (existingCorte && !existingCorte.reverted) {
+      if (existingCorte && !existingCorte.reverted && !isHollowAutoCloseCorte(existingCorte)) {
         return { success: true, sesion: already, corteRecord: existingCorte };
       }
-      // Sesión cerrada sin documento de corte: hay que escribirlo, no devolver vacío.
+      // Sesión cerrada sin documento de corte (o cierre 23:00 vacío): hay que escribirlo.
     }
   }
 
@@ -938,9 +939,14 @@ export async function executeCorteSesionCajaTransaction(params: {
     sucursal_id: normBId
   };
 
+  const skipHollowCorteDoc =
+    isAutomaticCloseNote(notas) && ticketsForCorte.length === 0 && corteExpenses.length === 0;
+
   const operations: { ref: any; data: any; isMerge?: boolean }[] = [
     { ref: doc(db, SESIONES_CAJA_COLLECTION, sesionId), data: cleanForFirestore(sesionCerrada), isMerge: true },
-    { ref: doc(db, CORTE_X_COLLECTION, sesionId), data: cleanForFirestore(corteRecord), isMerge: false },
+    ...(skipHollowCorteDoc
+      ? []
+      : [{ ref: doc(db, CORTE_X_COLLECTION, sesionId), data: cleanForFirestore(corteRecord), isMerge: false }]),
     {
       ref: doc(db, BRANCH_OPEN_SESSIONS_COLLECTION, normBId),
       data: persistOperatorFund
@@ -980,6 +986,14 @@ export async function executeCorteSesionCajaTransaction(params: {
       else batch.set(op.ref, op.data);
     });
     await batch.commit();
+  }
+
+  if (skipHollowCorteDoc) {
+    try {
+      await deleteDoc(doc(db, CORTE_X_COLLECTION, sesionId));
+    } catch (err) {
+      console.warn('[Firestore] No se pudo quitar el corte 23:00 vacío:', sesionId, err);
+    }
   }
 
   if (persistOperatorFund) {

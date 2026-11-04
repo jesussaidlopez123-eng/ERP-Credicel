@@ -67,6 +67,30 @@ assert.equal(assertThreeBranchesPerDay(dupNav), true);
 assert.equal(dupNav.filter((r) => r.branchId === 'b-navojoa').length, 1);
 assert.equal(dupNav[1].id, 'SES-NAV-NEW');
 
+const recoveredMatriz = foldOnePerBranchPerDay([
+  stub({
+    id: 'SES-MTZ-20261101-REAL',
+    branchId: 'b-matriz',
+    timestamp: '2026-11-01T22:32:48.269Z',
+    totalSales: 1578,
+    ticketIds: ['TCK-1', 'TCK-2']
+  }),
+  stub({
+    id: 'SES-MTZ-20261101-EMPTY',
+    branchId: 'b-matriz',
+    timestamp: '2026-11-01T23:00:00-07:00',
+    totalSales: 0,
+    ticketIds: [],
+    closingNotes:
+      'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.'
+  })
+]);
+assert.equal(
+  recoveredMatriz.find((r) => r.branchId === 'b-matriz')?.id,
+  'SES-MTZ-20261101-REAL',
+  'el cierre 23:00 vacío no debe tapar el corte de Teresa'
+);
+
 const twoDays = foldOnePerBranchPerDay([
   stub({ id: 'A', branchId: 'b-navojoa', timestamp: '2026-10-03T23:00:00-07:00' }),
   stub({ id: 'B', branchId: 'b-matriz', timestamp: '2026-10-02T23:00:00-07:00' })

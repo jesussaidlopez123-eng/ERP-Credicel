@@ -116,6 +116,21 @@ assert.equal(withoutExpense.expectedCashInDrawer, 700);
 assert.equal(findClosedCorteForDay([corte], 'Navojoa', '2026-09-09')?.id, corte.id);
 assert.equal(findClosedCorteForDay([corte], 'b-huatabampo', '2026-09-09'), null);
 
+const emptyNight = {
+  ...corte,
+  id: 'SES-NAV-EMPTY',
+  timestamp: '2026-09-09T23:00:00-07:00',
+  totalSales: 0,
+  ticketIds: [] as string[],
+  closingNotes:
+    'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.'
+};
+assert.equal(
+  findClosedCorteForDay([emptyNight, corte], 'Navojoa', '2026-09-09')?.id,
+  corte.id,
+  'no se debe elegir el cierre 23:00 vacío si ya hay corte con ventas'
+);
+
 const payjoyItem = {
   cartItemId: 'cel-1',
   quantity: 1,

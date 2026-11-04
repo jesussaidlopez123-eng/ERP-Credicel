@@ -1,11 +1,11 @@
 import type { Branch, CorteXRecord, Expense, Operator, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { fillCashDateSpan, parseSafeDate, safeDateIsoKey, safeFormatDate } from './dateUtils';
-import { isAfterCashClose, isPrematureAutoCorteRecord } from './shiftHours';
+import { isAfterCashClose, isHollowAutoCloseCorte, isPrematureAutoCorteRecord } from './shiftHours';
 import { money } from './ids';
 import { corteExpenseTotals } from './historicSale';
 import { branchDateKey, datesFromBranchDateIndex, indexByBranchDate } from './branchDateIndex';
-import { emptyDayCorte, foldOnePerBranchPerDay } from './corteDayRoster';
+import { emptyDayCorte, foldOnePerBranchPerDay, pickBetterDayCorte } from './corteDayRoster';
 
 export const RECENT_ZERO_DAYS = 31;
 export const CORTES_VISIBLE_DAYS = 31;
@@ -212,10 +212,8 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
       branchName: getBranchDisplayName(normBId),
       dateStr: safeFormatDate(parseSafeDate(dateKey))
     };
-    const prev = savedGrouped[groupKey];
-    if (!prev || (normalized.timestamp || '') > (prev.timestamp || '')) {
-      savedGrouped[groupKey] = normalized;
-    }
+    if (isHollowAutoCloseCorte(normalized)) continue;
+    savedGrouped[groupKey] = pickBetterDayCorte(savedGrouped[groupKey], normalized);
   }
 
   const ticketIndex = indexByBranchDate(tickets, (t) => t.branchId, (t) => t.timestamp);

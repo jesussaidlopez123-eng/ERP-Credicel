@@ -2,6 +2,7 @@ import { CorteXRecord, Expense, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { money } from './ids';
 import { getHermosilloClock, hermosilloDateKey, isActiveCorteRecord } from './shiftHours';
+import { pickBetterDayCorte } from './corteDayRoster';
 import { isPhoneUnitSale, summarizeTickets } from './saleClassification';
 
 export type HistoricSaleTarget = {
@@ -58,8 +59,7 @@ export function findClosedCorteForDay(
       String(corte.dateStr || '').slice(0, 10);
     return corteDay === key;
   });
-  matches.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
-  return matches[0] || null;
+  return matches.reduce<CorteXRecord | null>((best, row) => pickBetterDayCorte(best || undefined, row), null);
 }
 
 /** Compra de pieza de taller: no es gasto de caja ni renglón del Corte X. */

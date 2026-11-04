@@ -100,6 +100,64 @@ export function notesLookLikeAuto23Close(notes: string | undefined): boolean {
   return (notes || '').includes('Cierre automático 23:00');
 }
 
+/** El corte tiene ventas, tickets o gastos reales. */
+export function corteHasMovements(corte: {
+  ticketIds?: string[];
+  ticketsSnapshot?: unknown[];
+  expenseIds?: string[];
+  expensesSnapshot?: unknown[];
+  totalSales?: number;
+  totalExpenses?: number;
+} | null | undefined): boolean {
+  if (!corte) return false;
+  if ((corte.ticketIds || []).length > 0) return true;
+  if ((corte.ticketsSnapshot || []).length > 0) return true;
+  if ((corte.expenseIds || []).length > 0) return true;
+  if ((corte.expensesSnapshot || []).length > 0) return true;
+  if ((Number(corte.totalSales) || 0) > 0) return true;
+  if ((Number(corte.totalExpenses) || 0) > 0) return true;
+  return false;
+}
+
+export function corteMovementScore(corte: {
+  ticketIds?: string[];
+  ticketsSnapshot?: unknown[];
+  expenseIds?: string[];
+  totalSales?: number;
+  totalExpenses?: number;
+} | null | undefined): number {
+  if (!corte) return 0;
+  const tickets = Math.max(corte.ticketIds?.length || 0, corte.ticketsSnapshot?.length || 0);
+  const expenses = corte.expenseIds?.length || 0;
+  return (
+    tickets * 1_000_000 +
+    expenses * 1_000 +
+    (Number(corte.totalSales) || 0) +
+    (Number(corte.totalExpenses) || 0)
+  );
+}
+
+/**
+ * Cierre automático de las 11 p.m. sin un solo ticket ni gasto.
+ * No debe tapar el corte que sí hizo la cajera el mismo día.
+ */
+export function isHollowAutoCloseCorte(corte: {
+  id?: string;
+  closingNotes?: string;
+  ticketIds?: string[];
+  ticketsSnapshot?: unknown[];
+  expenseIds?: string[];
+  expensesSnapshot?: unknown[];
+  totalSales?: number;
+  totalExpenses?: number;
+} | null | undefined): boolean {
+  if (!corte) return false;
+  const id = String(corte.id || '');
+  if (id.startsWith('CAL-ZERO') || id.startsWith('CTX-TURNO') || id.startsWith('CTX_')) return false;
+  if (!notesLookLikeAuto23Close(corte.closingNotes)) return false;
+  return !corteHasMovements(corte);
+}
+
 export function isPrematureAutoCorte(
   session: { estado?: string; fecha_apertura?: string; arqueo_cierre?: { notas_observaciones?: string } } | null | undefined,
   now: Date = new Date()
