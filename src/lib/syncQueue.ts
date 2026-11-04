@@ -9,7 +9,7 @@
 import { CorteXRecord, Expense, InventoryMovement, Product, RepairRecord, SaleTicket } from '../types';
 import { snapshotInventory, type InventorySnapshot } from './inventoryMerge';
 import { normalizeBranchId } from '../data/initialBranches';
-import { hermosilloDateKey } from './shiftHours';
+import { hermosilloDateKey, isHollowAutoCloseCorte, shouldPersistCorteRecord } from './shiftHours';
 import { trustedDateKey, trustedIso } from './clockGuard';
 import { getDeviceId, getDeviceLabel } from './deviceId';
 import { LocalRecord, RecordKind, deleteOutboxRow, deleteRecord, getRecord, listRecords, putRecord, putRecords } from './localDb';
@@ -178,15 +178,27 @@ export async function commitCorte(
 ): Promise<void> {
   const branchId = normalizeBranchId(corteRecord.branchId || closeParams.branchId);
   const dateKey = closeParams.dateKey || hermosilloDateKey(corteRecord.timestamp) || trustedDateKey();
-
-  await putRecord<CorteXRecord>({
-    kind: 'corte',
-    id: corteRecord.id,
-    branchId,
-    dateKey,
-    data: corteRecord,
-    updatedAt: trustedIso()
+  const persistCorte = shouldPersistCorteRecord({
+    ...corteRecord,
+    closingNotes: corteRecord.closingNotes || closeParams.notas
   });
+
+  if (persistCorte) {
+    await putRecord<CorteXRecord>({
+      kind: 'corte',
+      id: corteRecord.id,
+      branchId,
+      dateKey,
+      data: corteRecord,
+      updatedAt: trustedIso()
+    });
+  } else {
+    try {
+      await deleteRecord('corte', corteRecord.id);
+    } catch {
+      /* no había copia local */
+    }
+  }
 
   await enqueue({
     kind: 'corteClose',
@@ -201,6 +213,14 @@ export async function commitCorte(
 
 /** Actualiza un corte ya cerrado (venta atrasada o ticket eliminado) sin reabrir el turno. */
 export async function commitCorteSnapshot(corteRecord: CorteXRecord): Promise<void> {
+  if (!shouldPersistCorteRecord(corteRecord)) {
+    try {
+      await deleteRecord('corte', corteRecord.id);
+    } catch {
+      /* no había copia local */
+    }
+    return;
+  }
   const branchId = normalizeBranchId(corteRecord.branchId);
   const dateKey = hermosilloDateKey(corteRecord.timestamp) || trustedDateKey();
   const data = cleanForFirestore(stamp(corteRecord as unknown as Record<string, unknown>));
@@ -340,7 +360,16 @@ export async function localExpenses(): Promise<Expense[]> {
 }
 
 export async function localCortes(): Promise<CorteXRecord[]> {
-  return unwrap(await listRecords<CorteXRecord>('corte'));
+  const rows = await listRecords<CorteXRecord>('corte');
+  const kept: CorteXRecord[] = [];
+  for (const row of rows) {
+    if (isHollowAutoCloseCorte(row.data)) {
+      void deleteRecord('corte', row.id);
+      continue;
+    }
+    kept.push(row.data);
+  }
+  return kept;
 }
 
 function historyDateKey(row: {
@@ -388,7 +417,7 @@ export async function rememberCloudHistory(input: {
     });
   }
   for (const corte of input.cortes || []) {
-    if (!corte?.id) continue;
+    if (!corte?.id || !shouldPersistCorteRecord(corte)) continue;
     const branchId = normalizeBranchId(corte.branchId || corte.sucursal_id);
     rows.push({
       kind: 'corte',

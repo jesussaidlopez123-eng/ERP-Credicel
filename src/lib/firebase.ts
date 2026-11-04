@@ -37,7 +37,9 @@ import {
 } from './inventoryRestore';
 import {
   AUTO_CORTE_NOTE,
+  AUTO_CORTE_RETRY_NOTE,
   CashTillLockedError,
+  autoCloseMayCreateSession,
   automaticCloseIso,
   canOpenNewCashSession,
   daysNeedingCatchUpClose,
@@ -49,7 +51,8 @@ import {
   isAutomaticCloseNote,
   isHollowAutoCloseCorte,
   isPrematureAutoCorte,
-  sessionNeedsAutomaticCorte
+  sessionNeedsAutomaticCorte,
+  shouldPersistCorteRecord
 } from './shiftHours';
 import { loadLastSessionId } from './localCloudCache';
 import {
@@ -939,8 +942,7 @@ export async function executeCorteSesionCajaTransaction(params: {
     sucursal_id: normBId
   };
 
-  const skipHollowCorteDoc =
-    isAutomaticCloseNote(notas) && ticketsForCorte.length === 0 && corteExpenses.length === 0;
+  const skipHollowCorteDoc = !shouldPersistCorteRecord(corteRecord);
 
   const operations: { ref: any; data: any; isMerge?: boolean }[] = [
     { ref: doc(db, SESIONES_CAJA_COLLECTION, sesionId), data: cleanForFirestore(sesionCerrada), isMerge: true },
@@ -1286,6 +1288,8 @@ export async function closeOpenShiftForBranch(params: {
     getHermosilloClock().dateKey;
   const displayName = params.branchName || getBranchDisplayName(normBId);
   const fund = await readBranchFundAmount(normBId, params.initialFund ?? params.fondoDejado ?? 0);
+  const unstampedTickets = (params.ticketsSnapshot || []).filter((t) => !t.corteXId);
+  const unstampedExpenses = (params.expensesSnapshot || []).filter((e) => !e.corteXId);
   const session = await ensureSessionForClose(
     normBId,
     displayName,
@@ -1293,7 +1297,11 @@ export async function closeOpenShiftForBranch(params: {
     dateKey,
     params.preferredSessionId,
     fund,
-    params.createIfMissing !== false
+    autoCloseMayCreateSession({
+      notas: params.notas,
+      requested: params.createIfMissing,
+      hasUnstampedDocs: unstampedTickets.length > 0 || unstampedExpenses.length > 0
+    })
   );
 
   const localDay = localDocsForCashDay(
@@ -1455,7 +1463,10 @@ export async function syncPosCashSession(params: {
         params.ticketsSnapshot,
         params.expensesSnapshot
       );
-      const hasWork = localDay.tickets.length > 0 || localDay.expenses.length > 0 || due.session?.estado === 'ABIERTA';
+      const unstampedTickets = localDay.tickets.filter((t) => !t.corteXId);
+      const unstampedExpenses = localDay.expenses.filter((e) => !e.corteXId);
+      const hasUnstamped = unstampedTickets.length > 0 || unstampedExpenses.length > 0;
+      const hasWork = hasUnstamped || due.session?.estado === 'ABIERTA';
       if (hasWork) {
         try {
           const recovered = await closeOpenShiftForBranch({
@@ -1468,9 +1479,10 @@ export async function syncPosCashSession(params: {
             notas: AUTO_CORTE_NOTE,
             persistOperatorFund: false,
             fechaCierreIso: automaticCloseIso(due.session?.fecha_apertura || new Date().toISOString()),
-            initialFund: params.initialFund
+            initialFund: params.initialFund,
+            createIfMissing: hasUnstamped
           });
-          autoClosed = !!recovered.corteRecord?.id;
+          autoClosed = !!recovered.corteRecord?.id && shouldPersistCorteRecord(recovered.corteRecord);
         } catch (err) {
           console.warn('[Firestore] No se pudo guardar el corte después de las 11:00 p.m.:', err);
           closeFailed = true;
@@ -2062,11 +2074,43 @@ export async function cleanDuplicateCortesFromFirestore(): Promise<{ purgedCount
   return { purgedCount: 0, remainingCount: 0, reconciledTicketsCount: 0 };
 }
 
+export async function purgeHollowAutoCloseCortesFromFirestore(): Promise<number> {
+  const notes = [AUTO_CORTE_NOTE, AUTO_CORTE_RETRY_NOTE];
+  let purged = 0;
+  for (const closingNotes of notes) {
+    try {
+      const snap = await getDocs(
+        query(collection(db, CORTE_X_COLLECTION), where('closingNotes', '==', closingNotes))
+      );
+      for (const row of snap.docs) {
+        const corte = { ...(row.data() as CorteXRecord), id: row.id };
+        if (shouldPersistCorteRecord(corte)) continue;
+        await deleteDoc(row.ref);
+        purged += 1;
+      }
+    } catch (err) {
+      console.warn('[Firestore] No se pudieron limpiar cortes 23:00 vacíos:', closingNotes, err);
+    }
+  }
+  if (purged > 0) {
+    console.log(`[Firestore] Se quitaron ${purged} cortes automáticos vacíos que tapaban el arqueo real.`);
+  }
+  return purged;
+}
+
 export async function executeAndSaveCorteX(
   corte: CorteXRecord,
   ticketsToClose: SaleTicket[],
   expensesToClose: Expense[]
 ) {
+  if (!shouldPersistCorteRecord(corte)) {
+    try {
+      await deleteDoc(doc(db, CORTE_X_COLLECTION, corte.id));
+    } catch (err) {
+      console.warn('[Firestore] No se pudo quitar el corte 23:00 vacío:', corte.id, err);
+    }
+    return;
+  }
   try {
     // Firestore batch limit is 500 operations. We chunk operations into batches of max 400.
     const operations: { ref: any; data: any; isMerge?: boolean }[] = [];

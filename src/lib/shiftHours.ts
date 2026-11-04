@@ -8,10 +8,28 @@ export const CASH_CLOSE_HOUR = 23;
 export const AUTO_CORTE_NOTE =
   'Cierre automático 23:00 (hora Sonora). Efectivo contado = esperado porque no hubo arqueo en mostrador.';
 
+export const AUTO_CORTE_RETRY_NOTE =
+  'Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.';
+
 /** Cierre de las 11 p.m. o recuperación: no pisa el fondo que dejó el cajero. */
 export function isAutomaticCloseNote(notas?: string): boolean {
   const n = String(notas || '');
   return n === AUTO_CORTE_NOTE || n.includes('Cierre automático 23:00');
+}
+
+/**
+ * Un cierre automático no inventa sucursal ni turno. Solo cierra lo que ya existía,
+ * o crea sesión si hay tickets/gastos del día todavía sin corte.
+ */
+export function autoCloseMayCreateSession(params: {
+  notas?: string;
+  requested?: boolean;
+  hasUnstampedDocs: boolean;
+}): boolean {
+  if (isAutomaticCloseNote(params.notas)) {
+    return params.requested === true && params.hasUnstampedDocs;
+  }
+  return params.requested !== false;
 }
 
 export type HermosilloClock = {
@@ -165,6 +183,11 @@ export function withoutHollowAutoCloseCortes<T extends Parameters<typeof isHollo
   if (!cortes.length) return cortes;
   const kept = cortes.filter((row) => !isHollowAutoCloseCorte(row));
   return kept.length === cortes.length ? cortes : kept;
+}
+
+/** No se escribe en nube, caché ni IndexedDB un corte automático sin movimiento. */
+export function shouldPersistCorteRecord(corte: Parameters<typeof isHollowAutoCloseCorte>[0]): boolean {
+  return !isHollowAutoCloseCorte(corte);
 }
 
 export function isPrematureAutoCorte(

@@ -33,6 +33,7 @@ import {
   syncPosCashSession,
   closeOpenShiftForBranch,
   recoverMissingDailyCortes,
+  purgeHollowAutoCloseCortesFromFirestore,
   findSessionForCorteClose,
   subscribeToCreditAccounts,
   saveCreditAccountToFirestore,
@@ -88,6 +89,7 @@ import {
   loggedInBeforeCashClose,
   msUntilCashClose,
   sessionNeedsAutomaticCorte,
+  shouldPersistCorteRecord,
   withoutHollowAutoCloseCortes,
   CashTillLockedError
 } from '../lib/shiftHours';
@@ -976,6 +978,9 @@ export default function Dashboard({
       } catch (err) {
         console.warn('[CorteX] Recuperación de cortes del día:', err);
       }
+      void purgeHollowAutoCloseCortesFromFirestore().catch((err) =>
+        console.warn('[CorteX] No se pudieron limpiar cortes 23:00 vacíos:', err)
+      );
     };
     void migrateAndRecover();
     return () => {
@@ -2177,15 +2182,20 @@ export default function Dashboard({
         expensesSnapshot: localExpenses
       };
       await commitCorte(localCorte, closeParams);
-      localOnlyRef.current.cortes = [
-        localCorte,
-        ...localOnlyRef.current.cortes.filter((c) => c.id !== localCorte.id)
-      ];
-      setCortesX((prev) => {
-        const next = [localCorte, ...prev.filter((c) => c.id !== localCorte.id)];
-        saveCachedList('cortes', next);
-        return next;
-      });
+      if (shouldPersistCorteRecord(localCorte)) {
+        localOnlyRef.current.cortes = [
+          localCorte,
+          ...localOnlyRef.current.cortes.filter((c) => c.id !== localCorte.id)
+        ];
+        setCortesX((prev) => {
+          const next = withoutHollowAutoCloseCortes([
+            localCorte,
+            ...prev.filter((c) => c.id !== localCorte.id)
+          ]);
+          saveCachedList('cortes', next);
+          return next;
+        });
+      }
       removePendingCorte(targetBranchId, dateKey);
 
       await ensureDailyBackup({
@@ -2203,13 +2213,27 @@ export default function Dashboard({
         const result = await closeOpenShiftForBranch(closeParams);
         savedCorte = result.corteRecord || null;
         sessionId = result.sesion?.id || sessionId;
-        if (savedCorte?.id) {
+        if (savedCorte?.id && shouldPersistCorteRecord(savedCorte)) {
           const confirmed = savedCorte;
           localOnlyRef.current.cortes = localOnlyRef.current.cortes.filter(
             (c) => c.id !== confirmed.id && c.id !== localCorte.id
           );
           setCortesX((prev) => {
-            const next = [confirmed, ...prev.filter((c) => c.id !== confirmed.id && c.id !== localCorte.id)];
+            const next = withoutHollowAutoCloseCortes([
+              confirmed,
+              ...prev.filter((c) => c.id !== confirmed.id && c.id !== localCorte.id)
+            ]);
+            saveCachedList('cortes', next);
+            return next;
+          });
+        } else if (savedCorte?.id) {
+          localOnlyRef.current.cortes = localOnlyRef.current.cortes.filter(
+            (c) => c.id !== savedCorte.id && c.id !== localCorte.id
+          );
+          setCortesX((prev) => {
+            const next = withoutHollowAutoCloseCortes(
+              prev.filter((c) => c.id !== savedCorte.id && c.id !== localCorte.id)
+            );
             saveCachedList('cortes', next);
             return next;
           });

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   AUTO_CORTE_NOTE,
+  AUTO_CORTE_RETRY_NOTE,
+  autoCloseMayCreateSession,
   automaticCloseIso,
   daysNeedingCatchUpClose,
   getHermosilloClock,
@@ -8,6 +10,7 @@ import {
   isActiveCorteRecord,
   isAutomaticCloseNote,
   isHollowAutoCloseCorte,
+  shouldPersistCorteRecord,
   withoutHollowAutoCloseCortes,
   isPrematureAutoCorte,
   isPrematureAutoCorteRecord,
@@ -77,8 +80,28 @@ assert.equal(isActiveCorteRecord({ reverted: true, timestamp: `${todayKey}T23:00
 assert.equal(isActiveCorteRecord(autoRecord, evening), true);
 assert.equal(isActiveCorteRecord(autoRecord, morning), false);
 assert.equal(isAutomaticCloseNote(AUTO_CORTE_NOTE), true);
-assert.equal(isAutomaticCloseNote('Cierre automático 23:00 (hora Sonora). Se reintenta desde la cola del equipo.'), true);
+assert.equal(isAutomaticCloseNote(AUTO_CORTE_RETRY_NOTE), true);
 assert.equal(isAutomaticCloseNote('Fondo de $200 en monedas'), false);
+assert.equal(
+  autoCloseMayCreateSession({ notas: AUTO_CORTE_NOTE, requested: undefined, hasUnstampedDocs: false }),
+  false,
+  'el 23:00 no inventa un turno vacío'
+);
+assert.equal(
+  autoCloseMayCreateSession({ notas: AUTO_CORTE_NOTE, requested: true, hasUnstampedDocs: false }),
+  false,
+  'aunque pidan crear, sin tickets no hay corte fantasma'
+);
+assert.equal(
+  autoCloseMayCreateSession({ notas: AUTO_CORTE_NOTE, requested: true, hasUnstampedDocs: true }),
+  true,
+  'si sí hubo ventas sin sello, el 23:00 sí puede abrir para guardarlas'
+);
+assert.equal(
+  autoCloseMayCreateSession({ notas: 'Cierre de Teresa', requested: undefined, hasUnstampedDocs: false }),
+  true,
+  'un arqueo de mostrador sí puede crear el documento'
+);
 assert.equal(
   isHollowAutoCloseCorte({
     id: 'SES-MTZ-EMPTY',
@@ -105,6 +128,24 @@ assert.deepEqual(
     { id: 'SES-HUA-EMPTY', closingNotes: AUTO_CORTE_NOTE, totalSales: 0, ticketIds: [] }
   ]).map((row) => row.id),
   ['SES-HUA-REAL']
+);
+assert.equal(
+  shouldPersistCorteRecord({
+    id: 'SES-HUA-EMPTY',
+    closingNotes: AUTO_CORTE_NOTE,
+    totalSales: 0,
+    ticketIds: []
+  }),
+  false
+);
+assert.equal(
+  shouldPersistCorteRecord({
+    id: 'SES-HUA-REAL',
+    closingNotes: AUTO_CORTE_NOTE,
+    totalSales: 3278,
+    ticketIds: ['TCK-H']
+  }),
+  true
 );
 
 console.log('shiftHours self-test ok');
