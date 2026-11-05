@@ -18,6 +18,7 @@ export type ExecutivePassRow = {
   name: string;
   platform: string;
   concept: string;
+  imei: string;
   folio: string;
   operatorName: string;
   amount: number;
@@ -76,6 +77,13 @@ function rowConcept(item: CartItem, category: ExecutivePassCategory): string {
   return String(meta.issueDescription || item.product?.name || 'Abono').trim();
 }
 
+export function passRowImei(item: CartItem, ticket?: Pick<SaleTicket, 'imeis'>): string {
+  const fromMeta = String(item.metadata?.imei || '').trim();
+  if (fromMeta) return fromMeta;
+  const fromTicket = (ticket?.imeis || []).map((value) => String(value || '').trim()).filter(Boolean);
+  return fromTicket.join(', ');
+}
+
 function inRange(dateKey: string, from: string, to: string): boolean {
   if (!dateKey || !from || !to) return false;
   const start = from <= to ? from : to;
@@ -116,6 +124,7 @@ export function listExecutivePassRows(params: {
         name: rowName(item, category),
         platform: financingLabel(item),
         concept: rowConcept(item, category),
+        imei: passRowImei(item, ticket),
         folio,
         operatorName,
         amount
@@ -131,7 +140,7 @@ export function listExecutivePassRows(params: {
   return rows;
 }
 
-const HEADERS = ['Fecha', 'Sucursal', 'Nombre', 'Plataforma', 'Concepto', 'Folio', 'Vendedor', 'Monto'];
+const HEADERS = ['Fecha', 'Sucursal', 'Nombre', 'Plataforma', 'Concepto', 'IMEI', 'Folio', 'Vendedor', 'Monto'];
 
 function sheetFor(
   category: ExecutivePassCategory,
@@ -150,6 +159,7 @@ function sheetFor(
           row.name,
           row.platform,
           row.concept,
+          row.imei,
           row.folio,
           row.operatorName,
           row.amount
@@ -166,7 +176,7 @@ function sheetFor(
       HEADERS,
       ...body,
       [],
-      ['TOTAL', '', '', '', '', '', '', scoped.length ? total : 0]
+      ['TOTAL', '', '', '', '', '', '', '', scoped.length ? total : 0]
     ]
   };
 }

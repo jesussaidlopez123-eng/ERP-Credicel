@@ -5,7 +5,8 @@ import {
   buildExecutivePassExcelSheets,
   executivePassExcelFilename,
   financingLabel,
-  listExecutivePassRows
+  listExecutivePassRows,
+  passRowImei
 } from './executivePassExcel.ts';
 
 function ticket(over: Partial<SaleTicket> & { items: SaleTicket['items'] }): SaleTicket {
@@ -136,7 +137,24 @@ assert.equal(weekAll.filter((r) => r.category === 'equipos').length, 1);
 assert.equal(weekAll.filter((r) => r.category === 'abonos').length, 1);
 assert.equal(weekAll.filter((r) => r.category === 'recargas').length, 1, 'recarga de otra semana no entra');
 assert.equal(weekAll.find((r) => r.category === 'equipos')?.platform, 'CrediYa');
+assert.equal(weekAll.find((r) => r.category === 'equipos')?.imei, '351111111111111');
 assert.equal(weekAll.find((r) => r.category === 'abonos')?.name, 'José');
+assert.equal(weekAll.find((r) => r.category === 'abonos')?.imei, '');
+assert.equal(
+  passRowImei(
+    {
+      cartItemId: 'e2',
+      quantity: 1,
+      unitPrice: 1,
+      totalPrice: 1,
+      product: { id: 'p2', code: 'CEL-2', name: 'A16', category: 'equipo', price: 1, stock: 1 },
+      metadata: { saleType: 'contado' }
+    },
+    { imeis: ['352222222222222'] }
+  ),
+  '352222222222222',
+  'si el renglón no trae IMEI, se toma el del ticket'
+);
 assert.equal(weekAll.find((r) => r.category === 'abonos')?.platform, 'PayJoy');
 assert.equal(weekAll.find((r) => r.category === 'recargas')?.name, '6440001111');
 
@@ -175,6 +193,8 @@ assert.deepEqual(
 assert.ok(sheets[0].rows.some((row) => row.includes('José')));
 assert.ok(sheets[1].rows.some((row) => row.includes('María Trinidad')));
 assert.ok(sheets[1].rows.some((row) => row.includes('CrediYa')));
+assert.ok(sheets[1].rows.some((row) => row.includes('IMEI')));
+assert.ok(sheets[1].rows.some((row) => row.includes('351111111111111')));
 assert.ok(
   sheets[2].rows.some((row) => row[0] === 'Sin registros en este periodo'),
   'Recargas de Navojoa vacía en esa semana'
