@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Expense, Product, SaleTicket } from '../types';
-import { buildCorteCategoryBreakdown, corteConceptName } from './corteCategories.ts';
+import { buildCorteCategoryBreakdown, corteConceptName, saleLineImei } from './corteCategories.ts';
 
 const mica: Product = {
   id: 'p-mica',
@@ -117,6 +117,22 @@ assert.equal(week.totalExpenses, 80);
 assert.equal(week.netIncome, 1920);
 assert.equal(week.groups.accesorios[0]?.name, 'Mica 15D');
 assert.equal(week.groups.accesorios[0]?.count, 2);
+assert.equal(week.details.enganches[0]?.imei, '351299123456789');
+assert.equal(week.details.accesorios[0]?.imei, undefined);
+assert.equal(
+  saleLineImei(
+    { cartItemId: 'c2', product: phone, quantity: 1, unitPrice: 1500, totalPrice: 1500, metadata: { saleType: 'credito' } },
+    { imeis: ['351299123456789'] }
+  ),
+  '351299123456789'
+);
+assert.equal(
+  saleLineImei(
+    { cartItemId: 'c1', product: mica, quantity: 1, unitPrice: 50, totalPrice: 50, metadata: {} },
+    { imeis: ['351299123456789'] }
+  ),
+  ''
+);
 assert.equal(week.expenseGroups[0]?.name, 'Gasolina');
 
 const pieza: Expense = {

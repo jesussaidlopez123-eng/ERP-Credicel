@@ -131,13 +131,17 @@ const corte: CorteTicketView = {
   transferSales: 0,
   initialCashFund: 80,
   expectedCashInDrawer: 160,
-  items: [{ quantity: 1, productName: 'Mica', ticketFolio: 'MTZ-1910-001', paymentMethod: 'Efectivo', time: '10:00', totalPrice: 100 }],
+  items: [
+    { quantity: 1, productName: 'Mica', ticketFolio: 'MTZ-1910-001', paymentMethod: 'Efectivo', time: '10:00', totalPrice: 100 },
+    { quantity: 1, productName: 'MOTO G06', ticketFolio: 'MTZ-1910-002', paymentMethod: 'Efectivo', time: '10:20', totalPrice: 3900, imei: '359158767245502' }
+  ],
   expenses: [{ concept: 'Agua', amount: 20 }]
 };
 const corteText = buildCorteTicketPlainText(corte);
 assert.match(corteText, /CORTE DE CAJA/);
 assert.match(corteText, /FIN DE CORTE/);
 assert.match(corteText, /Mica/);
+assert.match(corteText, /IMEI 359158767245502/);
 assert.ok(buildCorteTicketEscPos(corte).length > 20);
 
 const rawbt = buildRawBtTextUrl(saleText);

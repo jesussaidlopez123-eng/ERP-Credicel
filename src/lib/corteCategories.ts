@@ -2,7 +2,7 @@ import type { CartItem, Expense, SaleTicket } from '../types';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
 import { safeFormatDate, safeFormatTime } from './dateUtils';
 import { money, ticketFolioLabel } from './ids';
-import { classifySaleItem, paymentBucket, type SaleCategoryKey } from './saleClassification';
+import { classifyExecutiveItem, classifySaleItem, paymentBucket, type SaleCategoryKey } from './saleClassification';
 import { expenseAppearsOnCorteX } from './historicSale';
 
 export const CORTE_CATEGORY_ORDER: SaleCategoryKey[] = [
@@ -61,8 +61,19 @@ export type CorteConceptDetail = {
   qty: number;
   unitPrice: number;
   totalPrice: number;
+  imei?: string;
   metadata?: CartItem['metadata'];
 };
+
+/** IMEI del renglón vendido: el del ítem, o los del ticket si es un celular. */
+export function saleLineImei(item?: CartItem | null, ticket?: Pick<SaleTicket, 'imeis'> | null): string {
+  const fromMeta = String(item?.metadata?.imei || '').trim();
+  if (fromMeta) return fromMeta;
+  if (item && classifySaleItem(item) !== 'enganches' && classifyExecutiveItem(item) !== 'equipos') {
+    return '';
+  }
+  return (ticket?.imeis || []).map((value) => String(value || '').trim()).filter(Boolean).join(', ');
+}
 
 export type CorteConceptGroup = {
   name: string;
@@ -171,6 +182,7 @@ export function buildCorteCategoryBreakdown(
       const cat = classifySaleItem(item);
       const { qty, total, unit } = itemMoney(item);
       const name = corteConceptName(item);
+      const imei = saleLineImei(item, ticket);
       const detail: CorteConceptDetail = {
         id: `${ticket.id || 't'}_${itemIdx}_${item.product?.id || itemIdx}`,
         ticketFolio: folio,
@@ -183,6 +195,7 @@ export function buildCorteCategoryBreakdown(
         qty,
         unitPrice: unit,
         totalPrice: total,
+        imei: imei || undefined,
         metadata: item.metadata
       };
 

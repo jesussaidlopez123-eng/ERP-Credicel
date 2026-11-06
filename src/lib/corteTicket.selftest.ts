@@ -35,6 +35,15 @@ const html = buildCorteThermalInnerHtml({
       paymentMethod: 'Efectivo',
       time: '11:20 a.m.',
       totalPrice: 150
+    },
+    {
+      quantity: 1,
+      productName: 'MOTO G06',
+      ticketFolio: 'NAV-0509-004',
+      paymentMethod: 'Efectivo',
+      time: '12:10 p.m.',
+      totalPrice: 3900,
+      imei: '359158767245502'
     }
   ],
   expenses: [{ concept: 'Gasolina', amount: 80 }]
@@ -44,6 +53,7 @@ assert.match(html, /\$2100\.00/);
 assert.match(html, /\$1800\.00/);
 assert.match(html, /NAV-0509-003/);
 assert.match(html, /Mica 15/);
+assert.match(html, /IMEI 359158767245502/);
 assert.match(html, /Gasolina/);
 assert.match(html, /TOTAL VENTAS<\/span><span class="font-bold">\$2100\.00/);
 assert.match(html, /\(\+\) Fondo<\/span><span class="font-bold">\$1000\.00/);

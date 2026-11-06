@@ -44,6 +44,8 @@ import {
 } from '../lib/historicSale';
 import { deliveredRepairsMissingCost } from '../lib/repairUtils';
 import { persistLocalBranchFund, resolveOpeningCashFund, suggestedLeftoverFund } from '../lib/cashFund';
+import { saleLineImei } from '../lib/corteCategories';
+import CorteSoldLine from './CorteSoldLine';
 
 interface CorteXModalProps {
   isOpen: boolean;
@@ -113,6 +115,7 @@ export interface DetailedSoldItem {
   unitPrice: number;
   totalPrice: number;
   paymentMethod: string;
+  imei?: string;
   metadata?: CartItemMetadata;
 }
 
@@ -395,6 +398,7 @@ export default function CorteXModal({
         unitPrice,
         totalPrice: itemTotal,
         paymentMethod: paymentMethod,
+        imei: saleLineImei(item, ticket) || undefined,
         metadata: item?.metadata
       });
     });
@@ -488,7 +492,8 @@ export default function CorteXModal({
       quantity: item.quantity,
       unitPrice: item.totalPrice,
       totalPrice: item.totalPrice,
-      paymentMethod: item.paymentMethod
+      paymentMethod: item.paymentMethod,
+      imei: item.imei
     }));
     branchExpenses = closedPrint.expenses.map((exp, idx) => ({
       id: `snap-exp-${idx}`,
@@ -586,7 +591,8 @@ export default function CorteXModal({
         ticketFolio: item.ticketFolio,
         paymentMethod: item.paymentMethod,
         time: item.time,
-        totalPrice: item.totalPrice
+        totalPrice: item.totalPrice,
+        imei: item.imei
       })),
       expenses: branchExpenses.map((exp) => ({
         concept: exp.concept,
@@ -759,7 +765,8 @@ export default function CorteXModal({
         ticketFolio: item.ticketFolio,
         paymentMethod: item.paymentMethod,
         time: item.time,
-        totalPrice: item.totalPrice
+        totalPrice: item.totalPrice,
+        imei: item.imei
       })),
       expenses: branchExpenses.map((exp) => ({
         concept: exp.concept,
@@ -1143,16 +1150,36 @@ export default function CorteXModal({
                   </button>
                   {expandedCategories.accesorios && (
                     <div className="px-4 pb-3 pt-1 bg-slate-50/50 space-y-1.5 border-t border-slate-100">
-                      {categoryItems.accesorios.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic py-1">Sin ventas registradas en esta categoría.</p>
-                      ) : (
-                        categoryItems.accesorios.map((grp, idx) => (
-                          <div key={idx} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                            <span className="text-slate-700 font-medium">{grp.count}x {grp.name}</span>
-                            <span className="font-mono font-bold text-slate-900">${grp.total.toFixed(2)}</span>
+                      {(() => {
+                        const lines = allDetailedSoldItems.filter((i) => i.category === 'accesorios');
+                        if (lines.length === 0) {
+                          return <p className="text-xs text-slate-400 italic py-1">Sin ventas registradas en esta categoría.</p>;
+                        }
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 pb-0.5 border-b border-slate-200">
+                              <span>Piezas y equipos ({lines.length})</span>
+                              <span>Monto</span>
+                            </div>
+                            {lines.map((item) => (
+                              <CorteSoldLine
+                                key={item.id}
+                                tone="blue"
+                                item={{
+                                  productName: item.productName,
+                                  ticketFolio: item.ticketFolio,
+                                  time: item.time,
+                                  paymentMethod: item.paymentMethod,
+                                  totalPrice: item.totalPrice,
+                                  qty: item.quantity,
+                                  imei: item.imei,
+                                  deviceModel: item.metadata?.deviceModel
+                                }}
+                              />
+                            ))}
                           </div>
-                        ))
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -1189,33 +1216,21 @@ export default function CorteXModal({
                               <span>Detalle de Abonos ({abonoItems.length})</span>
                               <span>Monto / Pago</span>
                             </div>
-                            {abonoItems.map((item, idx) => (
-                              <div key={item.id || idx} className="flex items-center justify-between text-xs py-1.5 px-2 bg-white rounded-lg border border-slate-200/80 shadow-2xs hover:border-indigo-300 transition-colors">
-                                <div className="flex flex-col">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-slate-900">{item.productName}</span>
-                                    <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded border border-indigo-100">
-                                      {item.ticketFolio}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                                    <span className="font-medium">{item.time}</span>
-                                    <span>•</span>
-                                    <span className="font-medium text-slate-600">{item.paymentMethod}</span>
-                                    {item.metadata?.deviceModel && (
-                                      <>
-                                        <span>•</span>
-                                        <span className="font-medium text-indigo-600">{item.metadata.deviceModel}</span>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <span className="font-mono font-black text-sm text-indigo-700">
-                                    ${item.totalPrice.toFixed(2)}
-                                  </span>
-                                </div>
-                              </div>
+                            {abonoItems.map((item) => (
+                              <CorteSoldLine
+                                key={item.id}
+                                tone="indigo"
+                                item={{
+                                  productName: item.productName,
+                                  ticketFolio: item.ticketFolio,
+                                  time: item.time,
+                                  paymentMethod: item.paymentMethod,
+                                  totalPrice: item.totalPrice,
+                                  qty: item.quantity,
+                                  imei: item.imei,
+                                  deviceModel: item.metadata?.deviceModel
+                                }}
+                              />
                             ))}
                           </div>
                         );
@@ -1245,16 +1260,36 @@ export default function CorteXModal({
                   </button>
                   {expandedCategories.enganches && (
                     <div className="px-4 pb-3 pt-1 bg-slate-50/50 space-y-1.5 border-t border-slate-100">
-                      {categoryItems.enganches.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic py-1">Sin enganches registrados.</p>
-                      ) : (
-                        categoryItems.enganches.map((grp, idx) => (
-                          <div key={idx} className="flex justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                            <span className="text-slate-700 font-medium">{grp.count}x {grp.name}</span>
-                            <span className="font-mono font-bold text-slate-900">${grp.total.toFixed(2)}</span>
+                      {(() => {
+                        const lines = allDetailedSoldItems.filter((i) => i.category === 'enganches');
+                        if (lines.length === 0) {
+                          return <p className="text-xs text-slate-400 italic py-1">Sin enganches registrados.</p>;
+                        }
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 pb-0.5 border-b border-slate-200">
+                              <span>Celulares a crédito ({lines.length})</span>
+                              <span>Monto</span>
+                            </div>
+                            {lines.map((item) => (
+                              <CorteSoldLine
+                                key={item.id}
+                                tone="emerald"
+                                item={{
+                                  productName: item.productName,
+                                  ticketFolio: item.ticketFolio,
+                                  time: item.time,
+                                  paymentMethod: item.paymentMethod,
+                                  totalPrice: item.totalPrice,
+                                  qty: item.quantity,
+                                  imei: item.imei,
+                                  deviceModel: item.metadata?.deviceModel
+                                }}
+                              />
+                            ))}
                           </div>
-                        ))
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

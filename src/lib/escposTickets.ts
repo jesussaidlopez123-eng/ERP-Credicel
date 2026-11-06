@@ -175,6 +175,7 @@ export function buildCorteTicketDraft(view: CorteTicketView): TicketDraft {
     for (const item of view.items) {
       draft.pair(`${item.quantity}x ${item.productName}`, moneyView(item.totalPrice));
       draft.pair(item.ticketFolio, `${item.paymentMethod} ${item.time}`);
+      if (item.imei) draft.left(`IMEI ${item.imei}`);
     }
   }
   if (view.expenses.length > 0) {

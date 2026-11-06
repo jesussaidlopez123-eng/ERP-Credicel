@@ -15,6 +15,7 @@ import {
   CORTE_CATEGORY_ORDER,
   type CorteCategoryBreakdown as Breakdown
 } from '../lib/corteCategories';
+import CorteSoldLine from './CorteSoldLine';
 
 function peso(n: number): string {
   return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -58,7 +59,8 @@ export default function CorteCategoryBreakdown({
         const groups = breakdown.groups[key];
         const lines = breakdown.details[key];
         const expanded = Boolean(open[key]);
-        const showLines = key === 'abonos';
+        const showLines = key === 'abonos' || key === 'accesorios' || key === 'enganches';
+        const lineTone = key === 'abonos' ? 'indigo' : key === 'enganches' ? 'emerald' : 'blue';
         return (
           <div key={key}>
             <button
@@ -92,39 +94,27 @@ export default function CorteCategoryBreakdown({
                   ) : (
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1 pb-0.5 border-b border-slate-200">
-                        <span>Detalle de Abonos ({lines.length})</span>
-                        <span>Monto / Pago</span>
+                        <span>
+                          {key === 'abonos' ? 'Detalle de abonos' : key === 'enganches' ? 'Celulares a crédito' : 'Piezas y equipos'} ({lines.length})
+                        </span>
+                        <span>Monto</span>
                       </div>
                       {lines.map((item) => (
-                        <div
+                        <CorteSoldLine
                           key={item.id}
-                          className="flex items-center justify-between text-xs py-1.5 px-2 bg-white rounded-lg border border-slate-200/80 shadow-2xs"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="font-bold text-slate-900">{item.productName}</span>
-                              <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded border border-indigo-100">
-                                {item.ticketFolio}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 mt-0.5">
-                              <span>{item.dateLabel}</span>
-                              <span>·</span>
-                              <span>{item.branchName}</span>
-                              <span>·</span>
-                              <span>{item.paymentMethod}</span>
-                              {item.metadata?.deviceModel && (
-                                <>
-                                  <span>·</span>
-                                  <span className="text-indigo-600">{item.metadata.deviceModel}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <span className="font-mono font-black text-sm text-indigo-700 shrink-0">
-                            ${peso(item.totalPrice)}
-                          </span>
-                        </div>
+                          tone={lineTone}
+                          item={{
+                            productName: item.productName,
+                            ticketFolio: item.ticketFolio,
+                            dateLabel: item.dateLabel,
+                            branchName: item.branchName,
+                            paymentMethod: item.paymentMethod,
+                            totalPrice: item.totalPrice,
+                            qty: item.qty,
+                            imei: item.imei,
+                            deviceModel: item.metadata?.deviceModel
+                          }}
+                        />
                       ))}
                     </div>
                   )

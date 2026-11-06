@@ -7,6 +7,7 @@ export type CorteTicketLine = {
   paymentMethod: string;
   time: string;
   totalPrice: number;
+  imei?: string;
 };
 
 export type CorteTicketExpense = {
@@ -64,6 +65,7 @@ export function buildCorteThermalInnerHtml(view: CorteTicketView): string {
             (item) => `<div>
         <div class="flex"><span class="truncate">${escapeHtml(`${item.quantity}x ${item.productName}`)}</span><span class="shrink-0">${money(item.totalPrice)}</span></div>
         <div class="flex"><span>${escapeHtml(item.ticketFolio)}</span><span>${escapeHtml(`${item.paymentMethod} ${item.time}`)}</span></div>
+        ${item.imei ? `<div>IMEI ${escapeHtml(item.imei)}</div>` : ''}
       </div>`
           )
           .join('');
