@@ -13,7 +13,9 @@ import {
   imeisEqual,
   isEquipmentProduct,
   listHasImei,
+  looksLikeImeiScan,
   normalizeImei,
+  stripScannerImeiPrefix,
   toInventoryBranchId
 } from './imeiInventory';
 import { isVirtualPosProduct } from './inventoryRules';
@@ -99,7 +101,7 @@ export function confirmLinesFromAccessoryLote(products: Product[], lines: Access
 export function confirmLinesFromEquipmentLote(products: Product[], lines: EquipmentLoteLine[]): IngresoConfirmLine[] {
   const out: IngresoConfirmLine[] = [];
   for (const line of lines || []) {
-    const imeis = (line.imeis || []).map((im) => im.trim()).filter(Boolean);
+    const imeis = expandLoteImeis(line.imeis || []).map(loteImeiCanonical).filter(Boolean);
     if (line.productId) {
       const prod = (products || []).find((p) => p.id === line.productId);
       if (!prod && imeis.length === 0) continue;
@@ -157,8 +159,8 @@ export function emptyEquipmentLine(): EquipmentLoteLine {
 export function catalogForLote(products: Product[], kind: 'accesorio' | 'equipo'): Product[] {
   return (products || []).filter((p) => {
     if (isVirtualPosProduct(p)) return false;
-    const type = p.inventoryType || (p.category === 'equipo_credito' ? 'equipo' : 'accesorio');
-    return type === kind;
+    const isEq = isEquipmentProduct(p);
+    return kind === 'equipo' ? isEq : !isEq;
   });
 }
 
@@ -183,6 +185,42 @@ export function nextEquipmentCode(products: Product[], name: string, extraCodes:
 
 export function loteImeiCanonical(raw: string): string {
   return canonicalImei(raw) || normalizeImei(raw);
+}
+
+/** Separa IMEI pegados, con coma o con salto de línea, y deja cada uno listo para validar. */
+export function expandLoteImeis(imeis: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of imeis || []) {
+    for (const part of splitLoteImeiPayload(raw)) {
+      if (part.trim()) out.push(part);
+    }
+  }
+  return out;
+}
+
+/**
+ * El lector a veces pega varios IMEI, o dos de 15 dígitos pegados.
+ * Separa por espacio/coma y parte bloques de 30, 45… dígitos.
+ */
+export function splitLoteImeiPayload(raw: string): string[] {
+  const chunks = String(raw || '')
+    .split(/[\s,;|/]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const chunk of chunks) {
+    const digits = imeiDigits(stripScannerImeiPrefix(chunk));
+    if (digits.length >= 30 && digits.length % 15 === 0) {
+      for (let i = 0; i < digits.length; i += 15) out.push(digits.slice(i, i + 15));
+      continue;
+    }
+    out.push(chunk);
+  }
+  return out;
+}
+
+export function lotePayloadLooksLikeImeiScan(raw: string): boolean {
+  return splitLoteImeiPayload(raw).some((part) => looksLikeImeiScan(part));
 }
 
 export function loteImeiFormatError(raw: string): string | null {
@@ -274,7 +312,7 @@ export function validateEquipmentLote(
   const newCodes: string[] = [];
 
   for (const line of usable) {
-    const rawImeis = (line.imeis || []).map((im) => im.trim()).filter(Boolean);
+    const rawImeis = expandLoteImeis(line.imeis || []);
     if (rawImeis.length === 0) {
       errors.push({ lineKey: line.key, message: `“${line.name || 'Modelo'}” no tiene IMEI. Cada celular del paquete lleva el suyo.` });
     }
@@ -497,7 +535,7 @@ export function applyEquipmentLote(params: {
   const extraCodes: string[] = [];
 
   for (const line of usable) {
-    const imeis = (line.imeis || []).map(loteImeiCanonical).filter(Boolean);
+    const imeis = expandLoteImeis(line.imeis || []).map(loteImeiCanonical).filter(Boolean);
     if (line.productId) {
       const prev = imeisById.get(line.productId) || [];
       for (const im of imeis) {

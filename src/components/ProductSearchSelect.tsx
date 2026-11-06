@@ -16,6 +16,8 @@ interface ProductSearchSelectProps {
   extraOptions?: ExtraOption[];
   focusClassName?: string;
   autoFocus?: boolean;
+  /** Si el texto es un escaneo (p. ej. IMEI), el padre lo consume y el buscador no elige un modelo. */
+  onCaptureScan?: (raw: string, source: 'enter' | 'paste' | 'change') => boolean;
 }
 
 export default function ProductSearchSelect({
@@ -28,7 +30,8 @@ export default function ProductSearchSelect({
   getLabel = productPickLabel,
   extraOptions = [],
   focusClassName = 'focus:ring-2 focus:ring-blue-600',
-  autoFocus = false
+  autoFocus = false,
+  onCaptureScan
 }: ProductSearchSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,9 +105,22 @@ export default function ProductSearchSelect({
           setQuery('');
         }}
         onChange={(e) => {
-          setQuery(e.target.value);
+          const next = e.target.value;
+          if (onCaptureScan?.(next, 'change')) {
+            setQuery('');
+            setOpen(false);
+            return;
+          }
+          setQuery(next);
           setOpen(true);
-          if (!e.target.value) onChange('');
+          if (!next) onChange('');
+        }}
+        onPaste={(e) => {
+          const text = e.clipboardData.getData('text');
+          if (!onCaptureScan?.(text, 'paste')) return;
+          e.preventDefault();
+          setQuery('');
+          setOpen(false);
         }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') {
@@ -116,6 +132,11 @@ export default function ProductSearchSelect({
             setActiveIndex((i) => Math.max(0, i - 1));
           } else if (e.key === 'Enter') {
             e.preventDefault();
+            if (onCaptureScan?.(query, 'enter')) {
+              setQuery('');
+              setOpen(false);
+              return;
+            }
             const hit = rows[activeIndex];
             if (hit) pick(hit.id);
           } else if (e.key === 'Escape') {

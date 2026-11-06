@@ -2000,6 +2000,14 @@ export default function Dashboard({
   };
 
   // Inventory Handlers
+  const rememberProduct = (next: Product) => {
+    const idx = productsRef.current.findIndex(
+      (p) => p.id === next.id || p.code.trim().toUpperCase() === next.code.trim().toUpperCase()
+    );
+    if (idx === -1) productsRef.current = [...productsRef.current, next];
+    else productsRef.current = productsRef.current.map((p, i) => (i === idx ? next : p));
+  };
+
   const handleAddProduct = (newProd: Product) => {
     const existing = productsRef.current.find(
       (p) => p.id === newProd.id || p.code.trim().toUpperCase() === newProd.code.trim().toUpperCase()
@@ -2016,6 +2024,7 @@ export default function Dashboard({
             imeiList: [...collectProductImeis(existing), ...incomingImeis],
             imeis: [...collectProductImeis(existing), ...incomingImeis]
           });
+      rememberProduct(merged);
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
       commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
       return;
@@ -2037,6 +2046,7 @@ export default function Dashboard({
         dest,
         qty
       );
+      rememberProduct(merged);
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
       commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
       return;
@@ -2045,6 +2055,7 @@ export default function Dashboard({
       inferEquipmentDest(newProd) ||
       (hasCashTill(currentBranch.id) ? toInventoryBranchId(currentBranch.id) : undefined);
     const sealed = isEquipmentProduct(newProd) ? sealEquipmentWrite(newProd, dest) : newProd;
+    rememberProduct(sealed);
     setProducts((prev) => {
       const existingIdx = prev.findIndex(
         (p) => p.id === sealed.id || p.code.trim().toUpperCase() === sealed.code.trim().toUpperCase()
@@ -2064,6 +2075,7 @@ export default function Dashboard({
   const handleUpdateProduct = (updatedProd: Product) => {
     const base = productsRef.current.find((p) => p.id === updatedProd.id);
     const next = isEquipmentProduct(updatedProd) ? sanitizeEquipmentProduct(updatedProd) : updatedProd;
+    rememberProduct(next);
     setProducts((prev) => prev.map((p) => (p.id === next.id ? next : p)));
     commitProduct(next, base).catch((err) => console.error('Error encolando el cambio de producto:', err));
   };

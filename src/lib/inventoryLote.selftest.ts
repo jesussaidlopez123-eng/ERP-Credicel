@@ -5,12 +5,16 @@ import { imeisAtBranch, unmappedImeis } from './imeiInventory.ts';
 import {
   applyAccessoryLote,
   applyEquipmentLote,
+  catalogForLote,
   confirmLinesFromAccessoryLote,
   confirmLinesFromEquipmentLote,
   emptyAccessoryLine,
   emptyEquipmentLine,
+  expandLoteImeis,
   loteImeiFormatError,
+  lotePayloadLooksLikeImeiScan,
   nextEquipmentCode,
+  splitLoteImeiPayload,
   validateAccessoryLote,
   validateEquipmentLote
 } from './inventoryLote.ts';
@@ -186,12 +190,56 @@ assert.equal(loteImeiFormatError(']C1351299123456789'), null);
 assert.equal(loteImeiFormatError(']A0351299123456789'), null);
 assert.ok(loteImeiFormatError('351299123456789351299123456780'));
 
+assert.deepEqual(splitLoteImeiPayload('351299123456789352088111111111'), [
+  '351299123456789',
+  '352088111111111'
+]);
+assert.deepEqual(splitLoteImeiPayload('351299123456789\n352088111111111, 353011222333444'), [
+  '351299123456789',
+  '352088111111111',
+  '353011222333444'
+]);
+assert.ok(lotePayloadLooksLikeImeiScan('351299123456789'));
+assert.equal(lotePayloadLooksLikeImeiScan('Samsung A16'), false);
+assert.deepEqual(expandLoteImeis(['351299123456789352088111111111']), [
+  '351299123456789',
+  '352088111111111'
+]);
+
+const telefonia = phone({
+  id: 'eq-redmi',
+  code: 'EQ-R14',
+  name: 'Redmi 14',
+  category: 'telefonia',
+  inventoryType: undefined
+});
+const loteCatalog = catalogForLote([phone(), telefonia, mica()], 'equipo');
+assert.equal(loteCatalog.length, 2);
+assert.ok(loteCatalog.some((p) => p.id === 'eq-redmi'));
+assert.equal(catalogForLote([phone(), telefonia, mica()], 'accesorio').length, 1);
+
 const twoStuck = validateEquipmentLote(
   [phone()],
   [],
   [{ ...emptyEquipmentLine(), productId: 'eq-a16', imeis: ['351299123456789352088111111111'] }]
 );
-assert.ok(twoStuck.some((e) => e.message.includes('15') || e.message.includes('escanear')));
+assert.equal(twoStuck.length, 0);
+
+const gluedApply = applyEquipmentLote({
+  products: [phone()],
+  tickets: [],
+  lines: [{ ...emptyEquipmentLine(), productId: 'eq-a16', imeis: ['351299123456789\n352088111111111'] }],
+  destBranchId: 'b-matriz',
+  operatorName: 'Said'
+});
+assert.equal(gluedApply.ok, true);
+if (gluedApply.ok) {
+  assert.equal(gluedApply.pieceCount, 2);
+  assert.deepEqual(imeisAtBranch(gluedApply.updated[0], 'b-matriz').sort(), [
+    '351299123456789',
+    '352088111111111'
+  ]);
+}
 
 const accPreview = confirmLinesFromAccessoryLote([mica(), funda()], accLines);
 assert.equal(accPreview.length, 3);

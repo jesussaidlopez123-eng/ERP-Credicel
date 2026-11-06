@@ -28,6 +28,8 @@ import {
   emptyEquipmentLine,
   loteImeiCanonical,
   loteImeiFormatError,
+  lotePayloadLooksLikeImeiScan,
+  splitLoteImeiPayload,
   validateAccessoryLote,
   validateEquipmentLote
 } from '../lib/inventoryLote';
@@ -116,27 +118,47 @@ export default function InventoryLoteModal({
       )
     );
     setErrors([]);
+    requestAnimationFrame(() => scanRefs.current[key]?.focus());
   };
 
-  const pushScannedImei = (key: string, raw: string) => {
-    const value = raw.trim();
-    if (!value) return;
-    const format = loteImeiFormatError(value);
-    if (format) {
-      setErrors([format]);
-      return;
+  const pushScannedImeis = (key: string, raw: string) => {
+    const parts = splitLoteImeiPayload(raw);
+    if (parts.length === 0) return;
+    const added: string[] = [];
+    const problems: string[] = [];
+    for (const part of parts) {
+      const format = loteImeiFormatError(part);
+      if (format) {
+        problems.push(format);
+        continue;
+      }
+      const n = loteImeiCanonical(part);
+      if (n) added.push(n);
     }
-    const n = loteImeiCanonical(value);
-    setEqLines((prev) =>
-      prev.map((line) => {
-        if (line.key !== key) return line;
-        if (line.imeis.some((im) => loteImeiCanonical(im) === n)) return line;
-        return { ...line, imeis: [...line.imeis, n] };
-      })
-    );
-    setScanByLine((prev) => ({ ...prev, [key]: '' }));
-    setErrors([]);
+    if (added.length) {
+      setEqLines((prev) =>
+        prev.map((line) => {
+          if (line.key !== key) return line;
+          const next = [...line.imeis];
+          for (const n of added) {
+            if (!next.some((im) => loteImeiCanonical(im) === n)) next.push(n);
+          }
+          return { ...line, imeis: next };
+        })
+      );
+      setScanByLine((prev) => ({ ...prev, [key]: '' }));
+    }
+    setErrors(problems);
     requestAnimationFrame(() => scanRefs.current[key]?.focus());
+  };
+
+  const captureEquipmentScan = (key: string, raw: string, source: 'enter' | 'paste' | 'change') => {
+    const looks = lotePayloadLooksLikeImeiScan(raw);
+    if (!looks) return false;
+    const hasValid = splitLoteImeiPayload(raw).some((part) => loteImeiFormatError(part) === null);
+    if (source === 'change' && !hasValid) return false;
+    pushScannedImeis(key, raw);
+    return true;
   };
 
   const handleReview = (e: React.FormEvent) => {
@@ -211,7 +233,10 @@ export default function InventoryLoteModal({
                 Paquete de ingreso · {isEquipo ? 'Equipos' : 'Accesorios'}
               </h3>
               <p className="text-[11px] text-white/80">
-                Varios renglones a una sola sucursal. {isEquipo ? 'Cada celular lleva su IMEI.' : 'Las piezas se suman al stock de esa tienda.'}
+                Varios renglones a una sola sucursal.{' '}
+                {isEquipo
+                  ? 'Elija el modelo y escanee cada IMEI. Si el lector cae en el buscador, el IMEI se toma igual.'
+                  : 'Las piezas se suman al stock de esa tienda.'}
               </p>
             </div>
           </div>
@@ -297,7 +322,8 @@ export default function InventoryLoteModal({
                       <ProductSearchSelect
                         products={catalog}
                         value={line.isNew ? '__nuevo__' : line.productId}
-                        autoFocus={idx === 0}
+                        autoFocus={idx === 0 && !line.productId && !line.isNew && line.imeis.length === 0}
+                        onCaptureScan={(raw, source) => captureEquipmentScan(line.key, raw, source)}
                         onChange={(id) => {
                           if (id === '__nuevo__') {
                             setEqLines((prev) =>
@@ -404,22 +430,49 @@ export default function InventoryLoteModal({
                           </span>
                         ))}
                       </div>
-                      <div className="relative">
-                        <ScanLine className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          ref={(el) => {
-                            scanRefs.current[line.key] = el;
-                          }}
-                          value={scanByLine[line.key] || ''}
-                          onChange={(e) => setScanByLine((prev) => ({ ...prev, [line.key]: e.target.value }))}
-                          onKeyDown={(e) => {
-                            if (e.key !== 'Enter') return;
-                            e.preventDefault();
-                            pushScannedImei(line.key, scanByLine[line.key] || '');
-                          }}
-                          placeholder="Escanee o escriba IMEI y pulse Enter"
-                          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold"
-                        />
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <ScanLine className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            ref={(el) => {
+                              scanRefs.current[line.key] = el;
+                            }}
+                            value={scanByLine[line.key] || ''}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              if (captureEquipmentScan(line.key, next, 'change')) return;
+                              setScanByLine((prev) => ({ ...prev, [line.key]: next }));
+                            }}
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData('text');
+                              if (!captureEquipmentScan(line.key, text, 'paste')) return;
+                              e.preventDefault();
+                            }}
+                            onBlur={() => {
+                              const pending = scanByLine[line.key] || '';
+                              if (
+                                pending &&
+                                splitLoteImeiPayload(pending).some((part) => loteImeiFormatError(part) === null)
+                              ) {
+                                pushScannedImeis(line.key, pending);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter') return;
+                              e.preventDefault();
+                              pushScannedImeis(line.key, scanByLine[line.key] || '');
+                            }}
+                            placeholder="Escanee o pegue IMEI y pulse Enter"
+                            className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => pushScannedImeis(line.key, scanByLine[line.key] || '')}
+                          className="shrink-0 px-3 py-2 rounded-xl bg-blue-900 text-white text-[10px] font-black uppercase tracking-wide hover:bg-blue-800 cursor-pointer"
+                        >
+                          Agregar
+                        </button>
                       </div>
                       <p className="text-[10px] font-extrabold text-blue-900">
                         {line.imeis.length} equipo{line.imeis.length === 1 ? '' : 's'} en este renglón
