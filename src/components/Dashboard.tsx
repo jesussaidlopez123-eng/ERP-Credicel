@@ -63,12 +63,15 @@ import {
   removeImeisFromProduct,
   sanitizeEquipmentProduct,
   sealEquipmentWrite,
+  slimProductForTicket,
   toInventoryBranchId
 } from '../lib/imeiInventory';
 import { accessoryStockAt, addAccessoryStock, removeAccessoryStock } from '../lib/accessoryInventory';
 import {
+  applyInventoryWrite,
   applyLiveCatalog,
   pendingProductWritesFromOutboxPayload,
+  snapshotInventory,
   type PendingInventoryWrite
 } from '../lib/inventoryMerge';
 import { addCashDays, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
@@ -1380,6 +1383,10 @@ export default function Dashboard({
         .map((item) => normalizeImei(item.metadata?.imei))
         .filter(Boolean);
       if (ticketImeis.length > 0) enrichedTicket.imeis = ticketImeis;
+      enrichedTicket.items = enrichedTicket.items.map((item) => ({
+        ...item,
+        product: slimProductForTicket(item.product, item.metadata?.imei)
+      }));
 
     const saleMovements: InventoryMovement[] = [];
     const qtyByProduct = new Map<string, number>();
@@ -2074,7 +2081,16 @@ export default function Dashboard({
 
   const handleUpdateProduct = (updatedProd: Product) => {
     const base = productsRef.current.find((p) => p.id === updatedProd.id);
-    const next = isEquipmentProduct(updatedProd) ? sanitizeEquipmentProduct(updatedProd) : updatedProd;
+    let next = isEquipmentProduct(updatedProd) ? sanitizeEquipmentProduct(updatedProd) : updatedProd;
+    if (base && isEquipmentProduct(base) && isEquipmentProduct(next)) {
+      next = applyInventoryWrite(base, next, snapshotInventory(base));
+      const readdedSold = collectProductImeis(next).filter((im) => {
+        const wasSold = [...recentlySoldImeisRef.current].some((sold) => imeisEqual(sold, im));
+        if (!wasSold) return false;
+        return !collectProductImeis(base).some((stored) => imeisEqual(stored, im));
+      });
+      if (readdedSold.length > 0) next = removeImeisFromProduct(next, readdedSold);
+    }
     rememberProduct(next);
     setProducts((prev) => prev.map((p) => (p.id === next.id ? next : p)));
     commitProduct(next, base).catch((err) => console.error('Error encolando el cambio de producto:', err));

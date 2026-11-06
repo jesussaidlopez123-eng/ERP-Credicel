@@ -271,4 +271,43 @@ const newWithDest = applyInventoryWrite(null, phone({
 assert.deepEqual(imeisAtBranch(newWithDest, 'b-huatabampo').sort(), ['H1', 'H2']);
 assert.deepEqual(unmappedImeis(newWithDest), []);
 
+const pendingFirstLote = phone({
+  stock: 2,
+  imeiList: ['MTZ1', 'MTZ2'],
+  branchImeiMap: { 'b-matriz': ['MTZ1', 'MTZ2'], 'b-navojoa': [], 'b-huatabampo': [] }
+});
+const secondLoteWhileFirstInFlight = phone({
+  stock: 4,
+  imeiList: ['MTZ1', 'MTZ2', 'HUA1', 'HUA2'],
+  branchImeiMap: {
+    'b-matriz': ['MTZ1', 'MTZ2'],
+    'b-navojoa': [],
+    'b-huatabampo': ['HUA1', 'HUA2']
+  }
+});
+const sequentialLote = applyInventoryWrite(
+  phone({
+    stock: 0,
+    imeiList: [],
+    branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] }
+  }),
+  secondLoteWhileFirstInFlight,
+  snapshotInventory(pendingFirstLote)
+);
+assert.deepEqual(imeisAtBranch(sequentialLote, 'b-matriz').sort(), ['MTZ1', 'MTZ2']);
+assert.deepEqual(imeisAtBranch(sequentialLote, 'b-huatabampo').sort(), ['HUA1', 'HUA2']);
+
+const staleHuaLote = phone({
+  stock: 2,
+  imeiList: ['HUA1', 'HUA2'],
+  branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': ['HUA1', 'HUA2'] }
+});
+const keepMatrizWhileHuaIngreso = applyInventoryWrite(
+  pendingFirstLote,
+  staleHuaLote,
+  snapshotInventory(pendingFirstLote)
+);
+assert.deepEqual(imeisAtBranch(keepMatrizWhileHuaIngreso, 'b-matriz').sort(), ['MTZ1', 'MTZ2']);
+assert.deepEqual(imeisAtBranch(keepMatrizWhileHuaIngreso, 'b-huatabampo').sort(), ['HUA1', 'HUA2']);
+
 console.log('inventoryMerge self-test ok');

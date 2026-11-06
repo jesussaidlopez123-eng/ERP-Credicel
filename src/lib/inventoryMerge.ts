@@ -163,40 +163,56 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
     result[branch].push(form);
   };
 
-  const removed = (imei: string) => Boolean(baseLoc && setHasImei(baseAll, imei) && !setHasImei(incomingAll, imei));
+  const incomingFold = foldImeis(incomingAll);
+  const serverFold = foldImeis(serverAll);
+  const baseFold = foldImeis(baseAll);
+  const added = incomingFold.filter((imei) => !setHasImei(baseAll, imei));
+  const gone = baseFold.filter((imei) => !setHasImei(incomingAll, imei));
+  const goneSet = new Set(gone);
+  const isIngreso = added.length > 0;
+  const dropped = (imei: string) => Boolean(baseLoc && !isIngreso && setHasImei(goneSet, imei));
 
-  for (const imei of foldImeis([...serverAll, ...incomingAll])) {
-    if (removed(imei)) continue;
-    const onServer = locationOf(serverLoc, imei);
-    const onIncoming = locationOf(incomingLoc, imei);
-    const onBase = locationOf(baseLoc, imei);
-
-    if (!baseLoc) {
+  if (!baseLoc) {
+    for (const imei of serverFold) {
+      const onServer = locationOf(serverLoc, imei);
       if (onServer) place(imei, onServer);
-      else if (onIncoming) place(imei, onIncoming);
-      continue;
     }
-
-    if (onBase && onIncoming && onBase !== onIncoming) {
-      // Traspaso de este cliente: solo si la nube todavía tiene el IMEI.
-      // Si otra caja ya lo vendió, no lo revivimos en el destino.
-      if (onServer) place(imei, onIncoming);
-      continue;
+    for (const imei of incomingFold) {
+      if (listHasImei(placed, imei)) continue;
+      const onIncoming = locationOf(incomingLoc, imei);
+      if (onIncoming) place(imei, onIncoming);
     }
-    if (onServer) {
-      place(imei, onServer);
-      continue;
+  } else {
+    for (const imei of serverFold) {
+      if (dropped(imei)) continue;
+      const onServer = locationOf(serverLoc, imei);
+      const onIncoming = locationOf(incomingLoc, imei);
+      const onBase = locationOf(baseLoc, imei);
+      if (onBase && onIncoming && onBase !== onIncoming) {
+        // Traspaso de este cliente: solo si la nube todavía tiene el IMEI.
+        if (onServer) place(imei, onIncoming);
+        continue;
+      }
+      if (onServer) place(imei, onServer);
     }
-    if (onIncoming) {
-      // Este cliente no lo movió (sigue donde lo vio). Si la nube ya no lo tiene,
-      // otra caja lo descontó: no lo volvemos a escribir.
-      if (onBase && onBase === onIncoming) continue;
-      place(imei, onIncoming);
+    for (const imei of added) {
+      const onIncoming = locationOf(incomingLoc, imei);
+      if (onIncoming) place(imei, onIncoming);
+    }
+    // Paquete siguiente mientras el ingreso anterior aún no llega a la nube:
+    // no tratar esos IMEI como vendidos por otra caja.
+    if (isIngreso) {
+      for (const imei of incomingFold) {
+        if (listHasImei(placed, imei)) continue;
+        if (!setHasImei(baseAll, imei)) continue;
+        const onIncoming = locationOf(incomingLoc, imei);
+        if (onIncoming) place(imei, onIncoming);
+      }
     }
   }
 
-  const serverOrphans = unmappedImeis(keep).filter((im) => !listHasImei(placed, im) && !removed(im));
-  const incomingOrphans = unmappedImeis(incoming).filter((im) => !listHasImei(placed, im) && !removed(im));
+  const serverOrphans = unmappedImeis(keep).filter((im) => !listHasImei(placed, im) && !dropped(im));
+  const incomingOrphans = unmappedImeis(incoming).filter((im) => !listHasImei(placed, im) && !dropped(im));
   const newOrphans = incomingOrphans.filter((im) => !setHasImei(serverAll, im));
 
   let destForNew = inferEquipmentDest(incoming);

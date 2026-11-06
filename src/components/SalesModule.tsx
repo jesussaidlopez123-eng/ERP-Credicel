@@ -279,8 +279,11 @@ function SalesModule({
         const matchesCustomer = (ticket.items?.[0]?.metadata?.clientName || '').toLowerCase().includes(q);
         const matchesOperator = (ticket.operatorName || '').toLowerCase().includes(q);
         const matchesProduct = (ticket.items || []).some(item => (item.product?.name || '').toLowerCase().includes(q));
+        const matchesImei =
+          (ticket.imeis || []).some((im) => String(im || '').toLowerCase().includes(q)) ||
+          (ticket.items || []).some((item) => String(item.metadata?.imei || '').toLowerCase().includes(q));
         const matchesDate = safeFormatDate(ticket.timestamp).toLowerCase().includes(q);
-        return matchesFolio || matchesCustomer || matchesOperator || matchesProduct || matchesDate;
+        return matchesFolio || matchesCustomer || matchesOperator || matchesProduct || matchesImei || matchesDate;
       }
       return true;
     }).sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));

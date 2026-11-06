@@ -498,17 +498,46 @@ export function findImeiOnCatalog(
   return null;
 }
 
+export function ticketOwnsSoldImei(ticket: SaleTicket | undefined, rawImei: string): boolean {
+  const needle = normalizeImei(rawImei);
+  if (!ticket || !needle || isCancelledSaleTicket(ticket)) return false;
+  for (const item of ticket.items || []) {
+    if (imeisEqual(item.metadata?.imei, needle) && ticketSellsPhoneImei(item)) return true;
+  }
+  for (const raw of ticket.imeis || []) {
+    if (imeisEqual(raw, needle)) return true;
+  }
+  return false;
+}
+
 export function findSoldImeiTicket(tickets: SaleTicket[] | undefined, rawImei: string): SaleTicket | undefined {
   const needle = normalizeImei(rawImei);
   if (!needle) return undefined;
   for (const ticket of tickets || []) {
-    if (isCancelledSaleTicket(ticket)) continue;
-    for (const item of ticket.items || []) {
-      if (!imeisEqual(item.metadata?.imei, needle)) continue;
-      if (ticketSellsPhoneImei(item)) return ticket;
-    }
+    if (ticketOwnsSoldImei(ticket, needle)) return ticket;
   }
   return undefined;
+}
+
+/** En el ticket solo queda el IMEI vendido: el catálogo completo no debe viajar en la venta. */
+export function slimProductForTicket(product: Product, soldImei?: string): Product {
+  const imei = soldImei ? canonicalImei(soldImei) || normalizeImei(soldImei) : '';
+  return {
+    id: product.id,
+    code: product.code,
+    name: product.name,
+    category: product.category,
+    price: product.price,
+    costPrice: product.costPrice,
+    stock: 0,
+    inventoryType: product.inventoryType,
+    color: product.color,
+    brand: product.brand,
+    model: product.model,
+    imei: imei || undefined,
+    imeiList: imei ? [imei] : undefined,
+    imeis: imei ? [imei] : undefined
+  };
 }
 
 export type EquipmentAuditOrigin = 'humano' | 'sistema';
@@ -705,7 +734,7 @@ export function applyEquipmentIntegrity(
   return { next, changed };
 }
 
-export type ImeiTraceStatus = 'disponible' | 'vendido' | 'baja' | 'no_encontrado';
+export type ImeiTraceStatus = 'disponible' | 'vendido' | 'baja' | 'sin_ticket' | 'no_encontrado';
 
 export type ImeiTraceEvent = {
   at: string;
@@ -757,15 +786,13 @@ export function traceImei(
 
   let ticket: SaleTicket | undefined;
   for (const t of ctx.tickets || []) {
-    if (isCancelledSaleTicket(t)) continue;
+    if (!ticketOwnsSoldImei(t, imei)) continue;
     const item = (t.items || []).find((i) => imeisEqual(i.metadata?.imei, imei));
-    if (!item) continue;
-    if (item.metadata?.saleType === 'abono' || item.metadata?.repairType) continue;
     ticket = t;
     events.push({
       at: t.timestamp,
       type: 'venta',
-      label: `Vendido en ticket ${t.folio || t.id} · ${item.product?.name || 'Equipo'}`,
+      label: `Vendido en ticket ${t.folio || t.id} · ${item?.product?.name || 'Equipo'}`,
       branchId: t.branchId,
       branchName: getBranchDisplayName(t.branchId),
       ticketId: t.folio || t.id,
@@ -832,7 +859,7 @@ export function traceImei(
     const isBaja = last.type === 'ajuste' || last.type === 'baja';
     return {
       imei,
-      status: isBaja ? 'baja' : ticket ? 'vendido' : 'no_encontrado',
+      status: isBaja ? 'baja' : ticket ? 'vendido' : 'sin_ticket',
       product,
       branchId: last.branchId,
       branchName: last.branchName,

@@ -18,8 +18,12 @@ interface ImeiTraceModalProps {
 
 const STATUS_COPY: Record<ImeiTraceStatus, { label: string; className: string }> = {
   disponible: { label: 'Disponible en inventario', className: 'bg-emerald-50 text-emerald-900 border-emerald-200' },
-  vendido: { label: 'Vendido — ya no está en inventario', className: 'bg-blue-50 text-blue-900 border-blue-200' },
+  vendido: { label: 'Vendido — hay ticket de venta', className: 'bg-blue-50 text-blue-900 border-blue-200' },
   baja: { label: 'Dado de baja', className: 'bg-amber-50 text-amber-950 border-amber-200' },
+  sin_ticket: {
+    label: 'Salió del inventario y no hay ticket de venta',
+    className: 'bg-rose-50 text-rose-950 border-rose-200'
+  },
   no_encontrado: { label: 'Sin registro de este IMEI', className: 'bg-slate-100 text-slate-700 border-slate-200' }
 };
 
@@ -163,6 +167,12 @@ export default function ImeiTraceModal({
                   Ticket <span className="font-mono font-black">{result.ticket.folio || result.ticket.id}</span>
                   {result.ticket.operatorName ? ` · ${result.ticket.operatorName}` : ''}
                   {` · ${getBranchDisplayName(result.ticket.branchId)}`}
+                </p>
+              )}
+
+              {result.status === 'sin_ticket' && (
+                <p className="text-xs text-rose-900 font-semibold">
+                  No falta un ticket escondido: este IMEI se ingresó y después desapareció del catálogo sin una venta. Vuelva a ingresarlo si el equipo sigue en tienda, o regístrelo en el POS si ya se vendió.
                 </p>
               )}
 

@@ -7,6 +7,8 @@ import {
   collectSoldImeis,
   findImeiOnCatalog,
   findSoldImeiTicket,
+  slimProductForTicket,
+  ticketOwnsSoldImei,
   imeisAtBranch,
   inferEquipmentDest,
   locateImeiOnProduct,
@@ -252,6 +254,52 @@ assert.equal(catalogHit?.product.id, 'prod-x');
 
 const soldHit = findSoldImeiTicket([ticket], 'fff');
 assert.equal(soldHit?.folio, 'NAV-0101-001');
+
+const fatTicket: SaleTicket = {
+  ...ticket,
+  imeis: ['FFF'],
+  items: [
+    {
+      ...ticket.items[0],
+      product: {
+        ...ticket.items[0].product,
+        imei: 'AAA',
+        imeis: ['AAA', 'FFF', 'BBB'],
+        imeiList: ['AAA', 'FFF', 'BBB'],
+        branchImeiMap: { 'b-matriz': ['AAA', 'FFF'], 'b-navojoa': ['BBB'], 'b-huatabampo': [] }
+      }
+    }
+  ]
+};
+assert.equal(ticketOwnsSoldImei(fatTicket, 'FFF'), true);
+assert.equal(ticketOwnsSoldImei(fatTicket, 'AAA'), false);
+assert.equal(findSoldImeiTicket([fatTicket], 'AAA'), undefined);
+const slimmed = slimProductForTicket(fatTicket.items[0].product, 'FFF');
+assert.deepEqual(slimmed.imeiList, ['FFF']);
+assert.equal(slimmed.imei, 'FFF');
+assert.equal(slimmed.branchImeiMap, undefined);
+assert.equal(traceImei('AAA', { products: [], tickets: [fatTicket] }).status, 'no_encontrado');
+
+const vanishedIngreso = traceImei('MTZ2', {
+  products: [],
+  tickets: [],
+  movements: [
+    {
+      id: 'mov-1',
+      timestamp: '2026-11-06T20:16:00.000Z',
+      type: 'ingreso',
+      productId: 'prod-x',
+      productCode: 'CE-01',
+      productName: 'Redmi Note',
+      quantity: 1,
+      operatorName: 'Teresa',
+      details: 'Paquete de ingreso',
+      imeis: ['MTZ2']
+    }
+  ]
+});
+assert.equal(vanishedIngreso.status, 'sin_ticket');
+assert.equal(vanishedIngreso.ticket, undefined);
 
 const cancelledTicket = { ...ticket, id: 't-cancel', estado: 'CANCELADA' as const };
 assert.equal(collectSoldImeis([cancelledTicket]).has('FFF'), false);

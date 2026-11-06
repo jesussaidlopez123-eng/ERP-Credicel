@@ -82,7 +82,8 @@ export default function ReprintTicketModal({
           i.metadata?.phoneNumber?.includes(q) ||
           i.metadata?.repairId?.toLowerCase().includes(q)
         );
-        return idMatch || opMatch || itemMatch;
+        const imeiMatch = (t.imeis || []).some((im) => String(im || '').toLowerCase().includes(q));
+        return idMatch || opMatch || itemMatch || imeiMatch;
       });
     }
 
