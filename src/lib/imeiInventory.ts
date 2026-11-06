@@ -137,6 +137,13 @@ export function looksLikeImeiScan(raw?: string | null): boolean {
 }
 
 /**
+ * IMEI de celular: 14 dígitos o más. Un UPC/EAN de caja (12–13) no cuenta.
+ */
+export function looksLikePhoneImeiScan(raw?: string | null): boolean {
+  return imeiDigits(stripScannerImeiPrefix(raw)).length >= 14;
+}
+
+/**
  * Forma para guardar en anaquel. Vacío si vinieron dos IMEI pegados u otro recorte ambiguo.
  * Un código corto (HUA111) se conserva; un IMEI de 15 no se reescribe.
  */

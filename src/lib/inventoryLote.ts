@@ -13,7 +13,7 @@ import {
   imeisEqual,
   isEquipmentProduct,
   listHasImei,
-  looksLikeImeiScan,
+  looksLikePhoneImeiScan,
   normalizeImei,
   stripScannerImeiPrefix,
   toInventoryBranchId
@@ -220,7 +220,7 @@ export function splitLoteImeiPayload(raw: string): string[] {
 }
 
 export function lotePayloadLooksLikeImeiScan(raw: string): boolean {
-  return splitLoteImeiPayload(raw).some((part) => looksLikeImeiScan(part));
+  return splitLoteImeiPayload(raw).some((part) => looksLikePhoneImeiScan(part));
 }
 
 export function loteImeiFormatError(raw: string): string | null {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Product } from '../types';
-import { findImeiInInventory, getBranchStockQty, realEquipmentStockAt, restoreBranchForSaleItem, unassignedEquipmentCount } from './inventoryRules.ts';
+import { findImeiInInventory, getBranchStockQty, realEquipmentStockAt, resolveInventoryScan, restoreBranchForSaleItem, unassignedEquipmentCount } from './inventoryRules.ts';
 
 const phone: Product = {
   id: 'prod-x',
@@ -80,5 +80,24 @@ const virtualPhone: Product = {
 assert.equal(getBranchStockQty(virtualPhone, 'b-huatabampo'), 0);
 assert.equal(realEquipmentStockAt([virtualPhone, phone], 'b-huatabampo'), 1);
 assert.equal(realEquipmentStockAt([virtualPhone, phone], 'b-navojoa'), 1);
+
+const g06: Product = {
+  id: 'prod-g06',
+  code: '840493602370',
+  name: 'MOTO G06',
+  category: 'equipo_credito',
+  inventoryType: 'equipo',
+  price: 3900,
+  stock: 1,
+  imeiList: ['359158767245502'],
+  branchImeiMap: { 'b-navojoa': ['359158767245502'], 'b-huatabampo': [], 'b-matriz': [] }
+};
+const boxScan = resolveInventoryScan([g06], '840493602370', 'b-navojoa');
+assert.equal(boxScan.kind, 'barcode');
+assert.equal(boxScan.kind === 'barcode' ? boxScan.product.name : '', 'MOTO G06');
+const imeiScan = resolveInventoryScan([g06], '359158767245502', 'b-navojoa');
+assert.equal(imeiScan.kind, 'imei');
+const missingImei = resolveInventoryScan([g06], '351299123456789', 'b-navojoa');
+assert.equal(missingImei.kind, 'missing_imei');
 
 console.log('inventoryRules self-test ok');

@@ -22,8 +22,8 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { RepairPriceItem } from '../types';
 import { money, newTicketId } from '../lib/ids';
 import { loadPosDraft, savePosDraft, clearPosDraft } from '../lib/posDraftStorage';
-import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, branchDisplayShort, isNonInventorySaleItem, realEquipmentStockAt } from '../lib/inventoryRules';
-import { imeisAtBranch, looksLikeImeiScan } from '../lib/imeiInventory';
+import { getBranchStockQty, isVirtualPosProduct, VIRTUAL_POS_PRODUCT_IDS, findImeiInInventory, resolveInventoryScan, branchDisplayShort, isNonInventorySaleItem, realEquipmentStockAt } from '../lib/inventoryRules';
+import { imeisAtBranch } from '../lib/imeiInventory';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { todayCashDateKey } from '../lib/dateUtils';
 import {
@@ -281,26 +281,27 @@ function PosModule({
 
     const queryUpper = query.toUpperCase();
 
-    const imeiLookup = findImeiInInventory(products, queryUpper, posStockBranchId || 'all');
-    if (imeiLookup.status === 'unassigned') {
-      setScanFeedback({
-        type: 'error',
-        text: `❌ IMEI SIN SUCURSAL: "${queryUpper}" está en el sistema (${imeiLookup.product.name}) pero no tiene tienda asignada. El encargado debe asignarlo en Inventario antes de venderlo.`
-      });
-      setScannerInput('');
-      setTimeout(() => setScanFeedback(null), 6000);
-      return;
-    }
-    if (imeiLookup.status === 'other_branch' && !isAdminUser) {
-      setScanFeedback({
-        type: 'error',
-        text: `❌ SUCURSAL INCORRECTA: El IMEI "${queryUpper}" pertenece a ${branchDisplayShort(imeiLookup.branchId)}. Realice el traspaso formal a ${currentBranch.name}.`
-      });
-      setScannerInput('');
-      setTimeout(() => setScanFeedback(null), 4000);
-      return;
-    }
-    if (imeiLookup.status === 'found' || (imeiLookup.status === 'other_branch' && isAdminUser)) {
+    const scanned = resolveInventoryScan(products, queryUpper, posStockBranchId || 'all');
+    if (scanned.kind === 'imei') {
+      const imeiLookup = scanned.lookup;
+      if (imeiLookup.status === 'unassigned') {
+        setScanFeedback({
+          type: 'error',
+          text: `❌ IMEI SIN SUCURSAL: "${queryUpper}" está en el sistema (${imeiLookup.product.name}) pero no tiene tienda asignada. El encargado debe asignarlo en Inventario antes de venderlo.`
+        });
+        setScannerInput('');
+        setTimeout(() => setScanFeedback(null), 6000);
+        return;
+      }
+      if (imeiLookup.status === 'other_branch' && !isAdminUser) {
+        setScanFeedback({
+          type: 'error',
+          text: `❌ SUCURSAL INCORRECTA: El IMEI "${queryUpper}" pertenece a ${branchDisplayShort(imeiLookup.branchId)}. Realice el traspaso formal a ${currentBranch.name}.`
+        });
+        setScannerInput('');
+        setTimeout(() => setScanFeedback(null), 4000);
+        return;
+      }
       playBeepSound();
       setSelectedCreditProduct(imeiLookup.product);
       setIsCreditDeviceModalOpen(true);
@@ -313,8 +314,19 @@ function PosModule({
       return;
     }
 
-    // IMEI (con o sin prefijo del lector) que no está en anaquel:
-    if (looksLikeImeiScan(queryUpper)) {
+    if (scanned.kind === 'barcode') {
+      playBeepSound();
+      handleProductClick(scanned.product);
+      setScanFeedback({
+        type: 'success',
+        text: `Caja de ${scanned.product.name}. Ahora escanee el IMEI del celular (15 dígitos), no el código de la caja.`
+      });
+      setScannerInput('');
+      setTimeout(() => setScanFeedback(null), 5000);
+      return;
+    }
+
+    if (scanned.kind === 'missing_imei') {
       setScanFeedback({
         type: 'error',
         text: `❌ BLOQUEO DE TRAZABILIDAD: El IMEI "${queryUpper}" NO coincide con ningún equipo activo en el inventario${posStockBranchId ? ` de ${currentBranch.name}` : ''}.`
@@ -324,7 +336,6 @@ function PosModule({
       return;
     }
 
-    // 2. Search standard product by exact code, exact id, or substring
     const matchedProduct = products.find(
       (p) =>
         p.code.toUpperCase() === queryUpper ||

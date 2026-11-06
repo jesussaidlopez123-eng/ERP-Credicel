@@ -9,6 +9,7 @@ import {
   imeisAtBranch,
   imeisEqual,
   looksLikeImeiScan,
+  looksLikePhoneImeiScan,
   resolveSaleImei,
   stripScannerImeiPrefix
 } from './imeiInventory.ts';
@@ -146,6 +147,10 @@ assert.equal(findImeiInInventory([onShelf], `1${IMEI}`, 'b-navojoa').status, 'fo
 assert.equal(findImeiInInventory([onShelf], typo, 'b-navojoa').status, 'missing');
 assert.equal(looksLikeImeiScan(`]C1${IMEI}`), true);
 assert.equal(looksLikeImeiScan('CA-01'), false);
+assert.equal(looksLikeImeiScan('840493602370'), true);
+assert.equal(looksLikePhoneImeiScan('840493602370'), false);
+assert.equal(looksLikePhoneImeiScan(IMEI), true);
+assert.equal(looksLikePhoneImeiScan(`]C1${IMEI}`), true);
 
 // Ticket: se guarda el del anaquel, nunca el prefijo del lector.
 assert.equal(resolveSaleImei(`]C1${IMEI}`, onShelf), IMEI);

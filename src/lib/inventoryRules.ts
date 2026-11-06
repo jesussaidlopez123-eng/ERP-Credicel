@@ -6,10 +6,12 @@ import {
   imeisAtBranch,
   isEquipmentProduct,
   locateImeiOnProduct,
+  looksLikePhoneImeiScan,
   normalizeImei,
   toInventoryBranchId,
   unmappedImeis
 } from './imeiInventory';
+import { findProductByScanCode } from './productSearch';
 
 export const VIRTUAL_POS_PRODUCT_IDS = new Set([
   'prod-equipo-credito-gen',
@@ -100,6 +102,29 @@ export function findImeiInInventory(
   }
 
   return { status: 'missing' };
+}
+
+export type InventoryScanResult =
+  | { kind: 'imei'; lookup: Exclude<ImeiLookup, { status: 'missing' }> }
+  | { kind: 'barcode'; product: Product }
+  | { kind: 'missing_imei' }
+  | { kind: 'unknown' };
+
+/**
+ * El lector de caja manda UPC/EAN (12–13 dígitos). Eso no es IMEI.
+ * Primero se busca el IMEI en anaquel; si no, el código del modelo.
+ */
+export function resolveInventoryScan(
+  products: Product[],
+  raw: string,
+  currentBranchId: string
+): InventoryScanResult {
+  const lookup = findImeiInInventory(products, raw, currentBranchId);
+  if (lookup.status !== 'missing') return { kind: 'imei', lookup };
+  const product = findProductByScanCode(products, raw);
+  if (product) return { kind: 'barcode', product };
+  if (looksLikePhoneImeiScan(raw)) return { kind: 'missing_imei' };
+  return { kind: 'unknown' };
 }
 
 export function unassignedEquipmentCount(products: Product[]): number {

@@ -21,7 +21,8 @@ import { Product, CartItemMetadata, Branch } from '../types';
 import { isAdminWorkspace } from '../data/initialBranches';
 import ProductSearchSelect from './ProductSearchSelect';
 import { findImeiInInventory, branchDisplayShort, getBranchStockQty } from '../lib/inventoryRules';
-import { canonicalImei, imeiDigits, resolveSaleImei } from '../lib/imeiInventory';
+import { canonicalImei, imeiDigits, looksLikePhoneImeiScan, resolveSaleImei } from '../lib/imeiInventory';
+import { findProductByScanCode } from '../lib/productSearch';
 
 interface CreditDeviceModalProps {
   isOpen: boolean;
@@ -55,6 +56,11 @@ export default function CreditDeviceModal({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const activeBranchId = currentBranch?.id || 'b-matriz';
+  const isGenericSaleButton =
+    !product ||
+    product.id === 'prod-equipo-credito-gen' ||
+    product.code === 'EQ-VENTA' ||
+    product.code === 'EQ-CRED';
 
   // Filter real equipment products from inventory (excluding generic action buttons)
   const availableEquipos = products.filter(
@@ -117,6 +123,18 @@ export default function CreditDeviceModal({
 
   const cleanImeiInput = imei.trim().toUpperCase();
   const imeiCheckResult = checkImeiInSystem(cleanImeiInput);
+  const boxBarcodeProduct =
+    !imeiCheckResult.found && findProductByScanCode(products, cleanImeiInput);
+
+  useEffect(() => {
+    if (!isOpen || !product || isGenericSaleButton) return;
+    setSelectedProdId(product.id);
+    setDeviceModel(product.name);
+    const priceStr = product.price ? product.price.toString() : '0';
+    setFullPriceInput(priceStr);
+    if (saleMode === 'contado') setDownPayment(priceStr);
+    setValidationError(null);
+  }, [isOpen, product?.id]);
 
   // Auto-fill full price when model changes or mode switches
   const handleSelectModelChange = (prodId: string) => {
@@ -175,6 +193,15 @@ export default function CreditDeviceModal({
         if (saleMode === 'contado') {
           setDownPayment(priceStr);
         }
+        return;
+      }
+      const boxed = findProductByScanCode(products, show);
+      if (boxed) {
+        setSelectedProdId(boxed.id);
+        setDeviceModel(boxed.name);
+        const priceStr = boxed.price ? boxed.price.toString() : '0';
+        setFullPriceInput(priceStr);
+        if (saleMode === 'contado') setDownPayment(priceStr);
       }
     }
   };
@@ -226,8 +253,11 @@ export default function CreditDeviceModal({
           `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' pertenece a la sucursal ${check.otherBranch}. Se requiere realizar un traspaso formal a ${currentBranch?.name || activeBranchId} antes de realizar la venta.`
         );
       } else {
+        const boxed = findProductByScanCode(products, cleanImei);
         setValidationError(
-          `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' NO existe en el inventario activo. Debe registrar el equipo en el inventario del Módulo 2 antes de poder venderlo.`
+          boxed
+            ? `Eso es el código de la caja de “${boxed.name}”, no el IMEI. Escanee el IMEI del celular (15 dígitos) que ya registraron en inventario.`
+            : `❌ VENTA BLOQUEADA: El IMEI '${cleanImei}' NO existe en el inventario activo. Debe registrar el equipo en el inventario del Módulo 2 antes de poder venderlo.`
         );
       }
       return;
@@ -365,6 +395,18 @@ export default function CreditDeviceModal({
                 products={availableEquipos}
                 value={selectedProdId}
                 onChange={handleSelectModelChange}
+                onCaptureScan={(raw) => {
+                  const boxed = findProductByScanCode(products, raw);
+                  if (boxed) {
+                    handleSelectModelChange(boxed.id);
+                    return true;
+                  }
+                  if (looksLikePhoneImeiScan(raw)) {
+                    handleImeiChange(raw);
+                    return true;
+                  }
+                  return false;
+                }}
                 placeholder="Escribe el modelo o elige de la lista…"
                 emptyLabel="No hay modelos en stock"
                 getLabel={(eq) =>
@@ -506,14 +548,16 @@ export default function CreditDeviceModal({
                 type="text"
                 required
                 maxLength={40}
-                placeholder="Escanee o teclee IMEI"
+                placeholder="IMEI de 15 dígitos (no el código de la caja)"
                 value={imei}
                 onChange={(e) => handleImeiChange(e.target.value)}
                 className={`w-full px-3 py-2 border rounded-xl text-xs font-mono font-bold tracking-wider text-slate-900 focus:ring-2 focus:outline-none ${
                   cleanImeiInput.length >= 8
                     ? imeiCheckResult.found
                       ? 'border-emerald-500 bg-emerald-50/50 focus:ring-emerald-500'
-                      : 'border-rose-500 bg-rose-50/50 focus:ring-rose-500'
+                      : boxBarcodeProduct
+                        ? 'border-amber-500 bg-amber-50/50 focus:ring-amber-500'
+                        : 'border-rose-500 bg-rose-50/50 focus:ring-rose-500'
                     : 'border-slate-300 focus:ring-slate-600'
                 }`}
               />
@@ -542,6 +586,13 @@ export default function CreditDeviceModal({
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>
                     ⚠️ IMEI registrado en {imeiCheckResult.otherBranch}. Se requiere traspaso a {currentBranch?.name || 'sucursal actual'}.
+                  </span>
+                </div>
+              ) : boxBarcodeProduct ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-xs text-amber-950 font-bold">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Eso es el código de la caja de <strong className="underline">{boxBarcodeProduct.name}</strong>. Escanee el IMEI del celular (15 dígitos).
                   </span>
                 </div>
               ) : (
