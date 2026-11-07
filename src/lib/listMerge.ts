@@ -12,6 +12,36 @@ export function mergeByIdKeep<T extends { id: string }>(previous: T[], incoming:
   return Array.from(map.values());
 }
 
+/**
+ * Un documento que ya no viene en la ventana en vivo no es “historial viejo”:
+ * si su fecha entra en esa ventana, se borró y no debe reaparecer desde el caché.
+ */
+export function dropAbsentFromLiveWindow<T extends { id: string; timestamp?: string }>(
+  previous: T[],
+  live: T[],
+  options?: { keepIds?: Iterable<string>; liveIsComplete?: boolean }
+): T[] {
+  if (!live.length) return previous;
+  const liveIds = new Set((live || []).map((row) => row?.id).filter(Boolean));
+  const keepIds = new Set(
+    [...(options?.keepIds || [])].map((id) => String(id || '').trim()).filter(Boolean)
+  );
+  let oldestLive = '';
+  for (const row of live) {
+    const ts = String(row?.timestamp || '');
+    if (!/^\d{4}-\d{2}-\d{2}/.test(ts)) continue;
+    if (!oldestLive || ts < oldestLive) oldestLive = ts;
+  }
+  return (previous || []).filter((row) => {
+    if (!row?.id) return false;
+    if (liveIds.has(row.id) || keepIds.has(row.id)) return true;
+    if (options?.liveIsComplete) return false;
+    const ts = String(row.timestamp || '');
+    if (oldestLive && ts >= oldestLive) return false;
+    return true;
+  });
+}
+
 export function oldestTimestamp<T>(rows: T[], field: keyof T): string {
   let oldest = '';
   for (const row of rows) {

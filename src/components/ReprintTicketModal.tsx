@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { SaleTicket, Branch, Operator } from '../types';
 import { getBranchDisplayName, normalizeBranchId } from '../data/initialBranches';
+import { isCancelledSaleTicket } from '../lib/imeiInventory';
 import TicketReceiptModal from './TicketReceiptModal';
 
 interface ReprintTicketModalProps {
@@ -41,11 +42,13 @@ export default function ReprintTicketModal({
 
   // Sort tickets by timestamp descending (newest first)
   const sortedTickets = useMemo(() => {
-    return [...salesTickets].sort((a, b) => {
-      const timeA = new Date(a.timestamp).getTime() || 0;
-      const timeB = new Date(b.timestamp).getTime() || 0;
-      return timeB - timeA;
-    });
+    return [...salesTickets]
+      .filter((ticket) => !isCancelledSaleTicket(ticket))
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime() || 0;
+        const timeB = new Date(b.timestamp).getTime() || 0;
+        return timeB - timeA;
+      });
   }, [salesTickets]);
 
   // Set default ticket to the most recent one when opening

@@ -163,7 +163,12 @@ import {
 } from '../lib/inventoryReceipt';
 import SyncStatusChip from './SyncStatusChip';
 import LazyWhen, { ModuleLoading } from './LazyWhen';
-import { mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
+import { dropAbsentFromLiveWindow, mergeByIdKeep, oldestTimestamp } from '../lib/listMerge';
+import {
+  excludeDeletedSales,
+  loadDeletedSaleIds,
+  rememberDeletedSaleIds
+} from '../lib/saleTombstones';
 import {
   markCashDaysLoaded,
   mergeCajaDocsWithSnapshots,
@@ -225,7 +230,9 @@ export default function Dashboard({
   // Shared Data States synced with Firebase Firestore
   const [products, setProducts] = useState<Product[]>(() => loadCachedProducts(INITIAL_PRODUCTS));
   const [repairPrices, setRepairPrices] = useState<RepairPriceItem[]>(INITIAL_REPAIR_PRICES);
-  const [salesTickets, setSalesTickets] = useState<SaleTicket[]>(() => loadCachedList<SaleTicket>('sales'));
+  const [salesTickets, setSalesTickets] = useState<SaleTicket[]>(() =>
+    excludeDeletedSales(loadCachedList<SaleTicket>('sales'), loadDeletedSaleIds())
+  );
   const [expenses, setExpenses] = useState<Expense[]>(() => loadCachedList<Expense>('expenses'));
   const [cortesX, setCortesX] = useState<CorteXRecord[]>(() => loadCachedList<CorteXRecord>('cortes'));
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
@@ -291,12 +298,20 @@ export default function Dashboard({
   const cloudRepairIdsRef = useRef<Set<string> | null>(null);
   const rescuedRepairIdsRef = useRef(new Set<string>());
   const deletedRepairIdsRef = useRef<Set<string>>(new Set(loadDeletedRepairIds()));
+  const deletedSaleIdsRef = useRef<Set<string>>(new Set(loadDeletedSaleIds()));
 
   const mergeDeletedRepairIds = (extra: Iterable<string>) => {
     const next = rememberDeletedRepairIds(deletedRepairIdsRef.current, extra);
     deletedRepairIdsRef.current = new Set(next);
     return deletedRepairIdsRef.current;
   };
+  const mergeDeletedSaleIds = (extra: Iterable<string>) => {
+    const next = rememberDeletedSaleIds(deletedSaleIdsRef.current, extra);
+    deletedSaleIdsRef.current = new Set(next);
+    return deletedSaleIdsRef.current;
+  };
+  const visibleSales = (rows: SaleTicket[] | undefined) =>
+    excludeDeletedSales(rows, deletedSaleIdsRef.current);
   const recentlySoldImeisRef = useRef(new Set<string>());
   const cloudProductsRef = useRef<Product[]>([]);
   const pendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
@@ -335,7 +350,7 @@ export default function Dashboard({
     const next = applyLiveCatalog({
       cloud: Array.from(byId.values()),
       pendingWrites: pendingInventoryRef.current,
-      tickets: [...localOnlyRef.current.sales, ...salesTicketsRef.current.slice(0, 80)],
+      tickets: visibleSales([...localOnlyRef.current.sales, ...salesTicketsRef.current.slice(0, 80)]),
       extraSoldImeis: recentlySoldImeisRef.current
     });
     setProducts(next);
@@ -393,8 +408,12 @@ export default function Dashboard({
       (sales) => {
         setSalesTickets((prev) => {
           const fromCloud = keepIfCloudEmpty(sales, prev);
+          const keptPrev = dropAbsentFromLiveWindow(prev, fromCloud, {
+            keepIds: localOnlyRef.current.sales.map((row) => row.id),
+            liveIsComplete: sales.length > 0 && sales.length < LIVE_LIMIT.sales
+          });
           const next = sortByTimestampDesc(
-            mergeWithLocal(mergeByIdKeep(prev, fromCloud), localOnlyRef.current.sales)
+            visibleSales(mergeWithLocal(mergeByIdKeep(keptPrev, fromCloud), localOnlyRef.current.sales))
           );
           salesTicketsRef.current = next;
           scheduleSaveCachedList('sales', next);
@@ -564,7 +583,7 @@ export default function Dashboard({
     }
     const extra = await fetchOlderSales(before, HISTORY_PAGE);
     if (extra.length > 0) {
-      const next = sortByTimestampDesc(mergeByIdKeep(salesTicketsRef.current, extra));
+      const next = sortByTimestampDesc(visibleSales(mergeByIdKeep(salesTicketsRef.current, extra)));
       salesTicketsRef.current = next;
       startTransition(() => setSalesTickets(next));
       scheduleSaveCachedList('sales', next);
@@ -697,7 +716,7 @@ export default function Dashboard({
     (docs: { tickets: SaleTicket[]; expenses: Expense[]; cortes: CorteXRecord[] }) => {
       const merged = mergeCajaDocsWithSnapshots(docs);
       if (merged.tickets.length > 0) {
-        const next = sortByTimestampDesc(mergeByIdKeep(salesTicketsRef.current, merged.tickets));
+        const next = sortByTimestampDesc(visibleSales(mergeByIdKeep(salesTicketsRef.current, merged.tickets)));
         salesTicketsRef.current = next;
         startTransition(() => setSalesTickets(next));
         scheduleSaveCachedList('sales', next);
@@ -875,7 +894,8 @@ export default function Dashboard({
         ]);
         if (cancelled) return;
         const visibleLocalRepairs = excludeDeletedRepairs(repairs, deletedRepairIdsRef.current);
-        localOnlyRef.current = { sales, expenses: exps, cortes, repairs: visibleLocalRepairs };
+        const visibleLocalSales = visibleSales(sales);
+        localOnlyRef.current = { sales: visibleLocalSales, expenses: exps, cortes, repairs: visibleLocalRepairs };
         const legacy = excludeDeletedRepairs(loadLegacyRepairRecords(), deletedRepairIdsRef.current);
         if (visibleLocalRepairs.length > 0 || legacy.length > 0) {
           setRepairRecords((prev) => {
@@ -887,8 +907,8 @@ export default function Dashboard({
             return next;
           });
         }
-        if (sales.length > 0) {
-          setSalesTickets((prev) => sortByTimestampDesc(mergeWithLocal(prev, sales)));
+        if (visibleLocalSales.length > 0) {
+          setSalesTickets((prev) => sortByTimestampDesc(visibleSales(mergeWithLocal(prev, visibleLocalSales))));
         }
         if (exps.length > 0) {
           setExpenses((prev) => sortByTimestampDesc(mergeWithLocal(prev, exps)));
@@ -1574,13 +1594,17 @@ export default function Dashboard({
       typeof ticket === 'object'
         ? ticket
         : salesTicketsRef.current.find((row) => row.id === ticketId);
+    if (ticketId) mergeDeletedSaleIds([ticketId]);
     for (const item of ticketData?.items || []) {
       const imei = normalizeImei(item.metadata?.imei);
       if (imei) recentlySoldImeisRef.current.delete(imei);
     }
-    setSalesTickets((prev) => prev.filter((t) => t.id !== ticketId));
+    const nextTickets = visibleSales(salesTicketsRef.current.filter((t) => t.id !== ticketId));
+    salesTicketsRef.current = nextTickets;
+    setSalesTickets(nextTickets);
+    saveCachedList('sales', nextTickets);
     // Sin esto el ticket cancelado reaparecía al recargar, desde el respaldo local.
-    localOnlyRef.current.sales = localOnlyRef.current.sales.filter((t) => t.id !== ticketId);
+    localOnlyRef.current.sales = visibleSales(localOnlyRef.current.sales.filter((t) => t.id !== ticketId));
     await forgetLocalSale(ticketId);
     await deleteSaleTicketFromFirestore(ticket, {
       reason: reason || 'Error de captura de operador',

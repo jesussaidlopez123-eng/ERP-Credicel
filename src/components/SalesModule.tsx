@@ -38,6 +38,7 @@ import { deleteExpenseFromFirestore, deleteSaleTicketFromFirestore } from '../li
 import { ALL_BRANCHES, COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { authorizeWithAdminPassword } from '../lib/inventoryAuth';
 import { expenseAppearsOnCorteX, isOpenShiftMovement } from '../lib/historicSale';
+import { isCancelledSale } from '../lib/corteCategories';
 import LazyWhen from './LazyWhen';
 import LoadMoreButton from './LoadMoreButton';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -149,7 +150,10 @@ function SalesModule({
   };
 
   // Safe data arrays
-  const safeTickets = useMemo(() => Array.isArray(salesTickets) ? salesTickets : [], [salesTickets]);
+  const safeTickets = useMemo(
+    () => (Array.isArray(salesTickets) ? salesTickets.filter((ticket) => !isCancelledSale(ticket)) : []),
+    [salesTickets]
+  );
   const safeExpenses = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
   const safeCortesX = useMemo(() => Array.isArray(cortesX) ? cortesX : [], [cortesX]);
 
@@ -262,6 +266,7 @@ function SalesModule({
   // Filtered Live Tickets
   const filteredTickets = useMemo(() => {
     return safeTickets.filter(ticket => {
+      if (isCancelledSale(ticket)) return false;
       const normBId = normalizeBranchId(ticket.branchId);
       if (!hasCashTill(normBId)) return false;
       if (selectedBranchId !== 'all' && normBId !== selectedBranchId) {
