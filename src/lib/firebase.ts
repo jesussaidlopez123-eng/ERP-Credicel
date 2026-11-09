@@ -50,6 +50,7 @@ import {
   isAfterCashClose,
   isAutomaticCloseNote,
   isHollowAutoCloseCorte,
+  isHumanCorteForDay,
   isPrematureAutoCorte,
   sessionNeedsAutomaticCorte,
   shouldPersistCorteRecord
@@ -1448,6 +1449,7 @@ export async function syncPosCashSession(params: {
   initialFund?: number;
   ticketsSnapshot?: SaleTicket[];
   expensesSnapshot?: Expense[];
+  cortesSnapshot?: CorteXRecord[];
 }): Promise<{ session: SesionCaja | null; tillLocked: boolean; autoClosed: boolean; closeFailed?: boolean }> {
   if (canOpenNewCashSession()) {
     await reopenPrematureAutoCorteIfNeeded(params.branchId);
@@ -1497,6 +1499,20 @@ export async function syncPosCashSession(params: {
       stillOpen = due.session?.estado === 'ABIERTA' ? due.session : null;
     }
     return { session: stillOpen, tillLocked: true, autoClosed, closeFailed };
+  }
+  const todayKey = getHermosilloClock().dateKey;
+  const branchId = normalizeBranchId(params.branchId);
+  const humanClosedToday = (params.cortesSnapshot || []).some(
+    (corte) => isHumanCorteForDay(corte, todayKey) && normalizeBranchId(corte.branchId) === branchId
+  );
+  if (humanClosedToday) {
+    let leftover: SesionCaja | null = null;
+    try {
+      leftover = await findExistingOpenSession(params.branchId, params.initialFund ?? 0);
+    } catch {
+      leftover = due.session?.estado === 'ABIERTA' ? due.session : null;
+    }
+    return { session: leftover, tillLocked: false, autoClosed: due.closed };
   }
   const session = await getActiveCashSession(
     params.branchId,

@@ -1,7 +1,12 @@
 import type { Branch, CorteXRecord, Expense, Operator, SaleTicket } from '../types';
 import { COMMERCIAL_BRANCHES, getBranchDisplayName, hasCashTill, normalizeBranchId } from '../data/initialBranches';
 import { fillCashDateSpan, parseSafeDate, safeDateIsoKey, safeFormatDate } from './dateUtils';
-import { isAfterCashClose, isHollowAutoCloseCorte, isPrematureAutoCorteRecord } from './shiftHours';
+import {
+  isAfterCashClose,
+  isHollowAutoCloseCorte,
+  isHumanCorteForDay,
+  isPrematureAutoCorteRecord
+} from './shiftHours';
 import { money } from './ids';
 import { corteExpenseTotals } from './historicSale';
 import { branchDateKey, datesFromBranchDateIndex, indexByBranchDate } from './branchDateIndex';
@@ -199,8 +204,10 @@ export function buildCortesRoster(args: BuildArgs): CorteXRecord[] {
       if (corte.sesion_caja_id) suppressed.add(corte.sesion_caja_id);
       continue;
     }
-    // Un cierre a media mañana no debe tapar el turno que sigue abierto el mismo día.
-    if (dateKey === todayKey && todayStillOpen) {
+    // Si la caja sigue abierta, el arqueo de media mañana no tapa el turno en curso.
+    // Si ya cerraron de verdad y no hay sesión ABIERTA, el corte debe seguir visible.
+    const tillStillOpen = Boolean(openCashiersByBranch[normBId]);
+    if (dateKey === todayKey && todayStillOpen && (tillStillOpen || !isHumanCorteForDay(corte, dateKey))) {
       suppressed.add(corte.id);
       if (corte.sesion_caja_id) suppressed.add(corte.sesion_caja_id);
       continue;

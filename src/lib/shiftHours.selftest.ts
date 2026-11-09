@@ -10,6 +10,7 @@ import {
   isActiveCorteRecord,
   isAutomaticCloseNote,
   isHollowAutoCloseCorte,
+  isHumanCorteForDay,
   shouldPersistCorteRecord,
   withoutHollowAutoCloseCortes,
   isPrematureAutoCorte,
@@ -146,6 +147,30 @@ assert.equal(
     ticketIds: ['TCK-H']
   }),
   true
+);
+
+assert.equal(
+  isHumanCorteForDay(
+    {
+      timestamp: '2026-11-08T22:00:00.000Z',
+      totalSales: 4500,
+      ticketIds: ['HUA-0811-001']
+    },
+    '2026-11-08'
+  ),
+  true
+);
+assert.equal(
+  isHumanCorteForDay(
+    {
+      timestamp: '2026-11-08T22:00:00.000Z',
+      closingNotes: AUTO_CORTE_NOTE,
+      totalSales: 0,
+      ticketIds: []
+    },
+    '2026-11-08'
+  ),
+  false
 );
 
 console.log('shiftHours self-test ok');

@@ -257,6 +257,29 @@ export function daysNeedingCatchUpClose(now: Date = new Date()): string[] {
   return days;
 }
 
+/** Corte de cajera (no el 23:00 vacío) del día de caja. */
+export function isHumanCorteForDay(
+  corte: {
+    reverted?: boolean;
+    timestamp?: string;
+    dateStr?: string;
+    closingNotes?: string;
+    ticketIds?: string[];
+    ticketsSnapshot?: unknown[];
+    expenseIds?: string[];
+    expensesSnapshot?: unknown[];
+    totalSales?: number;
+    totalExpenses?: number;
+  } | null | undefined,
+  dateKey: string
+): boolean {
+  if (!corte || corte.reverted) return false;
+  const day = hermosilloDateKey(corte.timestamp) || hermosilloDateKey(corte.dateStr);
+  if (!dateKey || day !== dateKey) return false;
+  if (isAutomaticCloseNote(corte.closingNotes)) return false;
+  return corteHasMovements(corte);
+}
+
 export function isActiveCorteRecord(
   corte: {
     reverted?: boolean;

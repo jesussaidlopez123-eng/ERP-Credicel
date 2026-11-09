@@ -420,4 +420,104 @@ assert.equal(
   3278
 );
 
+const huaHumanClose: CorteXRecord = {
+  id: 'CTX-HUA-20261108',
+  timestamp: '2026-11-08T22:54:58.000Z',
+  dateStr: '08/11/2026',
+  timeStr: '3:54 p.m.',
+  branchId: 'b-huatabampo',
+  branchName: 'Huatabampo',
+  operatorName: 'GERALDIN FLORES',
+  initialCashFund: 623,
+  cashSales: 4500,
+  cardSales: 0,
+  transferSales: 0,
+  totalSales: 4500,
+  totalExpenses: 0,
+  netIncome: 4500,
+  expectedCashInDrawer: 5123,
+  ticketIds: ['HUA-0811-001'],
+  expenseIds: [],
+  breakdown: {
+    accesoriosTotal: 4500,
+    accesoriosCount: 1,
+    abonosTotal: 0,
+    abonosCount: 0,
+    enganchesTotal: 0,
+    enganchesCount: 0,
+    reparacionesTotal: 0,
+    reparacionesCount: 0,
+    recargasTotal: 0,
+    recargasCount: 0
+  }
+};
+const huaKept = buildCortesRoster({
+  cortes: [huaHumanClose],
+  tickets: [
+    {
+      id: 'HUA-0811-001',
+      folio: 'HUA-0811-001',
+      timestamp: '2026-11-08T18:00:00.000Z',
+      branchId: 'b-huatabampo',
+      operatorName: 'GERALDIN FLORES',
+      items: [],
+      total: 4500,
+      paymentMethod: 'Efectivo',
+      corteXId: 'CTX-HUA-20261108',
+      sesion_caja_id: 'CTX-HUA-20261108'
+    } as SaleTicket
+  ],
+  expenses: [],
+  todayKey: '2026-11-08',
+  currentBranch: { id: 'b-huatabampo', name: 'Huatabampo' },
+  currentOperator: operator,
+  openingFund: () => 623,
+  openCashiersByBranch: {},
+  now: new Date('2026-11-08T16:20:00-07:00')
+});
+const huaToday = huaKept.find(
+  (row) => row.branchId === 'b-huatabampo' && (row.timestamp || '').includes('2026-11-08')
+);
+assert.equal(huaToday?.id, 'CTX-HUA-20261108', 'el corte humano de Huatabampo no se oculta si ya no hay turno abierto');
+assert.equal(huaToday?.totalSales, 4500);
+
+const huaWhileOpen = buildCortesRoster({
+  cortes: [huaHumanClose],
+  tickets: [
+    {
+      id: 'HUA-0811-001',
+      folio: 'HUA-0811-001',
+      timestamp: '2026-11-08T18:00:00.000Z',
+      branchId: 'b-huatabampo',
+      operatorName: 'GERALDIN FLORES',
+      items: [],
+      total: 4500,
+      paymentMethod: 'Efectivo',
+      corteXId: 'CTX-HUA-20261108'
+    } as SaleTicket,
+    {
+      id: 'HUA-0811-025',
+      folio: 'HUA-0811-025',
+      timestamp: '2026-11-08T23:10:00.000Z',
+      branchId: 'b-huatabampo',
+      operatorName: 'GERALDIN FLORES',
+      items: [],
+      total: 172,
+      paymentMethod: 'Efectivo'
+    } as SaleTicket
+  ],
+  expenses: [],
+  todayKey: '2026-11-08',
+  currentBranch: { id: 'b-huatabampo', name: 'Huatabampo' },
+  currentOperator: operator,
+  openingFund: () => 623,
+  openCashiersByBranch: { 'b-huatabampo': 'GERALDIN FLORES' },
+  now: new Date('2026-11-08T16:20:00-07:00')
+});
+const huaLive = huaWhileOpen.find(
+  (row) => row.branchId === 'b-huatabampo' && (row.timestamp || '').includes('2026-11-08')
+);
+assert.equal(huaLive?.id.startsWith('CTX-TURNO'), true, 'si el turno sigue abierto, se ve el corte en curso');
+assert.equal((huaLive?.ticketIds || []).includes('HUA-0811-025'), true);
+
 console.log('salesCortesBuild self-test ok');

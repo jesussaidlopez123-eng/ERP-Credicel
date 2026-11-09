@@ -19,9 +19,15 @@ export function mergeByIdKeep<T extends { id: string }>(previous: T[], incoming:
 export function dropAbsentFromLiveWindow<T extends { id: string; timestamp?: string }>(
   previous: T[],
   live: T[],
-  options?: { keepIds?: Iterable<string>; liveIsComplete?: boolean }
+  options?: { keepIds?: Iterable<string>; liveIsComplete?: boolean; minLiveCount?: number }
 ): T[] {
   if (!live.length) return previous;
+  const minLiveCount = Math.max(0, Number(options?.minLiveCount) || 0);
+  // Un snapshot chico (caché parcial de Firestore) no es la ventana completa:
+  // no borres el turno de Huatabampo/Navojoa porque llegaron 20 tickets.
+  if (minLiveCount > 0 && live.length < minLiveCount && !options?.liveIsComplete) {
+    return previous;
+  }
   const liveIds = new Set((live || []).map((row) => row?.id).filter(Boolean));
   const keepIds = new Set(
     [...(options?.keepIds || [])].map((id) => String(id || '').trim()).filter(Boolean)

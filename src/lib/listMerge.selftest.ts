@@ -30,4 +30,21 @@ assert.deepEqual(
   ['keep-old', 'live', 'live-old']
 );
 
+assert.deepEqual(
+  dropAbsentFromLiveWindow(
+    [
+      { id: 'HUA-0811-001', timestamp: '2026-11-08T17:10:00.000Z' },
+      { id: 'HUA-0811-012', timestamp: '2026-11-08T20:00:00.000Z' },
+      { id: 'HUA-0811-024', timestamp: '2026-11-08T22:05:00.000Z' }
+    ],
+    [
+      { id: 'HUA-0811-024', timestamp: '2026-11-08T22:05:00.000Z' },
+      { id: 'HUA-0811-012', timestamp: '2026-11-08T20:00:00.000Z' }
+    ],
+    { minLiveCount: 180 }
+  ).map((row) => row.id),
+  ['HUA-0811-001', 'HUA-0811-012', 'HUA-0811-024'],
+  'un snapshot parcial no debe vaciar el corte de Huatabampo a media turno'
+);
+
 console.log('listMerge self-test ok');

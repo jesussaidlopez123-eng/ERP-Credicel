@@ -410,7 +410,7 @@ export default function Dashboard({
           const fromCloud = keepIfCloudEmpty(sales, prev);
           const keptPrev = dropAbsentFromLiveWindow(prev, fromCloud, {
             keepIds: localOnlyRef.current.sales.map((row) => row.id),
-            liveIsComplete: sales.length > 0 && sales.length < LIVE_LIMIT.sales
+            minLiveCount: LIVE_LIMIT.sales
           });
           const next = sortByTimestampDesc(
             visibleSales(mergeWithLocal(mergeByIdKeep(keptPrev, fromCloud), localOnlyRef.current.sales))
@@ -1056,7 +1056,8 @@ export default function Dashboard({
             cortes: cortesX
           }),
           ticketsSnapshot: salesTicketsRef.current,
-          expensesSnapshot: expensesRef.current
+          expensesSnapshot: expensesRef.current,
+          cortesSnapshot: cortesRef.current
         });
         if (cancelled) return;
         setActiveCashSession(result.session);
@@ -2338,26 +2339,8 @@ export default function Dashboard({
       persistLocalBranchFund(targetBranchId, leftover);
       setBranchCashFunds((prev) => ({ ...prev, [targetBranchId]: leftover }));
 
-      if (canOpenNewCashSession() && normalizeBranchId(currentBranch.id) === targetBranchId) {
-        try {
-          const nextSession = await getActiveCashSession(
-            targetBranchId,
-            targetBranchName,
-            currentOperator.name,
-            leftover,
-            currentOperator.id
-          );
-          setActiveCashSession(nextSession);
-          rememberLastSession(targetBranchId, nextSession);
-          setTillLocked(false);
-        } catch (nextErr) {
-          console.warn('[CorteX] No se pudo abrir el siguiente turno todavía:', nextErr);
-          setActiveCashSession(null);
-        }
-      } else {
-        setActiveCashSession(null);
-        setTillLocked(true);
-      }
+      setActiveCashSession(null);
+      setTillLocked(!canOpenNewCashSession());
     } catch (err) {
       console.error('Error al guardar el corte en el equipo:', err);
       throw err instanceof Error
