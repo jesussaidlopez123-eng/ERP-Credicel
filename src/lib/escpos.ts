@@ -54,7 +54,7 @@ export function wrapLine(text: string, cols = ESC_POS_COLS): string[] {
   return lines;
 }
 
-/** Un renglón de 58 mm: 32 columnas, sin partir a la siguiente línea. */
+/** Un renglón de 58 mm (32 columnas) para el ticket de Corte X. */
 export function clipLine(text: string, cols = ESC_POS_COLS): string {
   const t = String(text || '')
     .replace(/\s+/g, ' ')
@@ -63,9 +63,10 @@ export function clipLine(text: string, cols = ESC_POS_COLS): string {
 }
 
 export function pairLine(left: string, right: string, cols = ESC_POS_COLS): string {
-  let r = clipLine(right, cols);
+  const r = String(right || '');
   const maxLeft = Math.max(0, cols - r.length);
-  const l = clipLine(left, maxLeft);
+  let l = String(left || '');
+  if (l.length > maxLeft) l = l.slice(0, maxLeft);
   const gap = cols - l.length - r.length;
   return `${l}${' '.repeat(Math.max(0, gap))}${r}`;
 }
@@ -192,8 +193,8 @@ export function utf8ToBase64(text: string): string {
 }
 
 export function centerLine(text: string, cols = ESC_POS_COLS): string {
-  const t = clipLine(text, cols);
-  if (t.length >= cols) return t;
+  const t = String(text || '');
+  if (t.length >= cols) return t.slice(0, cols);
   return `${' '.repeat(Math.floor((cols - t.length) / 2))}${t}`;
 }
 
@@ -211,21 +212,22 @@ export class TicketDraft {
   private lines: DraftLine[] = [];
 
   center(value: string): this {
-    this.lines.push({ kind: 'center', text: clipLine(value) });
+    this.lines.push({ kind: 'center', text: String(value || '') });
     return this;
   }
 
   left(value: string): this {
-    this.lines.push({ kind: 'left', text: clipLine(value) });
+    this.lines.push({ kind: 'left', text: String(value || '') });
     return this;
   }
 
   wrapped(value: string): this {
-    return this.left(value);
+    for (const part of wrapLine(value)) this.left(part);
+    return this;
   }
 
   pair(left: string, right: string): this {
-    this.lines.push({ kind: 'pair', left: clipLine(left), right: clipLine(right) });
+    this.lines.push({ kind: 'pair', left: String(left || ''), right: String(right || '') });
     return this;
   }
 

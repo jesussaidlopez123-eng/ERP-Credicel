@@ -27,8 +27,8 @@ export const THERMAL_PAGE_CSS = `
     background: #fff !important;
     color: #000 !important;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 11px;
-    line-height: 1.12;
+    font-size: 13px;
+    line-height: 1.25;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -36,13 +36,13 @@ export const THERMAL_PAGE_CSS = `
     width: 54mm;
     margin: 0 auto;
     padding: 0.5mm 0.5mm 2mm 0.5mm;
-    font-size: 11px;
-    line-height: 1.12;
+    font-size: 13px;
+    line-height: 1.25;
     color: #000;
   }
   .sheet, .sheet * {
-    font-size: 11px;
-    line-height: 1.12;
+    font-size: 13px;
+    line-height: 1.25;
     margin: 0;
     padding: 0;
   }
@@ -53,17 +53,7 @@ export const THERMAL_PAGE_CSS = `
     text-align: center;
     letter-spacing: 0;
   }
-  .sheet p { font-size: 11px !important; }
-  .sheet pre, .sheet .ticket-58 {
-    display: block;
-    white-space: pre;
-    overflow: hidden;
-    word-break: keep-all;
-    overflow-wrap: normal;
-    font-size: 11px !important;
-    line-height: 1.12;
-    letter-spacing: 0;
-  }
+  .sheet p { font-size: 13px !important; }
   .sheet svg {
     display: block;
     width: 100%;

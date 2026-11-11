@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2 } from 'lucide-react';
+import { DollarSign, FileText, X, AlertCircle, PlusCircle, Printer, CheckCircle2, Barcode } from 'lucide-react';
 import { Expense, Branch, Operator } from '../types';
 import { isAndroidPrintHost, printThermalFromElement } from '../lib/printWindow';
 import { printThermalTicket } from '../lib/printEscpos';
 import { buildExpenseTicketEscPos, buildExpenseTicketPlainText } from '../lib/escposTickets';
-import { money, newUniqueId } from '../lib/ids';
+import { formatMoney, money, newUniqueId } from '../lib/ids';
 import { formatHermosilloDate } from '../lib/shiftHours';
 
 interface ExpenseModalProps {
@@ -112,12 +112,8 @@ export default function ExpenseModal({
             box-shadow: none !important;
             border: none !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 11px !important;
-            line-height: 1.12 !important;
-            white-space: pre !important;
-            overflow: hidden !important;
-            word-break: keep-all !important;
-            overflow-wrap: normal !important;
+            font-size: 8px !important;
+            line-height: 1.1 !important;
           }
           #thermal-expense-receipt .inline-block {
             background: transparent !important;
@@ -150,12 +146,35 @@ export default function ExpenseModal({
             </div>
 
             {/* RECEIPT CONTENT (PRINTABLE THERMAL AREA) */}
-            <pre
-              id="thermal-expense-receipt"
-              className="ticket-58 px-1.5 py-1 font-mono text-[11px] leading-tight text-black bg-white border-b border-slate-200 overflow-hidden whitespace-pre flex-1"
-            >
-              {buildExpenseTicketPlainText(createdExpense, currentBranch).trimEnd()}
-            </pre>
+            <div id="thermal-expense-receipt" className="px-1.5 py-1 font-mono text-[8px] leading-tight text-slate-800 bg-white border-b border-slate-200 overflow-y-auto flex-1">
+              
+              <div className="text-center pb-0.5 border-b border-dashed border-slate-800">
+                <h2 className="text-[11px] font-black tracking-tight text-black uppercase leading-none m-0">CrediCel</h2>
+                <p className="text-[8px] font-bold m-0">{currentBranch.name} · {createdExpense.operatorName}</p>
+                <p className="text-[7.5px] text-slate-700 m-0">{createdExpense.timestamp}</p>
+                <p className="text-[8px] font-black uppercase m-0">VALE DE SALIDA</p>
+                <div className="inline-block mt-0.5 px-1 border border-black text-black font-black font-mono text-[8px]">
+                  {createdExpense.id}
+                </div>
+              </div>
+
+              <div className="py-0.5 border-b border-dashed border-slate-800">
+                <div className="font-black uppercase">Concepto</div>
+                <div className="font-bold leading-tight">{createdExpense.concept}</div>
+              </div>
+
+              <div className="flex justify-between text-[9px] font-black text-black border-t border-black">
+                <span>SALIDA</span>
+                <span className="font-mono">-${formatMoney(createdExpense.amount)}</span>
+              </div>
+
+              <div className="text-center pt-0.5 border-t border-dashed border-slate-800">
+                <Barcode className="w-full text-black" style={{ height: '10px', maxWidth: '46mm' }} />
+                <p className="font-mono text-[8px] font-black tracking-widest m-0">*{createdExpense.id}*</p>
+                <p className="text-[7.5px] m-0">Salida de efectivo autorizada</p>
+              </div>
+
+            </div>
 
             {/* Modal Bottom Action Buttons (Screen Only) */}
             <div className="p-4 bg-white flex flex-col sm:flex-row items-center justify-between gap-2 no-print shrink-0 border-t border-slate-200">
