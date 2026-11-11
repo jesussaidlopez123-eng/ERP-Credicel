@@ -1,4 +1,4 @@
-import { TicketDraft } from './escpos';
+import { TicketDraft, clipLine } from './escpos';
 import type { CorteTicketView } from './corteTicket';
 import { formatMoney, ticketFolioLabel } from './ids';
 import type { Branch, CartItem, Expense, SaleTicket } from '../types';
@@ -7,110 +7,98 @@ function money(n: number | undefined): string {
   return `$${formatMoney(n ?? 0)}`;
 }
 
-function saleDateLabel(ticket: SaleTicket): string {
-  if (!ticket.timestamp) return '';
+function ticketClockLabel(iso: string | undefined): string {
+  const raw = String(iso || '').trim();
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return clipLine(raw);
   try {
-    const d = new Date(ticket.timestamp);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('es-MX', {
+    return d
+      .toLocaleString('es-MX', {
+        timeZone: 'America/Hermosillo',
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
+        year: '2-digit',
+        hour: 'numeric',
         minute: '2-digit',
         hour12: true
-      });
-    }
+      })
+      .replace(',', '');
   } catch {
-    /* keep raw */
+    return clipLine(raw);
   }
-  return ticket.timestamp;
+}
+
+function folioTail(folio: string | undefined): string {
+  const parts = String(folio || '').split('-').filter(Boolean);
+  return parts[parts.length - 1] || String(folio || '');
+}
+
+function itemName(item: CartItem): string {
+  const meta = item.metadata;
+  const name = String(item.product?.name || '').trim();
+  if (meta?.caseModel && !name.toLowerCase().includes(meta.caseModel.toLowerCase())) {
+    return `${name} ${meta.caseModel}`.trim();
+  }
+  return name;
 }
 
 function appendCartItem(draft: TicketDraft, item: CartItem): void {
   const meta = item.metadata;
-  draft.pair(`${item.quantity}x ${item.product.name}`, money(item.totalPrice));
+  draft.pair(`${item.quantity}x ${itemName(item)}`, money(item.totalPrice));
 
-  if (item.product.code.startsWith('ABO-')) {
-    draft.left('ABONO CREDITO');
-    if (meta?.issueDescription) draft.wrapped(meta.issueDescription);
+  if (item.product.code.startsWith('ABO-') && meta?.issueDescription) {
+    draft.left(meta.issueDescription);
   }
 
   if (meta?.phoneNumber) {
     draft.left(`TEL ${meta.phoneNumber}`);
-    if (meta.carrier) draft.left(meta.carrier.toUpperCase());
   }
 
-  if (meta?.deviceModel && !item.product.code.startsWith('ABO-')) {
-    const contado = meta.saleType === 'contado' || meta.financingPlatform === 'Contado';
-    draft.left(contado ? 'CELULAR CONTADO' : `CREDITO ${meta.financingPlatform || ''}`.trim());
-    if (meta.clientName) draft.wrapped(meta.clientName);
-    if (meta.clientPhone) draft.left(meta.clientPhone);
-    draft.wrapped(meta.deviceModel);
-    if (meta.imei) draft.left(`IMEI ${meta.imei}`);
-    if (meta.saleType === 'credito' && meta.financingPlatform !== 'Contado' && meta.fullPrice !== undefined) {
-      draft.pair('Precio', money(meta.fullPrice));
-      draft.pair('Enganche', money(meta.downPayment || item.totalPrice));
-      draft.pair(
-        'Saldo',
-        money(meta.remainingBalance ?? Math.max(0, meta.fullPrice - (meta.downPayment || item.totalPrice)))
-      );
-    } else {
-      draft.pair('Total', money(meta.fullPrice || item.totalPrice));
+  const isPhone =
+    Boolean(meta?.deviceModel || meta?.imei) &&
+    !item.product.code.startsWith('ABO-') &&
+    !meta?.repairId;
+  if (isPhone) {
+    const contado = meta?.saleType === 'contado' || meta?.financingPlatform === 'Contado';
+    if (!contado && meta?.financingPlatform) {
+      const resto =
+        meta.remainingBalance ??
+        Math.max(0, (meta.fullPrice || 0) - (meta.downPayment || item.totalPrice));
+      draft.pair(meta.financingPlatform, `Saldo ${money(resto)}`);
     }
+    if (meta?.imei) draft.left(`IMEI ${meta.imei}`);
   }
 
   if (meta?.repairId) {
-    const entrega = meta.repairType === 'saldo_final';
-    draft.left(`${entrega ? 'ENTREGA TALLER' : 'RECEPCION TALLER'} ${meta.repairId}`);
-    if (meta.clientName) draft.wrapped(meta.clientName);
-    if (meta.deviceModel) draft.wrapped(meta.deviceModel);
-    if (!entrega && meta.issueDescription) draft.wrapped(meta.issueDescription);
-    if (!entrega && meta.passcodePattern && meta.passcodePattern !== 'Sin contraseña / Desbloqueado') {
-      draft.left(`PIN ${meta.passcodePattern}`);
-    }
-    if (meta.totalRepairCost !== undefined) {
-      if (entrega) {
-        draft.pair('Servicio', money(meta.totalRepairCost));
-        draft.pair('Anticipo', money(meta.advancePayment || 0));
-        draft.pair('Hoy', money(item.totalPrice));
-        draft.left('ENTREGADO Y PAGADO');
-      } else {
-        draft.pair('Costo', money(meta.totalRepairCost));
-        draft.pair('Anticipo', money(meta.advancePayment ?? item.totalPrice));
-        draft.pair(
-          'Resta',
-          money(
-            meta.pendingBalance ??
-              Math.max(0, meta.totalRepairCost - (meta.advancePayment ?? item.totalPrice))
-          )
-        );
-      }
+    draft.left([meta.repairId, meta.clientName].filter(Boolean).join(' '));
+    const entrega = meta.repairType === 'saldo_final' || meta.repairType === 'pago_total';
+    if (!entrega && meta.totalRepairCost !== undefined) {
+      const resta =
+        meta.pendingBalance ??
+        Math.max(0, meta.totalRepairCost - (meta.advancePayment ?? item.totalPrice));
+      if (resta > 0) draft.pair('Resta', money(resta));
     }
   }
-
-  if (meta?.caseModel) draft.left(`Para ${meta.caseModel}`);
 }
 
 export function buildSaleTicketDraft(ticket: SaleTicket, branch: Pick<Branch, 'name'>): TicketDraft {
   const folio = ticketFolioLabel(ticket);
   const draft = new TicketDraft();
   draft.center('CREDI CEL');
-  draft.center(`${branch.name} · ${ticket.operatorName}`);
-  draft.center(saleDateLabel(ticket));
+  draft.center(`${branch.name} ${ticket.operatorName}`);
+  draft.center(ticketClockLabel(ticket.timestamp));
   draft.center(folio);
   draft.dash();
   for (const item of ticket.items) appendCartItem(draft, item);
   draft.dash();
   draft.pair('TOTAL', money(ticket.total));
   if (ticket.paymentMethod === 'Efectivo' && ticket.cashReceived !== undefined) {
-    draft.pair(ticket.paymentMethod, `Rec ${money(ticket.cashReceived)}`);
-    draft.pair('Cambio', money(ticket.change || 0));
+    draft.pair('Efectivo', `Rec ${money(ticket.cashReceived)} Cam ${money(ticket.change || 0)}`);
   } else {
     draft.left(ticket.paymentMethod);
   }
   draft.dash();
-  draft.center(`*${folio}*`);
   draft.center('Gracias por su compra!');
   return draft;
 }
@@ -126,18 +114,14 @@ export function buildSaleTicketEscPos(ticket: SaleTicket, branch: Pick<Branch, '
 export function buildExpenseTicketDraft(expense: Expense, branch: Pick<Branch, 'name'>): TicketDraft {
   const draft = new TicketDraft();
   draft.center('CREDI CEL');
-  draft.center(`${branch.name} · ${expense.operatorName}`);
-  draft.center(expense.timestamp);
+  draft.center(`${branch.name} ${expense.operatorName}`);
+  draft.center(ticketClockLabel(expense.timestamp));
   draft.center('VALE DE SALIDA');
   draft.center(expense.id);
   draft.dash();
-  draft.left('CONCEPTO');
-  draft.wrapped(expense.concept);
+  draft.left(expense.concept);
   draft.dash();
   draft.pair('SALIDA', `-${money(expense.amount)}`);
-  draft.dash();
-  draft.center(`*${expense.id}*`);
-  draft.center('Salida de efectivo autorizada');
   return draft;
 }
 
@@ -149,57 +133,59 @@ export function buildExpenseTicketEscPos(expense: Expense, branch: Pick<Branch, 
   return buildExpenseTicketDraft(expense, branch).toEscPos();
 }
 
+function corteItemLeft(item: CorteTicketView['items'][number]): string {
+  const tail = item.imei ? ` ${item.imei.slice(-4)}` : '';
+  const folio = folioTail(item.ticketFolio);
+  return `${folio} ${item.quantity}x ${item.productName}${tail}`;
+}
+
 export function buildCorteTicketDraft(view: CorteTicketView): TicketDraft {
   const moneyView = (n: number) => `$${n.toFixed(2)}`;
   const draft = new TicketDraft();
   draft.center('CREDI CEL');
-  draft.center('CORTE DE CAJA (X)');
-  draft.center(`${view.branchName} · ${view.operatorName}`);
-  draft.center(`${view.dateStr} · ${view.timeStr}`);
+  draft.center('CORTE DE CAJA');
+  draft.center(`${view.branchName} ${view.operatorName}`);
+  draft.center(`${view.dateStr} ${view.timeStr}`);
   draft.center(view.folio);
   draft.dash();
-  draft.left('RESUMEN');
-  draft.pair(`Accesorios (${view.accesoriosCount})`, moneyView(view.accesoriosTotal));
-  draft.pair(`Abonos (${view.abonosCount})`, moneyView(view.abonosTotal));
-  draft.pair(`Enganches (${view.enganchesCount})`, moneyView(view.enganchesTotal));
-  draft.pair(`Reparaciones (${view.reparacionesCount})`, moneyView(view.reparacionesTotal));
-  draft.pair(`Recargas (${view.recargasCount})`, moneyView(view.recargasTotal));
-  draft.pair('TOTAL VENTAS', moneyView(view.totalSales));
-  draft.pair('(-) Gastos', `-${moneyView(view.totalExpenses).slice(1)}`);
+  const resumen: Array<[string, number, number]> = [
+    ['Acc', view.accesoriosCount, view.accesoriosTotal],
+    ['Abono', view.abonosCount, view.abonosTotal],
+    ['Eng', view.enganchesCount, view.enganchesTotal],
+    ['Taller', view.reparacionesCount, view.reparacionesTotal],
+    ['Recarga', view.recargasCount, view.recargasTotal]
+  ];
+  for (const [label, count, total] of resumen) {
+    if (count <= 0 && total <= 0) continue;
+    draft.pair(`${label} (${count})`, moneyView(total));
+  }
+  draft.pair('VENTAS', moneyView(view.totalSales));
+  if (view.totalExpenses > 0) draft.pair('Gastos', `-${moneyView(view.totalExpenses).slice(1)}`);
   draft.pair('UTILIDAD', moneyView(view.netIncome));
   draft.dash();
-  draft.left(`ARTICULOS (${view.items.length})`);
   if (view.items.length === 0) {
     draft.center('Sin ventas');
   } else {
     for (const item of view.items) {
-      draft.pair(`${item.quantity}x ${item.productName}`, moneyView(item.totalPrice));
-      draft.pair(item.ticketFolio, `${item.paymentMethod} ${item.time}`);
-      if (item.imei) draft.left(`IMEI ${item.imei}`);
+      draft.pair(corteItemLeft(item), moneyView(item.totalPrice));
     }
   }
   if (view.expenses.length > 0) {
     draft.dash();
-    draft.left(`GASTOS (${view.expenses.length})`);
     for (const exp of view.expenses) {
       draft.pair(exp.concept, `-${moneyView(exp.amount).slice(1)}`);
     }
   }
   draft.dash();
-  draft.left('PAGOS');
-  draft.pair('Efectivo', moneyView(view.cashSales));
-  draft.pair('Tarjeta', moneyView(view.cardSales));
-  draft.pair('Transferencia', moneyView(view.transferSales));
-  draft.dash();
-  draft.left('CAJON');
-  draft.pair('(+) Fondo', moneyView(view.initialCashFund));
-  draft.pair('(+) Efectivo', `+${moneyView(view.cashSales).slice(1)}`);
-  draft.pair('(-) Gastos', `-${moneyView(view.totalExpenses).slice(1)}`);
-  draft.pair('TOTAL CAJA', moneyView(view.expectedCashInDrawer));
+  if (view.cashSales > 0) draft.pair('Efectivo', moneyView(view.cashSales));
+  if (view.cardSales > 0) draft.pair('Tarjeta', moneyView(view.cardSales));
+  if (view.transferSales > 0) draft.pair('Transferencia', moneyView(view.transferSales));
+  draft.pair('Fondo', moneyView(view.initialCashFund));
+  draft.pair('CAJA', moneyView(view.expectedCashInDrawer));
   if (view.fundLeft !== undefined) {
-    draft.pair('Fondo sig. turno', moneyView(view.fundLeft));
-    if (view.cashWithdrawn !== undefined) draft.pair('A entregar', moneyView(view.cashWithdrawn));
-    if (view.notes) draft.wrapped(`Obs: ${view.notes}`);
+    draft.pair('Fondo sig', moneyView(view.fundLeft));
+    if (view.cashWithdrawn !== undefined) draft.pair('Entregar', moneyView(view.cashWithdrawn));
+    if (view.notes) draft.left(view.notes);
   }
   draft.dash();
   draft.center('FIN DE CORTE');

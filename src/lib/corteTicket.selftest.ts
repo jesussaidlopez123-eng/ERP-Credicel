@@ -51,11 +51,12 @@ const html = buildCorteThermalInnerHtml({
 
 assert.match(html, /\$2100\.00/);
 assert.match(html, /\$1800\.00/);
-assert.match(html, /NAV-0509-003/);
+assert.match(html, /003 1x Mica 15/);
 assert.match(html, /Mica 15/);
-assert.match(html, /IMEI 359158767245502/);
+assert.match(html, /5502/);
+assert.equal(html.includes('IMEI 359158767245502'), false);
 assert.match(html, /Gasolina/);
-assert.match(html, /TOTAL VENTAS<\/span><span class="font-bold">\$2100\.00/);
-assert.match(html, /\(\+\) Fondo<\/span><span class="font-bold">\$1000\.00/);
-assert.match(html, /Fondo sig\. turno<\/span><span class="font-bold">\$1000\.00/);
+assert.match(html, /VENTAS<\/span><span class="shrink-0 font-bold">\$2100\.00/);
+assert.match(html, /Fondo<\/span><span class="shrink-0 font-bold">\$1000\.00/);
+assert.match(html, /Fondo sig<\/span><span class="shrink-0 font-bold">\$1000\.00/);
 console.log('corteTicket self-test ok');

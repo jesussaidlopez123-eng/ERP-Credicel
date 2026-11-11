@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { bytesToBase64, encodeCp850, EscPosBuilder, isCode39Safe, pairLine, wrapLine } from './escpos.ts';
+import { bytesToBase64, clipLine, encodeCp850, EscPosBuilder, isCode39Safe, pairLine, wrapLine } from './escpos.ts';
 import {
   buildCorteTicketEscPos,
   buildCorteTicketPlainText,
@@ -20,6 +20,8 @@ assert.deepEqual(wrapLine('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 10), [
   '456789'
 ]);
 assert.equal(pairLine('TOTAL', '$12.00', 16), 'TOTAL     $12.00');
+assert.equal(clipLine('ABCDEFGHIJKLMNOPQRSTUVWXYZ012345', 32).length, 32);
+assert.equal(clipLine('corto', 32), 'corto');
 assert.equal(isCode39Safe('NAV-1910-042'), true);
 assert.equal(isCode39Safe('hola!'), false);
 
@@ -61,15 +63,64 @@ const ticket: SaleTicket = {
   ]
 };
 
+function assertFits58(label: string, text: string): void {
+  for (const line of text.split('\n')) {
+    assert.ok(line.length <= 32, `${label} supera 58mm: "${line}" (${line.length})`);
+  }
+}
+
 const saleText = buildSaleTicketPlainText(ticket, { name: 'Huatabampo' });
 assert.match(saleText, /CREDI CEL/);
 assert.match(saleText, /HUA-1910-007/);
-assert.match(saleText, /CELULAR CONTADO/);
+assert.match(saleText, /1x Moto G/);
 assert.match(saleText, /IMEI 351111111111111/);
 assert.match(saleText, /TOTAL/);
+assert.equal(saleText.includes('CELULAR CONTADO'), false);
+assert.equal(saleText.includes('María'), false);
 assert.ok(!saleText.includes('<div'), 'texto plano, no HTML');
 assert.ok(!saleText.includes('\x1b'), 'el respaldo de texto no lleva ESC binario');
 assert.ok(!/\n{3,}$/.test(saleText), 'sin cola de renglones vacíos que empujen el rollo');
+assertFits58('venta', saleText);
+
+const creditTicket: SaleTicket = {
+  ...ticket,
+  folio: 'HUA-0811-024',
+  total: 172,
+  items: [
+    {
+      cartItemId: 'c2',
+      quantity: 1,
+      unitPrice: 172,
+      totalPrice: 172,
+      product: {
+        id: 'p2',
+        code: 'CEL-2',
+        name: 'Samsung Galaxy A07 64GB Negro Liberado',
+        category: 'equipo_credito',
+        price: 172,
+        stock: 1
+      },
+      metadata: {
+        saleType: 'credito',
+        financingPlatform: 'PayJoy',
+        deviceModel: 'Samsung Galaxy A07 64GB Negro Liberado',
+        imei: '359082763046658',
+        clientName: 'Juan Perez Lopez',
+        clientPhone: '6441234567',
+        fullPrice: 3900,
+        downPayment: 172,
+        remainingBalance: 3728
+      }
+    }
+  ]
+};
+const creditText = buildSaleTicketPlainText(creditTicket, { name: 'Huatabampo' });
+assert.match(creditText, /PayJoy/);
+assert.match(creditText, /Saldo \$3728\.00/);
+assert.match(creditText, /IMEI 359082763046658/);
+assert.equal(creditText.includes('Juan Perez Lopez'), false);
+assert.equal(creditText.includes('6441234567'), false);
+assertFits58('enganche', creditText);
 
 const saleBytes = buildSaleTicketEscPos(ticket, { name: 'Huatabampo' });
 const saleList = Array.from(saleBytes);
@@ -102,8 +153,10 @@ const expense: Expense = {
   operatorName: 'Teresa',
   branchId: 'b-matriz'
 };
-assert.match(buildExpenseTicketPlainText(expense, { name: 'Matriz' }), /VALE DE SALIDA/);
-assert.match(buildExpenseTicketPlainText(expense, { name: 'Matriz' }), /Pasajes Navojoa/);
+const expenseText = buildExpenseTicketPlainText(expense, { name: 'Matriz' });
+assert.match(expenseText, /VALE DE SALIDA/);
+assert.match(expenseText, /Pasajes Navojoa/);
+assertFits58('gasto', expenseText);
 const expBytes = buildExpenseTicketEscPos(expense, { name: 'Matriz' });
 assert.ok(expBytes.length > 20);
 
@@ -141,7 +194,10 @@ const corteText = buildCorteTicketPlainText(corte);
 assert.match(corteText, /CORTE DE CAJA/);
 assert.match(corteText, /FIN DE CORTE/);
 assert.match(corteText, /Mica/);
-assert.match(corteText, /IMEI 359158767245502/);
+assert.match(corteText, /5502/);
+assert.equal(corteText.includes('IMEI 359158767245502'), false);
+assert.equal(corteText.includes('Abono (0)'), false);
+assertFits58('corte', corteText);
 assert.ok(buildCorteTicketEscPos(corte).length > 20);
 
 const rawbt = buildRawBtTextUrl(saleText);
