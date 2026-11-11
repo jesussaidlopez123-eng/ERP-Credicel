@@ -64,12 +64,20 @@ export default function TicketReceiptModal({
         return;
       }
 
-      if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      if (e.key === 'p' || e.key === 'P' || e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        void handlePrint();
+        return;
+      }
+      if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
-      } else if (e.key === 'p' || e.key === 'P' || e.key === 'r' || e.key === 'R') {
+        return;
+      }
+      // En tablet Enter/Espacio no debe cerrar sin imprimir.
+      if (!isAndroidPrintHost() && (e.key === 'Enter' || e.key === ' ')) {
         e.preventDefault();
-        handlePrint();
+        onClose();
       }
     };
 
@@ -252,7 +260,7 @@ export default function TicketReceiptModal({
                     ? '✓ Enviado a la térmica (58mm)'
                     : '✓ Impreso (58mm)'
                   : isAndroidPrintHost()
-                    ? 'Toca Imprimir (texto)'
+                    ? 'Toca Imprimir en térmica'
                     : isRestrictedPrintHost()
                       ? 'Toca Imprimir'
                       : autoPrintEnabled
@@ -470,39 +478,61 @@ export default function TicketReceiptModal({
         <div className="p-3 bg-slate-900 text-white flex flex-col gap-2 shrink-0 no-print border-t border-slate-800">
           {isAndroidPrintHost() ? (
             <p className="text-[10px] text-slate-300 leading-snug">
-              Android manda el ticket en <strong className="text-white">letra grande</strong> a RawBT y corta al final. Si el rollo sale vacío, usa “como foto”.
+              En la tablet hay que tocar <strong className="text-white">Imprimir en térmica</strong>. Chrome abre RawBT (debe estar instalada y la ticketera emparejada). Si el rollo sale vacío, use “como foto”.
             </p>
           ) : null}
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => void handlePrint()}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
-              title="Mandar este ticket a la térmica (Atajo: P o R)"
-            >
-              <Printer className="w-3.5 h-3.5 text-amber-400" />
-              <span>{isAndroidPrintHost() ? 'Imprimir ticket' : 'Reimprimir'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNextSale(false)}
-              className="flex items-center justify-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer"
-              title="Continuar con la siguiente venta (Atajo: Enter o Espacio)"
-            >
-              <span>Siguiente Venta</span>
-              <ArrowRight className="w-3.5 h-3.5 text-white" />
-            </button>
-          </div>
           {isAndroidPrintHost() ? (
-            <button
-              type="button"
-              onClick={() => void handlePrint(true)}
-              className="self-start text-[10px] text-slate-400 hover:text-slate-200 underline underline-offset-2 cursor-pointer"
-            >
-              Imprimir como foto (sistema)
-            </button>
-          ) : null}
+            <>
+              <button
+                type="button"
+                onClick={() => void handlePrint()}
+                className="w-full flex items-center justify-center gap-1.5 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-black rounded-xl shadow-md transition-all cursor-pointer"
+                title="Mandar este ticket a RawBT y a la térmica"
+              >
+                <Printer className="w-4 h-4 text-white" />
+                <span>Imprimir en térmica</span>
+              </button>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handlePrint(true)}
+                  className="text-[10px] text-slate-400 hover:text-slate-200 underline underline-offset-2 cursor-pointer"
+                >
+                  Imprimir como foto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNextSale(false)}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 cursor-pointer"
+                  title="Cerrar sin imprimir"
+                >
+                  <span>Siguiente venta</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => void handlePrint()}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700 text-xs font-black rounded-xl shadow-xs transition-all cursor-pointer"
+                title="Mandar este ticket a la térmica (Atajo: P o R)"
+              >
+                <Printer className="w-3.5 h-3.5 text-amber-400" />
+                <span>Reimprimir</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNextSale(false)}
+                className="flex items-center justify-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md transition-all cursor-pointer"
+                title="Continuar con la siguiente venta (Atajo: Enter o Espacio)"
+              >
+                <span>Siguiente Venta</span>
+                <ArrowRight className="w-3.5 h-3.5 text-white" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

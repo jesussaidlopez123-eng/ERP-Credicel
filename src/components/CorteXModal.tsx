@@ -922,7 +922,7 @@ export default function CorteXModal({
                 title="Imprimir Corte X en Ticket Térmico 58mm (Atajo: P)"
               >
                 <Printer className="w-4 h-4 text-cyan-200" />
-                <span>{isAndroidPrintHost() ? 'Imprimir ticket (58mm)' : 'Imprimir Ticket (58mm)'}</span>
+                <span>{isAndroidPrintHost() ? 'Imprimir en térmica' : 'Imprimir Ticket (58mm)'}</span>
               </button>
 
               <button
@@ -1505,8 +1505,8 @@ export default function CorteXModal({
               <span>
                 {isAndroidPrintHost()
                   ? isHistoric
-                    ? 'Reimprimir ticket (58mm)'
-                    : 'Imprimir ticket (58mm)'
+                    ? 'Reimprimir en térmica'
+                    : 'Imprimir en térmica'
                   : isHistoric
                     ? 'Reimprimir Ticket (58mm)'
                     : 'Imprimir Ticket (58mm)'}

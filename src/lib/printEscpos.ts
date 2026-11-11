@@ -2,6 +2,7 @@ import { bytesToBase64, utf8ToBase64 } from './escpos';
 import { isAndroidPrintHost, isRestrictedPrintHost } from './printWindow';
 
 const RAWBT_PACKAGE = 'ru.a402d.rawbtprinter';
+const INTENT_TAIL = `#Intent;scheme=rawbt;package=${RAWBT_PACKAGE};end;`;
 
 export type ThermalPrintChannel = 'rawbt' | 'image';
 
@@ -21,7 +22,7 @@ export function buildRawBtPlainDataUrl(text: string): string {
 }
 
 export function buildRawBtIntentUrl(text: string): string {
-  return `intent:${encodeURIComponent(String(text || ''))}#Intent;scheme=rawbt;package=${RAWBT_PACKAGE};end`;
+  return `intent:${encodeURIComponent(String(text || ''))}${INTENT_TAIL}`;
 }
 
 /** RawBT recibe bytes ESC/POS; no rasteriza una hoja en blanco. */
@@ -33,12 +34,25 @@ export function buildRawBtEscPosDataUrl(bytes: Uint8Array): string {
   return `rawbt:data:application/vnd.escpos;base64,${bytesToBase64(bytes)}`;
 }
 
-function openHref(url: string): boolean {
-  if (typeof document === 'undefined') return false;
-  if (!url || url.length > 70000) return false;
+/** Chrome en tablet no abre rawbt: solo; hay que usar el esquema intent. */
+export function buildRawBtEscPosIntentUrl(bytes: Uint8Array): string {
+  return `intent:base64,${bytesToBase64(bytes)}${INTENT_TAIL}`;
+}
+
+function launchRawBtUrl(url: string): boolean {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+  if (!url || url.length > 500000) return false;
+  try {
+    if (url.startsWith('intent:') || url.startsWith('rawbt:')) {
+      window.location.href = url;
+      return true;
+    }
+  } catch {
+    /* sigue con <a> */
+  }
   const a = document.createElement('a');
   a.href = url;
-  a.rel = 'noopener';
+  a.target = '_self';
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
@@ -48,16 +62,18 @@ function openHref(url: string): boolean {
 
 export function openRawBtEscPos(bytes: Uint8Array): boolean {
   if (!bytes?.length) return false;
-  if (openHref(buildRawBtEscPosUrl(bytes))) return true;
-  return openHref(buildRawBtEscPosDataUrl(bytes));
+  const intent = buildRawBtEscPosIntentUrl(bytes);
+  if (intent.length <= 180000 && launchRawBtUrl(intent)) return true;
+  if (launchRawBtUrl(buildRawBtEscPosUrl(bytes))) return true;
+  return launchRawBtUrl(buildRawBtEscPosDataUrl(bytes));
 }
 
 export function openRawBtText(text: string): boolean {
   const body = String(text || '');
   if (!body.trim()) return false;
-  if (openHref(buildRawBtTextUrl(body))) return true;
-  if (openHref(buildRawBtPlainDataUrl(body))) return true;
-  return openHref(buildRawBtIntentUrl(body));
+  if (launchRawBtUrl(buildRawBtIntentUrl(body))) return true;
+  if (launchRawBtUrl(buildRawBtTextUrl(body))) return true;
+  return launchRawBtUrl(buildRawBtPlainDataUrl(body));
 }
 
 export async function printThermalTicket(
@@ -69,7 +85,7 @@ export async function printThermalTicket(
 
   if (prefersEscPosText()) {
     if (escPos && escPos.length && openRawBtEscPos(escPos)) return 'rawbt';
-    if (!escPos && openRawBtText(plainText)) return 'rawbt';
+    if (openRawBtText(plainText)) return 'rawbt';
   }
 
   imageFallback?.();

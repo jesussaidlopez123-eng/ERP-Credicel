@@ -8,7 +8,12 @@ import {
   buildSaleTicketEscPos,
   buildSaleTicketPlainText
 } from './escposTickets.ts';
-import { buildRawBtEscPosUrl, buildRawBtTextUrl, prefersEscPosText } from './printEscpos.ts';
+import {
+  buildRawBtEscPosIntentUrl,
+  buildRawBtEscPosUrl,
+  buildRawBtTextUrl,
+  prefersEscPosText
+} from './printEscpos.ts';
 import { isAndroidPrintHost } from './printWindow.ts';
 import type { Expense, SaleTicket } from '../types.ts';
 import type { CorteTicketView } from './corteTicket.ts';
@@ -95,6 +100,11 @@ assert.ok(saleList[feedIdx + 2] <= 2, 'no alimenta un pedazo enorme de papel');
 const escUrl = buildRawBtEscPosUrl(saleBytes);
 assert.match(escUrl, /^rawbt:base64,/);
 assert.ok(!escUrl.includes('%1B'), 'bytes en base64, no URL-encoded');
+const intentUrl = buildRawBtEscPosIntentUrl(saleBytes);
+assert.match(intentUrl, /^intent:base64,/);
+assert.match(intentUrl, /scheme=rawbt/);
+assert.match(intentUrl, /package=ru\.a402d\.rawbtprinter/);
+assert.ok(intentUrl.endsWith('end;') || intentUrl.includes(';end;'));
 
 const expense: Expense = {
   id: 'EXP-ABC-1',

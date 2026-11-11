@@ -32,6 +32,9 @@ import {
   resolvedModuleIds,
   sanitizeModuleIds
 } from '../lib/roles';
+import { TicketDraft } from '../lib/escpos';
+import { printThermalTicket } from '../lib/printEscpos';
+import { isAndroidPrintHost } from '../lib/printWindow';
 
 interface SettingsModuleProps {
   operators: Operator[];
@@ -113,9 +116,21 @@ export default function SettingsModule({
   };
 
   const handleTriggerTestPrint = () => {
-    window.print();
-    setTestPrintFeedback(`Enviando ticket de prueba a ticketera (${printerPaperSize})...`);
-    setTimeout(() => setTestPrintFeedback(null), 4000);
+    const draft = new TicketDraft();
+    draft.center('CREDI CEL');
+    draft.center('PRUEBA TERMICA');
+    draft.center(printerPaperSize);
+    draft.dash();
+    draft.left('Si sale este texto, RawBT');
+    draft.left('y la ticketera ya estan listos.');
+    draft.dash();
+    setTestPrintFeedback(
+      isAndroidPrintHost()
+        ? `Enviando prueba a RawBT (${printerPaperSize})...`
+        : `Enviando ticket de prueba a ticketera (${printerPaperSize})...`
+    );
+    void printThermalTicket(draft.toPlainText(), () => window.print(), draft.toEscPos());
+    setTimeout(() => setTestPrintFeedback(null), 5000);
   };
 
   const canManageUsers = normalizeRole(currentOperator.role) === 'admin';
@@ -702,8 +717,13 @@ export default function SettingsModule({
             </div>
             
             <p className="text-xs text-blue-900 leading-relaxed">
-              Para que los tickets salgan <strong>físicamente de su impresora POS-5890A-L en 0.1 segundos sin mostrar ninguna ventana emergente</strong> de confirmación en el navegador:
+              En <strong>Windows</strong>, para que los tickets salgan de la POS-5890A-L sin ventana de confirmación:
             </p>
+            {isAndroidPrintHost() ? (
+              <p className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+                En la <strong>tablet de Matriz</strong> no use este modo Windows. Instale <strong>RawBT</strong>, empareje la térmica por Bluetooth y, al cobrar, toque <strong>Imprimir en térmica</strong>. Chrome debe preguntar si abre RawBT: elija siempre sí.
+              </p>
+            ) : null}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-[11px]">
               <div className="bg-white/80 p-2.5 rounded-xl border border-blue-200/70">
