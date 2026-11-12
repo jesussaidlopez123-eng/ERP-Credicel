@@ -7,6 +7,7 @@ import {
 import {
   addImeisToProduct,
   canonicalImei,
+  collectProductImeis,
   findImeiOnCatalog,
   findSoldImeiTicket,
   imeiDigits,
@@ -557,9 +558,11 @@ export function applyEquipmentLote(params: {
   for (const [id, imeis] of imeisById) {
     const prod = params.products.find((p) => p.id === id);
     if (!prod) continue;
-    const next = addImeisToProduct(prod, dest, imeis);
+    const fresh = imeis.filter((im) => !listHasImei(collectProductImeis(prod), im));
+    if (fresh.length === 0) continue;
+    const next = addImeisToProduct(prod, dest, fresh);
     updated.push(next);
-    pieceCount += imeis.length;
+    pieceCount += fresh.length;
     movements.push(
       movementBase({
         product: next,
@@ -567,10 +570,10 @@ export function applyEquipmentLote(params: {
         destBranchName,
         operatorName: params.operatorName,
         operatorId: params.operatorId,
-        quantity: imeis.length,
+        quantity: fresh.length,
         type: 'ingreso',
-        details: `Paquete de ingreso: ${imeis.length} equipo(s) de ${next.name} con IMEI en ${destBranchName}`,
-        imeis
+        details: `Paquete de ingreso: ${fresh.length} equipo(s) de ${next.name} con IMEI en ${destBranchName}`,
+        imeis: fresh
       })
     );
   }

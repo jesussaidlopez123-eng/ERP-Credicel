@@ -3,6 +3,8 @@ import type { Product, SaleTicket } from '../types';
 import {
   addImeisToProduct,
   applyEquipmentIntegrity,
+  findImeiKardexIngreso,
+  imeisNotOnProduct,
   auditEquipmentInventory,
   collectSoldImeis,
   findImeiOnCatalog,
@@ -101,6 +103,14 @@ assert.deepEqual(imeisAtBranch(moved, 'b-matriz'), []);
 
 const added = addImeisToProduct(phone({ stock: 0, imeiList: [] }), 'b-navojoa', ['DDD']);
 assert.deepEqual(imeisAtBranch(added, 'b-navojoa'), ['DDD']);
+assert.deepEqual(imeisNotOnProduct(added, ['DDD', 'EEE']), ['EEE']);
+assert.deepEqual(
+  imeisNotOnProduct(
+    addImeisToProduct(phone({ stock: 0, imeiList: [] }), 'b-navojoa', ['351299123456789']),
+    [']C1351299123456789']
+  ),
+  []
+);
 
 const scannedIn = addImeisToProduct(
   phone({
@@ -370,5 +380,24 @@ const soldGhost = auditEquipmentInventory(
 assert.ok(soldGhost.soldListed >= 1);
 assert.equal(soldGhost.imeisSealed, false);
 assert.equal(soldGhost.issues.some((i) => i.origin === 'sistema' && i.kind === 'sold_listed'), true);
+
+const firstIngreso = findImeiKardexIngreso(
+  [
+    {
+      id: 'mov-2',
+      type: 'ingreso',
+      timestamp: '2026-11-12T18:14:13.000Z',
+      imeis: ['351577551904545']
+    },
+    {
+      id: 'mov-1',
+      type: 'ingreso',
+      timestamp: '2026-11-11T19:54:13.000Z',
+      imeis: ['351577551904545']
+    }
+  ] as never,
+  '351577551904545'
+);
+assert.equal(firstIngreso?.id, 'mov-1');
 
 console.log('imeiInventory self-test ok');

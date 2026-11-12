@@ -35,8 +35,10 @@ import {
   auditEquipmentInventory,
   collectProductImeis,
   collectSoldImeisFromHistory,
+  findImeiKardexIngreso,
   findImeiOnCatalog,
   findSoldImeiTicket,
+  imeisNotOnProduct,
   imeisAtBranch,
   imeisEqual,
   imeisGroupedByBranch,
@@ -559,10 +561,11 @@ function InventoryModule({
 
     const catalogHit = findImeiOnCatalog(products, clean);
     const soldTicket = findSoldImeiTicket(salesTickets, clean);
+    const priorIngreso = findImeiKardexIngreso(inventoryMovements, clean);
 
     const conflictingProduct = catalogHit?.product;
     const conflictingBranchId = catalogHit?.branchId;
-    const isDuplicateInSystem = Boolean(catalogHit || soldTicket);
+    const isDuplicateInSystem = Boolean(catalogHit || soldTicket || priorIngreso);
     const branchName = conflictingBranchId
       ? getBranchDisplayName(conflictingBranchId)
       : soldTicket
@@ -834,7 +837,15 @@ function InventoryModule({
     if (isExisting && selectedProdId) {
       const prod = products.find((p) => p.id === selectedProdId);
       if (!prod) return;
-      const updated = addImeisToProduct(prod, destBranch, finalImeis);
+      const fresh = imeisNotOnProduct(prod, finalImeis);
+      if (fresh.length === 0) {
+        setIngresoConfirm(null);
+        setIsImeiCaptureModalOpen(false);
+        setPendingEquipmentData(null);
+        setImeiInputs([]);
+        return;
+      }
+      const updated = addImeisToProduct(prod, destBranch, fresh);
       onRecordMovement?.({
         type: 'ingreso',
         productId: prod.id,
@@ -842,13 +853,13 @@ function InventoryModule({
         productName: prod.name,
         category: prod.category,
         inventoryType: 'equipo',
-        quantity: qty,
+        quantity: fresh.length,
         targetBranchId: destBranch,
         targetBranchName: branchName,
         operatorName: currentOperator?.name || 'Admin',
         operatorId: currentOperator?.id,
-        imeis: finalImeis,
-        details: `Ingreso de ${qty} equipo(s) con captura de IMEIs en ${branchName}`
+        imeis: fresh,
+        details: `Ingreso de ${fresh.length} equipo(s) con captura de IMEIs en ${branchName}`
       });
       onUpdateProduct(updated);
     } else {
@@ -938,7 +949,9 @@ function InventoryModule({
       if (dupCheck.isDuplicateInSystem) {
         const soldNote = dupCheck.soldAlready
           ? `Ya se vendió en el ticket ${dupCheck.conflictingTicketFolio}. No se puede volver a ingresar.`
-          : `Ya está en inventario:\n• Producto: "${dupCheck.conflictingProduct?.name || 'Equipo'}"\n• Ubicación: ${dupCheck.conflictingBranchName || 'Sistema'}`;
+          : dupCheck.conflictingProduct
+            ? `Ya está en inventario:\n• Producto: "${dupCheck.conflictingProduct?.name || 'Equipo'}"\n• Ubicación: ${dupCheck.conflictingBranchName || 'Sistema'}`
+            : 'Ya se capturó este IMEI. Un reintento no da de alta otro celular.';
         alert(
           `❌ IMEI YA EXISTE EN EL SISTEMA:\n\nEl IMEI "${im}" no se puede registrar otra vez.\n${soldNote}\n\nLos IMEIs son identificadores únicos.`
         );

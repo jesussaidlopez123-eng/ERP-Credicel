@@ -376,6 +376,34 @@ export function addImeisToProduct(product: Product, branchId: string, rawImeis: 
   return rebuildEquipmentFromMap(product, map, extras);
 }
 
+/** IMEI que todavía no están en el modelo: un reintento no cuenta como otro celular. */
+export function imeisNotOnProduct(product: Product, rawImeis: string[]): string[] {
+  const listed = collectProductImeis(product);
+  const out: string[] = [];
+  for (const raw of rawImeis) {
+    const n = imeiForStorage(raw);
+    if (!n) continue;
+    if (listHasImei(listed, n) || listHasImei(out, n)) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+export function findImeiKardexIngreso(
+  movements: InventoryMovement[] | undefined,
+  raw: string
+): InventoryMovement | undefined {
+  const needle = canonicalImei(raw) || normalizeImei(raw);
+  if (!needle) return undefined;
+  const hits = (movements || []).filter(
+    (m) =>
+      (m.type === 'ingreso' || m.type === 'creacion') &&
+      (m.imeis || []).some((im) => imeisEqual(im, needle))
+  );
+  hits.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+  return hits[0];
+}
+
 export function removeImeisFromProduct(product: Product, rawImeis: string[]): Product {
   const needles = rawImeis.map(normalizeImei).filter(Boolean);
   if (needles.length === 0) return sanitizeEquipmentProduct(product);
