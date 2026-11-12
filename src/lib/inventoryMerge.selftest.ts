@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import type { Product } from '../types';
 import { accessoryStockAt } from './accessoryInventory.ts';
-import { imeisAtBranch, unmappedImeis } from './imeiInventory.ts';
-import { applyInventoryWrite, snapshotInventory } from './inventoryMerge.ts';
+import { addImeisToProduct, collectProductImeis, imeisAtBranch, unmappedImeis } from './imeiInventory.ts';
+import {
+  applyInventoryWrite,
+  applyLiveCatalog,
+  mergePendingInventoryWrites,
+  snapshotInventory
+} from './inventoryMerge.ts';
 
 const mica = (over: Partial<Product> = {}): Product => ({
   id: 'prod-mica',
@@ -231,7 +236,7 @@ const injectOrphan = applyInventoryWrite(
 );
 assert.deepEqual(imeisAtBranch(injectOrphan, 'b-navojoa'), ['AAA']);
 assert.deepEqual(imeisAtBranch(injectOrphan, 'b-huatabampo'), ['BBB']);
-assert.equal(unmappedImeis(injectOrphan).includes('NEWORPHAN'), false);
+assert.ok(unmappedImeis(injectOrphan).includes('NEWORPHAN'));
 
 const ingresoWithLoose = applyInventoryWrite(
   phone({
@@ -309,5 +314,43 @@ const keepMatrizWhileHuaIngreso = applyInventoryWrite(
 );
 assert.deepEqual(imeisAtBranch(keepMatrizWhileHuaIngreso, 'b-matriz').sort(), ['MTZ1', 'MTZ2']);
 assert.deepEqual(imeisAtBranch(keepMatrizWhileHuaIngreso, 'b-huatabampo').sort(), ['HUA1', 'HUA2']);
+
+const emptyServerPhone = phone({
+  stock: 0,
+  imeiList: [],
+  branchImeiMap: { 'b-matriz': [], 'b-navojoa': [], 'b-huatabampo': [] }
+});
+const ingresoMatriz = phone({
+  stock: 1,
+  imeiList: ['351577551904545'],
+  branchImeiMap: { 'b-matriz': ['351577551904545'], 'b-navojoa': [], 'b-huatabampo': [] }
+});
+const mergedNewImei = applyInventoryWrite(emptyServerPhone, ingresoMatriz, snapshotInventory(emptyServerPhone));
+assert.deepEqual(imeisAtBranch(mergedNewImei, 'b-matriz'), ['351577551904545']);
+
+const scannedIngreso = addImeisToProduct(emptyServerPhone, 'b-matriz', ['351577551904545']);
+const mergedScanned = applyInventoryWrite(
+  emptyServerPhone,
+  scannedIngreso,
+  snapshotInventory(emptyServerPhone)
+);
+assert.deepEqual(
+  imeisAtBranch(mergedScanned, 'b-matriz'),
+  ['351577551904545'],
+  'El alta con addImeisToProduct no debe perder el IMEI al mezclar con la nube vacía'
+);
+
+const liveKeepsQueuedImei = applyLiveCatalog({
+  cloud: [emptyServerPhone],
+  pendingWrites: [{ incoming: ingresoMatriz, base: snapshotInventory(emptyServerPhone) }]
+});
+assert.deepEqual(collectProductImeis(liveKeepsQueuedImei[0]), ['351577551904545']);
+
+const mergedPending = mergePendingInventoryWrites(
+  [{ incoming: emptyServerPhone, base: null }],
+  [{ incoming: ingresoMatriz, base: snapshotInventory(emptyServerPhone) }]
+);
+assert.equal(mergedPending.length, 1);
+assert.deepEqual(collectProductImeis(mergedPending[0].incoming), ['351577551904545']);
 
 console.log('inventoryMerge self-test ok');

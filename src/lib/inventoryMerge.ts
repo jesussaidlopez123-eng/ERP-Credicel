@@ -29,6 +29,7 @@ export type InventorySnapshot = {
   branchImeiMap?: Record<string, string[]>;
   imeiList?: string[];
   imeis?: string[];
+  imei?: string;
   stock?: number;
 };
 
@@ -40,17 +41,21 @@ export function snapshotInventory(product: Product): InventorySnapshot {
       : undefined,
     imeiList: product.imeiList ? [...product.imeiList] : undefined,
     imeis: product.imeis ? [...product.imeis] : undefined,
+    imei: product.imei,
     stock: product.stock
   };
 }
 
 function asProductForStock(incoming: Product, snap: InventorySnapshot): Product {
+  const imeiList = snap.imeiList;
+  const imeis = snap.imeis;
   return {
     ...incoming,
     branchStock: snap.branchStock,
     branchImeiMap: snap.branchImeiMap,
-    imeiList: snap.imeiList,
-    imeis: snap.imeis,
+    imeiList,
+    imeis,
+    imei: snap.imei || imeiList?.[0] || imeis?.[0] || '',
     stock: snap.stock ?? incoming.stock
   };
 }
@@ -232,10 +237,13 @@ function applyEquipmentWrite(server: Product, incoming: Product, base?: Inventor
     for (const im of newOrphans) place(im, destForNew);
   }
 
-  // Huérfanos viejos de la nube se conservan. Un guardado nuevo sin sucursal ya no se pega suelto.
+  // Huérfanos viejos de la nube se conservan. Un IMEI recién ingresado que
+  // todavía no tiene sucursal en el mapa no se tira: queda listado para asignarlo.
   const extras = [
     ...serverOrphans.filter((im) => !listHasImei(placed, im)),
-    ...incomingOrphans.filter((im) => !listHasImei(placed, im) && setHasImei(serverAll, im))
+    ...incomingOrphans.filter(
+      (im) => !listHasImei(placed, im) && (setHasImei(serverAll, im) || setHasImei(new Set(added), im))
+    )
   ];
 
   return sanitizeEquipmentProduct({
@@ -284,6 +292,21 @@ export function applyPendingInventoryWrites(
     byId.set(incoming.id, merged);
   }
   return order.map((id) => byId.get(id)).filter((p): p is Product => Boolean(p));
+}
+
+/** Cola de IndexedDB + el alta que este equipo acaba de capturar y aún no confirma. */
+export function mergePendingInventoryWrites(
+  fromOutbox: PendingInventoryWrite[],
+  local: PendingInventoryWrite[]
+): PendingInventoryWrite[] {
+  const byId = new Map<string, PendingInventoryWrite>();
+  for (const write of fromOutbox) {
+    if (write?.incoming?.id) byId.set(write.incoming.id, write);
+  }
+  for (const write of local) {
+    if (write?.incoming?.id) byId.set(write.incoming.id, write);
+  }
+  return Array.from(byId.values());
 }
 
 export function pendingProductWritesFromOutboxPayload(payload: unknown): PendingInventoryWrite[] {

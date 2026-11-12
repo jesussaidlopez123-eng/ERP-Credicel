@@ -10,7 +10,6 @@ import { canOpenModule, defaultModuleForOperator, normalizeRole } from '../lib/r
 import { Bell, CalendarDays, Menu, Megaphone } from 'lucide-react';
 import {
   subscribeToProducts,
-  saveProductToFirestore,
   deleteProductFromFirestore,
   subscribeToSales,
   subscribeToExpenses,
@@ -70,8 +69,10 @@ import { accessoryStockAt, addAccessoryStock, removeAccessoryStock } from '../li
 import {
   applyInventoryWrite,
   applyLiveCatalog,
+  mergePendingInventoryWrites,
   pendingProductWritesFromOutboxPayload,
   snapshotInventory,
+  type InventorySnapshot,
   type PendingInventoryWrite
 } from '../lib/inventoryMerge';
 import { addCashDays, safeDateIsoKey, safeFormatDate, safeFormatTime, todayCashDateKey } from '../lib/dateUtils';
@@ -315,6 +316,35 @@ export default function Dashboard({
   const recentlySoldImeisRef = useRef(new Set<string>());
   const cloudProductsRef = useRef<Product[]>([]);
   const pendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
+  const outboxPendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
+  const localPendingInventoryRef = useRef<PendingInventoryWrite[]>([]);
+
+  const syncPendingInventory = (fromOutbox?: PendingInventoryWrite[]) => {
+    if (fromOutbox) outboxPendingInventoryRef.current = fromOutbox;
+    pendingInventoryRef.current = mergePendingInventoryWrites(
+      outboxPendingInventoryRef.current,
+      localPendingInventoryRef.current
+    );
+  };
+
+  const rememberPendingProductWrite = (incoming: Product, base?: Product | InventorySnapshot | null) => {
+    if (!incoming?.id) return;
+    localPendingInventoryRef.current = [
+      ...localPendingInventoryRef.current.filter((write) => write.incoming.id !== incoming.id),
+      { incoming, base: base ? snapshotInventory(base as Product) : null }
+    ];
+    syncPendingInventory();
+  };
+
+  const queueProductWrite = (next: Product, base?: Product | null) => {
+    rememberPendingProductWrite(next, base);
+    commitProduct(next, base).catch((err) => {
+      console.error('Error encolando el cambio de producto:', err);
+      setSessionError(
+        'El cambio de inventario quedó en este equipo, pero no se pudo enviar a la nube. Revise el chip de sincronización e intente de nuevo.'
+      );
+    });
+  };
   salesTicketsRef.current = salesTickets;
   expensesRef.current = expenses;
   cortesRef.current = cortesX;
@@ -847,8 +877,8 @@ export default function Dashboard({
     const refreshPendingInventory = () => {
       void listPendingOutbox()
         .then((rows) => {
-          pendingInventoryRef.current = rows.flatMap((row) =>
-            pendingProductWritesFromOutboxPayload(row.payload)
+          syncPendingInventory(
+            rows.flatMap((row) => pendingProductWritesFromOutboxPayload(row.payload))
           );
           if (cloudProductsRef.current.length > 0) {
             publishCatalogFromCloud(cloudProductsRef.current);
@@ -1473,6 +1503,7 @@ export default function Dashboard({
         );
       }
       productWrites.push({ product: updatedProduct, base: p });
+      rememberPendingProductWrite(updatedProduct, p);
       return updatedProduct;
     });
 
@@ -2058,7 +2089,7 @@ export default function Dashboard({
           });
       rememberProduct(merged);
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
-      commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+      queueProductWrite(merged, existing);
       return;
     }
     if (existing && !isEquipmentProduct(existing) && !isEquipmentProduct(newProd)) {
@@ -2080,7 +2111,7 @@ export default function Dashboard({
       );
       rememberProduct(merged);
       setProducts((prev) => prev.map((p) => (p.id === existing.id ? merged : p)));
-      commitProduct(merged, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+      queueProductWrite(merged, existing);
       return;
     }
     const dest =
@@ -2101,7 +2132,7 @@ export default function Dashboard({
       }
       return [...prev, sealed];
     });
-    commitProduct(sealed, existing).catch((err) => console.error('Error encolando el producto nuevo:', err));
+    queueProductWrite(sealed, existing);
   };
 
   const handleUpdateProduct = (updatedProd: Product) => {
@@ -2118,7 +2149,7 @@ export default function Dashboard({
     }
     rememberProduct(next);
     setProducts((prev) => prev.map((p) => (p.id === next.id ? next : p)));
-    commitProduct(next, base).catch((err) => console.error('Error encolando el cambio de producto:', err));
+    queueProductWrite(next, base);
   };
 
   const handleReceivePurchase = async (draft: PurchaseDraft) => {

@@ -100,6 +100,16 @@ revisar(
   'Huatabampo no debía vender un equipo que está en Navojoa'
 );
 
+console.log('── 09:05 La nube todavía no tiene el IMEI: la cola no lo deja borrar');
+const liveNewImei = applyLiveCatalog({
+  cloud: [phone()],
+  pendingWrites: [{ incoming: catalog, base: snapshotInventory(phone()) }]
+});
+revisar(
+  imeisAtBranch(liveNewImei[0], 'b-navojoa').length === 1,
+  'Un snapshot sin el IMEI nuevo no debía quitarlo si la cola de envío lo tiene'
+);
+
 console.log('── 11:00 Traspaso a Huatabampo escaneando con prefijo de lector');
 catalog = moveImeisOnProduct(catalog, 'b-navojoa', 'b-huatabampo', [IMEI_SCAN]);
 revisar(catalog.stock === 1, `Traspaso con lector no debe inflar stock (quedó ${catalog.stock})`);

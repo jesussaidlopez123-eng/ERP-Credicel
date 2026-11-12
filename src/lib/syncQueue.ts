@@ -24,7 +24,8 @@ import {
   SALES_COLLECTION,
   VENTAS_COLLECTION,
   cleanForFirestore,
-  closeOpenShiftForBranch
+  closeOpenShiftForBranch,
+  saveProductToFirestore
 } from './firebase';
 
 const INVENTORY_MOVEMENTS_COLLECTION = 'inventoryMovements';
@@ -306,10 +307,16 @@ export async function localRepairs(): Promise<RepairRecord[]> {
 // Inventario y catálogo
 // ----------------------------------------------------
 
+export function catalogProductGroupKey(productId: string): string {
+  return `catalogo-${productId}`;
+}
+
 export async function commitProduct(product: Product, base?: Product | InventorySnapshot | null): Promise<void> {
+  const inventoryBase = base ? snapshotInventory(base as Product) : undefined;
   await enqueue({
     kind: 'docWrite',
-    groupKey: 'catalogo',
+    groupKey: catalogProductGroupKey(product.id),
+    id: `product-${product.id}`,
     label: `Inventario ${product.name || product.id}`,
     payload: {
       writes: [
@@ -317,10 +324,15 @@ export async function commitProduct(product: Product, base?: Product | Inventory
           collection: PRODUCTS_COLLECTION,
           id: product.id,
           data: cleanForFirestore(product as unknown as Record<string, unknown>),
-          inventoryBase: base ? snapshotInventory(base as Product) : undefined
+          inventoryBase
         }
       ]
     }
+  });
+  // El kardex ya escribe directo a la nube. El catálogo no puede esperar
+  // detrás de otro producto atorado en la cola compartida.
+  void saveProductToFirestore(product, inventoryBase || null).catch((err) => {
+    console.warn('[Inventario] La nube no confirmó el producto; queda en cola:', err);
   });
   kickDrain();
 }
